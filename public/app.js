@@ -11,6 +11,16 @@ const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const serverAddress = "play.blockhaven.cn";
 
+const copyErrorToClipboard = async (message) => {
+  if (!message || !navigator.clipboard?.writeText) return false;
+  try {
+    await navigator.clipboard.writeText(message);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const api = async (path, options = {}) => {
   const response = await fetch(`/api${path}`, {
     headers: { "Content-Type": "application/json", ...(options.headers || {}) },
@@ -25,7 +35,12 @@ const api = async (path, options = {}) => {
     payload = { error: raw.trim() };
   }
   if (!response.ok) {
-    throw new Error(payload.error || `请求失败 (${response.status})`);
+    const message = payload.error || `请求失败 (${response.status})`;
+    const copied = await copyErrorToClipboard(message);
+    const error = new Error(copied ? `${message}（真实错误已自动复制）` : message);
+    error.copied = copied;
+    error.rawMessage = message;
+    throw error;
   }
   return payload;
 };
