@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>玩家论坛 | LIDO_PANG SURVIVAL</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body data-page="forum">
+    <header class="site-header">
+      <a class="brand" href="/index.html">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span>LIDO_PANG SURVIVAL</span>
+      </a>
+      <nav class="top-nav" aria-label="主导航">
+        <a href="/index.html">主页</a>
+        <a href="/index.html#announcements">公告</a>
+        <a href="/forum.html" class="active">玩家论坛</a>
+        <a href="/admin.html" data-admin-link hidden>管理后台</a>
+      </nav>
+      <div class="auth-actions" id="authActions"></div>
+    </header>
+
+    <main>
+      <section class="page-hero forum-hero">
+        <h1>玩家论坛</h1>
+        <p>注册用户可以自由发帖，分享攻略、建筑展示、活动记录和服务器日常。</p>
+      </section>
+
+      <section class="forum-compose">
+        <aside class="profile-card" id="profileCard"></aside>
+        <form class="editor-card" id="forumPostForm">
+          <div class="section-title compact">
+            <h2>发表帖子</h2>
+            <p>登录后即可发布，管理员可在后台编辑或删除内容。</p>
+          </div>
+          <div class="form-row">
+            <label for="forumTitle">标题</label>
+            <input id="forumTitle" maxlength="80" required placeholder="例如：我的新基地完工了" />
+          </div>
+          <div class="toolbar" aria-label="编辑工具栏">
+            <button type="button" data-command="bold" title="加粗"><strong>B</strong></button>
+            <button type="button" data-command="italic" title="斜体"><em>I</em></button>
+            <button type="button" data-format="h2" title="标题">H2</button>
+            <button type="button" data-command="insertUnorderedList" title="无序列表">•</button>
+            <button type="button" data-command="insertOrderedList" title="有序列表">1.</button>
+            <button type="button" id="linkButton" title="插入链接">链接</button>
+            <button type="button" id="bilibiliButton" title="插入 Bilibili 视频">Bilibili</button>
+          </div>
+          <div class="rich-editor" id="editor" contenteditable="true" role="textbox" aria-label="帖子正文"></div>
+          <button class="button primary submit-button" type="submit">发布帖子</button>
+        </form>
+      </section>
+
+      <section class="content-grid forum-section">
+        <div class="section-title">
+          <h2>最新帖子</h2>
+          <p>来自服务器玩家的讨论和分享。</p>
+        </div>
+        <div class="list forum-list" id="postList"></div>
+      </section>
+    </main>
+
+    <dialog id="authDialog" class="auth-dialog">
+      <button class="dialog-close" type="button" data-close-auth aria-label="关闭">×</button>
+      <h2>账号登录</h2>
+      <form id="authForm">
+        <input id="username" autocomplete="username" placeholder="用户名" required />
+        <input id="password" type="password" autocomplete="current-password" placeholder="密码" required />
+        <div class="split-actions">
+          <button class="button primary" type="submit" data-mode="login">登录</button>
+          <button class="button ghost" type="submit" data-mode="register">注册</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="readerDialog">
+      <button class="dialog-close" type="button" id="closeDialog" aria-label="关闭">×</button>
+      <article id="readerContent"></article>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

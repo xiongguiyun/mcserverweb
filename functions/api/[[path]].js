@@ -1,10 +1,7 @@
 const json = (data, status = 200, headers = {}) =>
   new Response(JSON.stringify(data), {
     status,
-    headers: {
-      "Content-Type": "application/json; charset=utf-8",
-      ...headers,
-    },
+    headers: { "Content-Type": "application/json; charset=utf-8", ...headers },
   });
 
 const getCookie = (request, name) => {
@@ -60,18 +57,28 @@ const readBody = async (request) => {
   }
 };
 
+const publicUser = (user) =>
+  user
+    ? {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+        minecraft_name: user.minecraft_name,
+        minecraft_uuid: user.minecraft_uuid,
+      }
+    : null;
+
 const currentUser = async (env, request) => {
   const token = getCookie(request, "session");
   if (!token) return null;
-  const row = await env.DB.prepare(
-    `SELECT users.id, users.username, users.role
+  return env.DB.prepare(
+    `SELECT users.id, users.username, users.role, users.minecraft_name, users.minecraft_uuid, users.created_at
      FROM sessions
      JOIN users ON users.id = sessions.user_id
      WHERE sessions.token = ? AND sessions.expires_at > datetime('now')`,
   )
     .bind(token)
     .first();
-  return row || null;
 };
 
 const requireUser = async (env, request) => {
@@ -80,26 +87,36 @@ const requireUser = async (env, request) => {
   return user;
 };
 
+const requireAdmin = async (env, request) => {
+  const user = await requireUser(env, request);
+  if (user.role !== "admin") {
+    throw new Response(JSON.stringify({ error: "只有管理员可以执行此操作" }), { status: 403 });
+  }
+  return user;
+};
+
+const ownerUser = async (env) => env.DB.prepare("SELECT id FROM users ORDER BY id ASC LIMIT 1").first();
+
 const listAnnouncements = async (env) => {
   const { results } = await env.DB.prepare(
     `SELECT announcements.id, announcements.title, announcements.content_html, announcements.pinned,
-            announcements.created_at, users.username AS author
+            announcements.views, announcements.created_at, announcements.updated_at, users.username AS author
      FROM announcements
      JOIN users ON users.id = announcements.author_id
      ORDER BY announcements.pinned DESC, announcements.created_at DESC
-     LIMIT 30`,
+     LIMIT 50`,
   ).all();
   return json({ items: results || [] });
 };
 
 const listPosts = async (env) => {
   const { results } = await env.DB.prepare(
-    `SELECT posts.id, posts.title, posts.excerpt, posts.content_html, posts.created_at,
-            users.username AS author
+    `SELECT posts.id, posts.title, posts.excerpt, posts.content_html, posts.views, posts.created_at,
+            posts.updated_at, users.username AS author, users.minecraft_name, users.minecraft_uuid
      FROM posts
      JOIN users ON users.id = posts.author_id
      ORDER BY posts.created_at DESC
-     LIMIT 60`,
+     LIMIT 100`,
   ).all();
   return json({ items: results || [] });
 };
@@ -130,7 +147,9 @@ const login = async (env, request, overrideBody = null) => {
   const body = overrideBody || (await readBody(request));
   const username = String(body.username || "").trim();
   const password = String(body.password || "");
-  const user = await env.DB.prepare("SELECT id, username, password_hash, role FROM users WHERE username = ?")
+  const user = await env.DB.prepare(
+    "SELECT id, username, password_hash, role, minecraft_name, minecraft_uuid FROM users WHERE username = ?",
+  )
     .bind(username)
     .first();
   if (!user || !(await verifyPassword(password, user.password_hash))) {
@@ -143,48 +162,45 @@ const login = async (env, request, overrideBody = null) => {
   )
     .bind(token, user.id)
     .run();
-  return json(
-    { user: { id: user.id, username: user.username, role: user.role } },
-    200,
-    {
-      "Set-Cookie": `session=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=1209600`,
-    },
-  );
+  return json({ user: publicUser(user) }, 200, {
+    "Set-Cookie": `session=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=1209600`,
+  });
 };
 
 const logout = async (env, request) => {
   const token = getCookie(request, "session");
   if (token) await env.DB.prepare("DELETE FROM sessions WHERE token = ?").bind(token).run();
-  return json(
-    { ok: true },
-    200,
-    { "Set-Cookie": "session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0" },
-  );
+  return json({ ok: true }, 200, {
+    "Set-Cookie": "session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0",
+  });
 };
 
-const createAnnouncement = async (env, request) => {
-  const user = await requireUser(env, request);
-  if (user.role !== "admin") return json({ error: "只有管理员可以发布公告" }, 403);
+const contentPayload = async (request) => {
   const body = await readBody(request);
   const title = String(body.title || "").trim().slice(0, 80);
   const contentHtml = sanitizeHtml(body.contentHtml);
-  if (!title || !excerptFromHtml(contentHtml)) return json({ error: "标题和正文都要填写" }, 400);
+  const excerpt = excerptFromHtml(contentHtml);
+  if (!title || !excerpt) {
+    throw new Response(JSON.stringify({ error: "标题和正文都要填写" }), { status: 400 });
+  }
+  return { title, contentHtml, excerpt };
+};
+
+const createAnnouncement = async (env, request) => {
+  const user = await requireAdmin(env, request);
+  const { title, contentHtml } = await contentPayload(request);
   await env.DB.prepare(
     `INSERT INTO announcements (title, content_html, author_id, pinned)
      VALUES (?, ?, ?, ?)`,
   )
-    .bind(title, contentHtml, user.id, body.pinned ? 1 : 0)
+    .bind(title, contentHtml, user.id, 0)
     .run();
   return json({ ok: true }, 201);
 };
 
 const createPost = async (env, request) => {
   const user = await requireUser(env, request);
-  const body = await readBody(request);
-  const title = String(body.title || "").trim().slice(0, 80);
-  const contentHtml = sanitizeHtml(body.contentHtml);
-  const excerpt = excerptFromHtml(contentHtml);
-  if (!title || !excerpt) return json({ error: "标题和正文都要填写" }, 400);
+  const { title, contentHtml, excerpt } = await contentPayload(request);
   await env.DB.prepare(
     `INSERT INTO posts (title, excerpt, content_html, author_id)
      VALUES (?, ?, ?, ?)`,
@@ -194,21 +210,176 @@ const createPost = async (env, request) => {
   return json({ ok: true }, 201);
 };
 
+const updateAnnouncement = async (env, request, id) => {
+  await requireAdmin(env, request);
+  const { title, contentHtml } = await contentPayload(request);
+  await env.DB.prepare("UPDATE announcements SET title = ?, content_html = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+    .bind(title, contentHtml, id)
+    .run();
+  return json({ ok: true });
+};
+
+const updatePost = async (env, request, id) => {
+  const user = await requireUser(env, request);
+  const post = await env.DB.prepare("SELECT author_id FROM posts WHERE id = ?").bind(id).first();
+  if (!post) return json({ error: "帖子不存在" }, 404);
+  if (user.role !== "admin" && post.author_id !== user.id) return json({ error: "只能编辑自己的帖子" }, 403);
+  const { title, contentHtml, excerpt } = await contentPayload(request);
+  await env.DB.prepare("UPDATE posts SET title = ?, excerpt = ?, content_html = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+    .bind(title, excerpt, contentHtml, id)
+    .run();
+  return json({ ok: true });
+};
+
+const deletePost = async (env, request, id) => {
+  const user = await requireUser(env, request);
+  const post = await env.DB.prepare("SELECT author_id FROM posts WHERE id = ?").bind(id).first();
+  if (!post) return json({ error: "帖子不存在" }, 404);
+  if (user.role !== "admin" && post.author_id !== user.id) return json({ error: "只能删除自己的帖子" }, 403);
+  await env.DB.prepare("DELETE FROM posts WHERE id = ?").bind(id).run();
+  return json({ ok: true });
+};
+
+const deleteAnnouncement = async (env, request, id) => {
+  await requireAdmin(env, request);
+  await env.DB.prepare("DELETE FROM announcements WHERE id = ?").bind(id).run();
+  return json({ ok: true });
+};
+
+const trackView = async (env, type, id) => {
+  const table = type === "announcement" ? "announcements" : type === "post" ? "posts" : null;
+  if (!table) return json({ error: "类型不存在" }, 404);
+  await env.DB.prepare(`UPDATE ${table} SET views = COALESCE(views, 0) + 1 WHERE id = ?`).bind(id).run();
+  return json({ ok: true });
+};
+
+const lookupMinecraft = async (minecraftName) => {
+  if (!/^[A-Za-z0-9_]{3,16}$/.test(minecraftName)) {
+    throw new Response(JSON.stringify({ error: "Minecraft 用户名需要 3-16 位，只能包含字母、数字和下划线" }), { status: 400 });
+  }
+  const response = await fetch(`https://api.mojang.com/users/profiles/minecraft/${encodeURIComponent(minecraftName)}`, {
+    headers: { Accept: "application/json" },
+  });
+  if (response.status === 204 || response.status === 404) {
+    throw new Response(JSON.stringify({ error: "没有找到这个正版 Minecraft 用户名" }), { status: 404 });
+  }
+  if (!response.ok) {
+    throw new Response(JSON.stringify({ error: "暂时无法验证 Minecraft 用户名，请稍后再试" }), { status: 502 });
+  }
+  return response.json();
+};
+
+const bindMinecraft = async (env, request) => {
+  const user = await requireUser(env, request);
+  const body = await readBody(request);
+  const minecraftName = String(body.minecraftName || "").trim();
+  const profile = await lookupMinecraft(minecraftName);
+  await env.DB.prepare("UPDATE users SET minecraft_name = ?, minecraft_uuid = ? WHERE id = ?")
+    .bind(profile.name, profile.id, user.id)
+    .run();
+  const updated = await env.DB.prepare(
+    "SELECT id, username, role, minecraft_name, minecraft_uuid FROM users WHERE id = ?",
+  )
+    .bind(user.id)
+    .first();
+  return json({ user: publicUser(updated) });
+};
+
+const unbindMinecraft = async (env, request) => {
+  const user = await requireUser(env, request);
+  await env.DB.prepare("UPDATE users SET minecraft_name = NULL, minecraft_uuid = NULL WHERE id = ?").bind(user.id).run();
+  const updated = await env.DB.prepare(
+    "SELECT id, username, role, minecraft_name, minecraft_uuid FROM users WHERE id = ?",
+  )
+    .bind(user.id)
+    .first();
+  return json({ user: publicUser(updated) });
+};
+
+const stats = async (env, request) => {
+  await requireAdmin(env, request);
+  const announcementViews = await env.DB.prepare("SELECT COALESCE(SUM(views), 0) AS total FROM announcements").first();
+  const postViews = await env.DB.prepare("SELECT COALESCE(SUM(views), 0) AS total FROM posts").first();
+  const userCount = await env.DB.prepare("SELECT COUNT(*) AS total FROM users").first();
+  const boundCount = await env.DB.prepare("SELECT COUNT(*) AS total FROM users WHERE minecraft_name IS NOT NULL").first();
+  return json({
+    totalViews: Number(announcementViews.total || 0) + Number(postViews.total || 0),
+    announcementViews: Number(announcementViews.total || 0),
+    postViews: Number(postViews.total || 0),
+    userCount: Number(userCount.total || 0),
+    boundCount: Number(boundCount.total || 0),
+  });
+};
+
+const listAdmins = async (env, request) => {
+  await requireAdmin(env, request);
+  const owner = await ownerUser(env);
+  const { results } = await env.DB.prepare(
+    `SELECT id, username, role, minecraft_name, minecraft_uuid, created_at
+     FROM users
+     WHERE role = 'admin'
+     ORDER BY id ASC`,
+  ).all();
+  return json({ items: (results || []).map((user) => ({ ...user, is_owner: owner?.id === user.id })) });
+};
+
+const addAdmin = async (env, request) => {
+  await requireAdmin(env, request);
+  const body = await readBody(request);
+  const username = String(body.username || "").trim();
+  const result = await env.DB.prepare("UPDATE users SET role = 'admin' WHERE username = ?").bind(username).run();
+  if (!result.meta?.changes) return json({ error: "没有找到这个用户" }, 404);
+  return json({ ok: true });
+};
+
+const removeAdmin = async (env, request, id) => {
+  const user = await requireAdmin(env, request);
+  const targetId = Number(id);
+  const owner = await ownerUser(env);
+  if (owner?.id === targetId) return json({ error: "第一个注册用户的管理员权限不能删除" }, 400);
+  if (user.id === targetId) return json({ error: "不能删除自己的管理员权限" }, 400);
+  await env.DB.prepare("UPDATE users SET role = 'user' WHERE id = ? AND role = 'admin'").bind(targetId).run();
+  return json({ ok: true });
+};
+
 export async function onRequest(context) {
   const { request, env, params } = context;
   const pathname = `/${(params.path || []).join("/")}`;
+  const method = request.method;
 
   try {
-    if (request.method === "GET" && pathname === "/me") {
-      return json({ user: await currentUser(env, request) });
+    if (method === "GET" && pathname === "/me") return json({ user: publicUser(await currentUser(env, request)) });
+    if (method === "POST" && pathname === "/register") return register(env, request);
+    if (method === "POST" && pathname === "/login") return login(env, request);
+    if (method === "POST" && pathname === "/logout") return logout(env, request);
+    if (method === "PUT" && pathname === "/me/minecraft") return bindMinecraft(env, request);
+    if (method === "DELETE" && pathname === "/me/minecraft") return unbindMinecraft(env, request);
+
+    if (method === "GET" && pathname === "/announcements") return listAnnouncements(env);
+    if (method === "POST" && pathname === "/announcements") return createAnnouncement(env, request);
+    if (method === "PUT" && /^\/announcements\/\d+$/.test(pathname)) {
+      return updateAnnouncement(env, request, pathname.split("/").at(-1));
     }
-    if (request.method === "POST" && pathname === "/register") return register(env, request);
-    if (request.method === "POST" && pathname === "/login") return login(env, request);
-    if (request.method === "POST" && pathname === "/logout") return logout(env, request);
-    if (request.method === "GET" && pathname === "/announcements") return listAnnouncements(env);
-    if (request.method === "POST" && pathname === "/announcements") return createAnnouncement(env, request);
-    if (request.method === "GET" && pathname === "/posts") return listPosts(env);
-    if (request.method === "POST" && pathname === "/posts") return createPost(env, request);
+    if (method === "DELETE" && /^\/announcements\/\d+$/.test(pathname)) {
+      return deleteAnnouncement(env, request, pathname.split("/").at(-1));
+    }
+
+    if (method === "GET" && pathname === "/posts") return listPosts(env);
+    if (method === "POST" && pathname === "/posts") return createPost(env, request);
+    if (method === "PUT" && /^\/posts\/\d+$/.test(pathname)) return updatePost(env, request, pathname.split("/").at(-1));
+    if (method === "DELETE" && /^\/posts\/\d+$/.test(pathname)) return deletePost(env, request, pathname.split("/").at(-1));
+
+    if (method === "POST" && /^\/track-view\/(announcement|post)\/\d+$/.test(pathname)) {
+      const [, , type, id] = pathname.split("/");
+      return trackView(env, type, id);
+    }
+    if (method === "GET" && pathname === "/admin/stats") return stats(env, request);
+    if (method === "GET" && pathname === "/admin/users") return listAdmins(env, request);
+    if (method === "POST" && pathname === "/admin/users") return addAdmin(env, request);
+    if (method === "DELETE" && /^\/admin\/users\/\d+$/.test(pathname)) {
+      return removeAdmin(env, request, pathname.split("/").at(-1));
+    }
+
     return json({ error: "接口不存在" }, 404);
   } catch (error) {
     if (error instanceof Response) return error;

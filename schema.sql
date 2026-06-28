@@ -3,6 +3,8 @@ CREATE TABLE IF NOT EXISTS users (
   username TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
+  minecraft_name TEXT,
+  minecraft_uuid TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -19,6 +21,7 @@ CREATE TABLE IF NOT EXISTS announcements (
   content_html TEXT NOT NULL,
   author_id INTEGER NOT NULL REFERENCES users(id),
   pinned INTEGER NOT NULL DEFAULT 0,
+  views INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -29,6 +32,7 @@ CREATE TABLE IF NOT EXISTS posts (
   excerpt TEXT NOT NULL,
   content_html TEXT NOT NULL,
   author_id INTEGER NOT NULL REFERENCES users(id),
+  views INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

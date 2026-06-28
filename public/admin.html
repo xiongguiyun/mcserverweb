@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>管理后台 | LIDO_PANG SURVIVAL</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body data-page="admin">
+    <header class="site-header">
+      <a class="brand" href="/index.html">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span>LIDO_PANG SURVIVAL</span>
+      </a>
+      <nav class="top-nav" aria-label="主导航">
+        <a href="/index.html">主页</a>
+        <a href="/index.html#announcements">公告</a>
+        <a href="/forum.html">玩家论坛</a>
+        <a href="/admin.html" class="active" data-admin-link hidden>管理后台</a>
+      </nav>
+      <div class="auth-actions" id="authActions"></div>
+    </header>
+
+    <main>
+      <section class="page-hero admin-hero">
+        <h1>管理后台</h1>
+        <p>发布公告、查看浏览数据、编辑论坛内容、管理管理员。</p>
+      </section>
+
+      <section class="admin-shell" id="adminShell" hidden>
+        <div class="stats-grid" id="statsGrid"></div>
+
+        <section class="admin-panel">
+          <div class="section-title compact">
+            <h2>发布 / 编辑内容</h2>
+            <p>管理员可发布公告，也可代发或编辑论坛内容。</p>
+          </div>
+          <form class="editor-card" id="publishForm">
+            <input type="hidden" id="editingId" />
+            <div class="form-row">
+              <label for="contentType">类型</label>
+              <select id="contentType" name="type">
+                <option value="announcement">公告</option>
+                <option value="post">玩家论坛内容</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <label for="title">标题</label>
+              <input id="title" name="title" maxlength="80" required placeholder="例如：周末建筑赛报名开始" />
+            </div>
+            <div class="toolbar" aria-label="编辑工具栏">
+              <button type="button" data-command="bold" title="加粗"><strong>B</strong></button>
+              <button type="button" data-command="italic" title="斜体"><em>I</em></button>
+              <button type="button" data-format="h2" title="标题">H2</button>
+              <button type="button" data-command="insertUnorderedList" title="无序列表">•</button>
+              <button type="button" data-command="insertOrderedList" title="有序列表">1.</button>
+              <button type="button" id="linkButton" title="插入链接">链接</button>
+              <button type="button" id="bilibiliButton" title="插入 Bilibili 视频">Bilibili</button>
+            </div>
+            <div class="rich-editor" id="editor" contenteditable="true" role="textbox" aria-label="正文编辑器"></div>
+            <div class="toolbar footer-tools">
+              <button class="button primary" type="submit">保存发布</button>
+              <button class="button ghost" type="button" id="cancelEditButton">取消编辑</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="admin-panel">
+          <div class="section-title compact">
+            <h2>公告管理</h2>
+            <p>编辑或删除已发布公告。</p>
+          </div>
+          <div class="admin-table" id="manageAnnouncements"></div>
+        </section>
+
+        <section class="admin-panel">
+          <div class="section-title compact">
+            <h2>玩家论坛管理</h2>
+            <p>编辑或删除玩家论坛展示内容。</p>
+          </div>
+          <div class="admin-table" id="managePosts"></div>
+        </section>
+
+        <section class="admin-panel">
+          <div class="section-title compact">
+            <h2>管理员管理</h2>
+            <p>可以添加或删除管理员，第一个注册用户受到保护，不能删除管理员权限。</p>
+          </div>
+          <form class="inline-form" id="adminUserForm">
+            <input id="adminUsername" placeholder="输入用户名" required />
+            <button class="button primary" type="submit">设为管理员</button>
+          </form>
+          <div class="admin-table" id="adminUsers"></div>
+        </section>
+      </section>
+
+      <section class="admin-locked" id="adminLocked">
+        <h2>请使用管理员账号登录</h2>
+        <p>登录后可以进入后台管理内容与权限。</p>
+        <button class="button primary" type="button" data-open-auth>登录 / 注册</button>
+      </section>
+    </main>
+
+    <dialog id="authDialog" class="auth-dialog">
+      <button class="dialog-close" type="button" data-close-auth aria-label="关闭">×</button>
+      <h2>账号登录</h2>
+      <form id="authForm">
+        <input id="username" autocomplete="username" placeholder="用户名" required />
+        <input id="password" type="password" autocomplete="current-password" placeholder="密码" required />
+        <div class="split-actions">
+          <button class="button primary" type="submit" data-mode="login">登录</button>
+          <button class="button ghost" type="submit" data-mode="register">注册</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

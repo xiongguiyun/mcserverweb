@@ -10,7 +10,7 @@ npm run db:init
 npm run dev
 ```
 
-打开 Wrangler 给出的本地地址。第一个注册账号会自动成为管理员，之后注册账号为普通玩家。
+打开 Wrangler 给出的本地地址。第一个注册账号会自动成为管理员。
 
 ## Cloudflare 部署
 
@@ -46,11 +46,29 @@ npm run deploy
 - Binding name: `DB`
 - Database: `blockhaven_db`
 
+## 更新已有 D1 数据库
+
+如果你已经部署过旧版本，需要在 Cloudflare D1 控制台执行一次：
+
+```sql
+ALTER TABLE announcements ADD COLUMN views INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE posts ADD COLUMN views INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN minecraft_name TEXT;
+ALTER TABLE users ADD COLUMN minecraft_uuid TEXT;
+```
+
+如果你是全新数据库，直接执行 `schema.sql` 即可。
+
 ## 功能说明
 
 - 第一个注册用户自动获得管理员权限。
 - 管理员可以发布公告。
-- 登录后的普通玩家可以发布玩家文章。
+- 玩家论坛已经拆成独立页面。
+- 注册用户可以在玩家论坛自由发帖。
+- 玩家可以绑定、解绑或换绑正版 Minecraft 用户名，并在帖子卡片上显示皮肤人物。
+- 管理员可以发布公告，并管理全部论坛内容。
+- 管理员后台可以查看浏览数据、编辑/删除内容、添加/删除管理员。
+- 第一个注册用户的管理员权限无法删除。
 - 编辑器支持加粗、斜体、标题、列表、链接和 Bilibili 视频。
 - Bilibili 支持粘贴完整链接、`BV...` 或 `av...`。
 
