@@ -617,6 +617,22 @@ const setupMaintenanceToggle = () => {
   });
 };
 
+const setupAdminNavigation = () => {
+  const links = $$(".admin-nav a");
+  if (!links.length) return;
+  const sync = () => {
+    const current = window.location.hash || "#adminOverview";
+    links.forEach((link) => link.classList.toggle("active", link.getAttribute("href") === current));
+  };
+  links.forEach((link) => {
+    link.addEventListener("click", () => {
+      window.setTimeout(sync, 0);
+    });
+  });
+  window.addEventListener("hashchange", sync);
+  sync();
+};
+
 const setupHomeActions = () => {
   $("#copyServerAddress")?.addEventListener("click", async () => {
     try {
@@ -730,6 +746,7 @@ setupForumPost();
 setupPublish();
 setupAdminUsers();
 setupMaintenanceToggle();
+setupAdminNavigation();
 setupHomeActions();
 
 if (page === "admin") {
