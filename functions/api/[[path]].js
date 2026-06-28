@@ -4,6 +4,13 @@ const json = (data, status = 200, headers = {}) =>
     headers: { "Content-Type": "application/json; charset=utf-8", ...headers },
   });
 
+const messageFromError = (error, fallback = "服务器错误") => {
+  if (!error) return fallback;
+  if (typeof error === "string") return error;
+  if (typeof error.message === "string" && error.message) return error.message;
+  return fallback;
+};
+
 const getCookie = (request, name) => {
   const cookie = request.headers.get("Cookie") || "";
   return cookie
@@ -257,40 +264,58 @@ const lookupMinecraft = async (minecraftName) => {
   if (!/^[A-Za-z0-9_]{3,16}$/.test(minecraftName)) {
     throw new Response(JSON.stringify({ error: "Minecraft 用户名需要 3-16 位，只能包含字母、数字和下划线" }), { status: 400 });
   }
-  const response = await fetch(`https://api.mojang.com/users/profiles/minecraft/${encodeURIComponent(minecraftName)}`, {
-    headers: { Accept: "application/json" },
-  });
+  let response;
+  try {
+    response = await fetch(`https://api.mojang.com/users/profiles/minecraft/${encodeURIComponent(minecraftName)}`, {
+      headers: { Accept: "application/json" },
+    });
+  } catch (error) {
+    throw new Response(JSON.stringify({ error: `连接 Mojang 验证服务失败: ${messageFromError(error, "网络错误")}` }), {
+      status: 502,
+    });
+  }
   if (response.status === 204 || response.status === 404) {
     throw new Response(JSON.stringify({ error: "没有找到这个正版 Minecraft 用户名" }), { status: 404 });
   }
   if (!response.ok) {
     throw new Response(JSON.stringify({ error: "暂时无法验证 Minecraft 用户名，请稍后再试" }), { status: 502 });
   }
-  return response.json();
+  try {
+    return await response.json();
+  } catch {
+    throw new Response(JSON.stringify({ error: "Minecraft 验证服务返回了无法识别的数据" }), { status: 502 });
+  }
 };
 
 const bindMinecraft = async (env, request) => {
-  const user = await requireUser(env, request);
-  const body = await readBody(request);
-  const minecraftName = String(body.minecraftName || "").trim();
-  let profile;
   try {
-    profile = await lookupMinecraft(minecraftName);
+    const user = await requireUser(env, request);
+    const body = await readBody(request);
+    const minecraftName = String(body.minecraftName || "").trim();
+    const profile = await lookupMinecraft(minecraftName);
+
+    try {
+      await env.DB.prepare("UPDATE users SET minecraft_name = ?, minecraft_uuid = ? WHERE id = ?")
+        .bind(profile.name, profile.id, user.id)
+        .run();
+    } catch (error) {
+      const message = messageFromError(error);
+      if (/no such column/i.test(message)) {
+        return json({ error: `数据库结构未更新完整: ${message}。请在 Cloudflare D1 中补齐缺失列后再试。` }, 500);
+      }
+      return json({ error: `保存 Minecraft 绑定失败: ${message}` }, 500);
+    }
+
+    const updated = await env.DB.prepare(
+      "SELECT id, username, role, minecraft_name, minecraft_uuid FROM users WHERE id = ?",
+    )
+      .bind(user.id)
+      .first();
+    return json({ user: publicUser(updated) });
   } catch (error) {
     if (error instanceof Response) throw error;
-    throw new Response(JSON.stringify({ error: `Minecraft 用户名验证失败: ${error.message || "未知错误"}` }), {
-      status: 502,
-    });
+    return json({ error: `Minecraft 用户名验证失败: ${messageFromError(error, "未知错误")}` }, 502);
   }
-  await env.DB.prepare("UPDATE users SET minecraft_name = ?, minecraft_uuid = ? WHERE id = ?")
-    .bind(profile.name, profile.id, user.id)
-    .run();
-  const updated = await env.DB.prepare(
-    "SELECT id, username, role, minecraft_name, minecraft_uuid FROM users WHERE id = ?",
-  )
-    .bind(user.id)
-    .first();
-  return json({ user: publicUser(updated) });
 };
 
 const unbindMinecraft = async (env, request) => {
@@ -390,7 +415,8 @@ export async function onRequest(context) {
 
     return json({ error: "接口不存在" }, 404);
   } catch (error) {
+    console.error("API request failed", pathname, method, error);
     if (error instanceof Response) return error;
-    return json({ error: error.message || "服务器错误" }, 500);
+    return json({ error: messageFromError(error, "服务器错误") }, 500);
   }
 }
