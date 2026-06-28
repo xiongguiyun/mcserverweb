@@ -1,6 +1,6 @@
-# 方境 BlockHaven
+# Liou_Yang Server
 
-一个 Minecraft 风格宣传站，包含主页宣传、管理员公告、玩家论坛、注册登录、富文本编辑器和 Bilibili 视频嵌入。后端使用 Cloudflare Pages Functions，数据存储使用 Cloudflare D1。
+一个 Minecraft 风格的宣传站，包含主页宣传、论坛公告、玩家论坛、注册登录、富文本编辑器、Bilibili 视频嵌入，以及正版 Minecraft 用户名绑定。
 
 ## 本地运行
 
@@ -14,10 +14,9 @@ npm run dev
 
 ## Cloudflare 部署
 
-1. 安装并登录 Wrangler：
+1. 登录 Wrangler：
 
 ```bash
-npm install
 npx wrangler login
 ```
 
@@ -27,15 +26,15 @@ npx wrangler login
 npx wrangler d1 create blockhaven_db
 ```
 
-3. 把命令输出里的 `database_id` 填进 `wrangler.toml`。
+3. 把输出的 `database_id` 填进 [wrangler.toml](E:/网站/wrangler.toml)。
 
-4. 初始化线上数据库表：
+4. 初始化线上数据库：
 
 ```bash
 npm run db:prod
 ```
 
-5. 部署到 Cloudflare Pages：
+5. 部署：
 
 ```bash
 npm run deploy
@@ -48,7 +47,7 @@ npm run deploy
 
 ## 更新已有 D1 数据库
 
-如果你已经部署过旧版本，需要在 Cloudflare D1 控制台执行一次：
+如果你已经部署过旧版本，需要在 Cloudflare D1 控制台执行：
 
 ```sql
 ALTER TABLE announcements ADD COLUMN views INTEGER NOT NULL DEFAULT 0;
@@ -57,21 +56,33 @@ ALTER TABLE users ADD COLUMN minecraft_name TEXT;
 ALTER TABLE users ADD COLUMN minecraft_uuid TEXT;
 ```
 
-如果你是全新数据库，直接执行 `schema.sql` 即可。
+如果提示 `duplicate column name`，说明该列已经存在，可以忽略。
 
-## 功能说明
+## 现在的功能
 
 - 第一个注册用户自动获得管理员权限。
-- 管理员可以发布公告。
-- 玩家论坛已经拆成独立页面。
-- 注册用户可以在玩家论坛自由发帖。
-- 玩家可以绑定、解绑或换绑正版 Minecraft 用户名，并在帖子卡片上显示皮肤人物。
-- 管理员可以发布公告，并管理全部论坛内容。
-- 管理员后台可以查看浏览数据、编辑/删除内容、添加/删除管理员。
-- 第一个注册用户的管理员权限无法删除。
-- 编辑器支持加粗、斜体、标题、列表、链接和 Bilibili 视频。
-- Bilibili 支持粘贴完整链接、`BV...` 或 `av...`。
+- 主页可一键复制服务器地址。
+- 公告区单独展示，论坛是独立页面。
+- 注册用户可以自由发帖。
+- 所有注册用户都可以绑定、解绑、换绑正版 Minecraft 用户名。
+- 绑定后帖子会显示对应皮肤人物；未绑定时显示项目内置占位皮肤。
+- 管理员可以发布公告、编辑或删除全部论坛内容、添加或删除管理员。
+- 第一个注册用户的管理员权限不能删除。
+- 编辑器支持：
+  `粗体`、`斜体`、`字号`、`段落格式`、`文本颜色`、`中划线`、`下划线`、`链接`、`图片`、`表格`、`内联遮挡`、`水平线`、`折叠`、`引用`、`代码`、`Bilibili 视频`
+
+## 如何更新网站
+
+1. 把 `E:\网站` 里的修改推送到你的 GitHub 仓库。
+2. 如果这次有数据库字段更新，先去 Cloudflare D1 控制台执行上面的 `ALTER TABLE`。
+3. 回到 Cloudflare Pages 项目，进入 `Deployments`。
+4. 点击 `Retry deployment`，或者重新 push 一次代码触发自动部署。
 
 ## 生产建议
 
-当前版本是轻量可部署原型。正式运营前建议增加邮箱验证、找回密码、后台用户管理、公告编辑/删除、文章审核、图片上传到 R2，以及更严格的 HTML 白名单净化。
+正式运营前，建议再补：
+
+- 邮箱验证和找回密码
+- 图片上传到 R2
+- 更严格的 HTML 白名单净化
+- 论坛审核、敏感词、举报和封禁机制

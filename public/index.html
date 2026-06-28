@@ -3,21 +3,21 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>LIDO_PANG SURVIVAL | 我的世界服务器</title>
-    <meta name="description" content="LIDO_PANG SURVIVAL 我的世界服务器宣传站与公告中心。" />
+    <title>Liou_Yang Server | 我的世界服务器</title>
+    <meta name="description" content="Liou_Yang Server 我的世界服务器主页与论坛公告。" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body data-page="home">
     <header class="site-header">
       <a class="brand" href="/index.html" aria-label="返回主页">
         <span class="brand-mark" aria-hidden="true"></span>
-        <span>LIDO_PANG SURVIVAL</span>
+        <span>Liou_Yang Server</span>
       </a>
       <nav class="top-nav" aria-label="主导航">
         <a href="/index.html" class="active">主页</a>
         <a href="/index.html#announcements">公告</a>
-        <a href="/forum.html">玩家论坛</a>
-        <a href="/admin.html" data-admin-link hidden>管理后台</a>
+        <a href="/forum.html">论坛</a>
+        <a href="/admin.html" data-admin-link hidden>后台</a>
       </nav>
       <div class="auth-actions" id="authActions"></div>
     </header>
@@ -26,22 +26,22 @@
       <section class="hero photo-hero" id="home">
         <div class="hero-bg" aria-hidden="true"></div>
         <div class="hero-copy">
-          <h1>LIDO_PANG SURVIVAL</h1>
-          <p>一个以生存、建筑、活动和玩家故事为核心的 Minecraft 社区。</p>
+          <h1>Liou_Yang Server</h1>
+          <p>围绕生存、建筑、活动和社区故事展开的 Minecraft 服务器。</p>
           <div class="hero-actions">
             <a class="button primary" href="#announcements">查看公告</a>
-            <a class="button ghost" href="/forum.html">进入玩家论坛</a>
+            <a class="button ghost" href="/forum.html">进入论坛</a>
           </div>
-          <dl class="server-panel glass-panel">
-            <div>
+          <dl class="server-panel">
+            <button class="server-item server-address-copy" id="copyServerAddress" type="button">
               <dt>服务器地址</dt>
               <dd>play.blockhaven.cn</dd>
-            </div>
-            <div>
+            </button>
+            <div class="server-item">
               <dt>版本</dt>
               <dd>Java 1.20+</dd>
             </div>
-            <div>
+            <div class="server-item">
               <dt>玩法</dt>
               <dd>生存 / 建筑 / 活动</dd>
             </div>
@@ -53,21 +53,21 @@
         <article>
           <span class="feature-icon grass"></span>
           <h2>长期生存</h2>
-          <p>社区建设、玩家交易和长期项目一起推进，让每一次上线都有事可做。</p>
+          <p>社区建设、玩家交易和长期项目同步推进，让每次上线都能继续你的世界。</p>
         </article>
         <article>
           <span class="feature-icon redstone"></span>
-          <h2>活动公告</h2>
-          <p>活动时间、规则更新和服务器维护都会在公告区集中发布。</p>
+          <h2>论坛公告</h2>
+          <p>活动时间、维护安排和规则更新都会在公告区集中发布。</p>
         </article>
         <article>
           <span class="feature-icon book"></span>
-          <h2>玩家内容</h2>
-          <p>管理员可整理发布攻略、建筑展示、活动回顾和玩家故事。</p>
+          <h2>玩家交流</h2>
+          <p>论坛里可以发攻略、晒建筑、记活动，也能把正版皮肤展示出来。</p>
         </article>
       </section>
 
-      <section class="content-grid announcement-stage" id="announcements">
+      <section class="content-grid announcement-stage solid-announcement-stage" id="announcements">
         <div class="section-title">
           <h2>论坛公告</h2>
           <p>服务器更新、活动安排和重要通知。</p>

@@ -3,20 +3,20 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>玩家论坛 | LIDO_PANG SURVIVAL</title>
+    <title>玩家论坛 | Liou_Yang Server</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body data-page="forum">
     <header class="site-header">
       <a class="brand" href="/index.html">
         <span class="brand-mark" aria-hidden="true"></span>
-        <span>LIDO_PANG SURVIVAL</span>
+        <span>Liou_Yang Server</span>
       </a>
       <nav class="top-nav" aria-label="主导航">
         <a href="/index.html">主页</a>
         <a href="/index.html#announcements">公告</a>
-        <a href="/forum.html" class="active">玩家论坛</a>
-        <a href="/admin.html" data-admin-link hidden>管理后台</a>
+        <a href="/forum.html" class="active">论坛</a>
+        <a href="/admin.html" data-admin-link hidden>后台</a>
       </nav>
       <div class="auth-actions" id="authActions"></div>
     </header>
@@ -27,39 +27,73 @@
         <p>注册用户可以自由发帖，分享攻略、建筑展示、活动记录和服务器日常。</p>
       </section>
 
-      <section class="forum-compose">
+      <section class="forum-controls">
         <aside class="profile-card" id="profileCard"></aside>
-        <form class="editor-card" id="forumPostForm">
-          <div class="section-title compact">
-            <h2>发表帖子</h2>
-            <p>登录后即可发布，管理员可在后台编辑或删除内容。</p>
+        <div class="forum-main">
+          <div class="forum-toolbar">
+            <div class="section-title compact">
+              <h2>最新帖子</h2>
+              <p>玩家内容优先展示，发帖入口收进一个按钮里。</p>
+            </div>
+            <button class="button primary" type="button" id="openPostComposer">+ 发布新帖</button>
           </div>
-          <div class="form-row">
-            <label for="forumTitle">标题</label>
-            <input id="forumTitle" maxlength="80" required placeholder="例如：我的新基地完工了" />
-          </div>
-          <div class="toolbar" aria-label="编辑工具栏">
-            <button type="button" data-command="bold" title="加粗"><strong>B</strong></button>
-            <button type="button" data-command="italic" title="斜体"><em>I</em></button>
-            <button type="button" data-format="h2" title="标题">H2</button>
-            <button type="button" data-command="insertUnorderedList" title="无序列表">•</button>
-            <button type="button" data-command="insertOrderedList" title="有序列表">1.</button>
-            <button type="button" id="linkButton" title="插入链接">链接</button>
-            <button type="button" id="bilibiliButton" title="插入 Bilibili 视频">Bilibili</button>
-          </div>
-          <div class="rich-editor" id="editor" contenteditable="true" role="textbox" aria-label="帖子正文"></div>
-          <button class="button primary submit-button" type="submit">发布帖子</button>
-        </form>
-      </section>
-
-      <section class="content-grid forum-section">
-        <div class="section-title">
-          <h2>最新帖子</h2>
-          <p>来自服务器玩家的讨论和分享。</p>
+          <div class="list forum-list" id="postList"></div>
         </div>
-        <div class="list forum-list" id="postList"></div>
       </section>
     </main>
+
+    <dialog id="postDialog" class="compose-dialog">
+      <button class="dialog-close" type="button" data-close-post aria-label="关闭">×</button>
+      <h2>发布新帖</h2>
+      <form id="forumPostForm">
+        <div class="form-row">
+          <label for="forumTitle">标题</label>
+          <input id="forumTitle" maxlength="80" required placeholder="例如：我的新基地完工了" />
+        </div>
+        <div class="editor-toolbar-shell">
+          <div class="toolbar editor-toolbar" aria-label="编辑工具栏">
+            <button type="button" data-command="bold" title="粗体"><strong>B</strong></button>
+            <button type="button" data-command="italic" title="斜体"><em>I</em></button>
+            <button type="button" data-command="underline" title="下划线"><u>U</u></button>
+            <button type="button" data-command="strikeThrough" title="中划线"><s>S</s></button>
+            <select id="fontSizeSelect" class="toolbar-select" title="字号">
+              <option value="">字号</option>
+              <option value="3">正文</option>
+              <option value="4">大号</option>
+              <option value="5">标题</option>
+              <option value="6">特大</option>
+            </select>
+            <select id="blockFormatSelect" class="toolbar-select" title="段落格式">
+              <option value="">段落</option>
+              <option value="P">正文</option>
+              <option value="H2">标题 2</option>
+              <option value="H3">标题 3</option>
+              <option value="BLOCKQUOTE">引用</option>
+              <option value="PRE">代码块</option>
+            </select>
+            <button type="button" id="linkButton" title="添加链接">链接</button>
+            <button type="button" id="imageButton" title="插入图片">图片</button>
+            <button type="button" id="tableButton" title="插入表格">表格</button>
+            <button type="button" id="spoilerButton" title="内联遮挡">遮挡</button>
+            <button type="button" id="hrButton" title="水平线">分隔</button>
+            <button type="button" id="detailsButton" title="折叠">折叠</button>
+            <button type="button" id="codeButton" title="代码">代码</button>
+            <button type="button" id="bilibiliButton" title="插入 Bilibili 视频">Bilibili</button>
+            <div class="toolbar-more">
+              <button type="button" id="moreButton" aria-expanded="false" title="更多">更多</button>
+              <div class="toolbar-more-menu" id="moreMenu" hidden>
+                <button type="button" data-command="insertUnorderedList">无序列表</button>
+                <button type="button" data-command="insertOrderedList">有序列表</button>
+                <button type="button" id="colorButton">文本颜色</button>
+                <button type="button" id="quoteButton">引用</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="rich-editor" id="editor" contenteditable="true" role="textbox" aria-label="帖子正文"></div>
+        <button class="button primary submit-button" type="submit">发布帖子</button>
+      </form>
+    </dialog>
 
     <dialog id="authDialog" class="auth-dialog">
       <button class="dialog-close" type="button" data-close-auth aria-label="关闭">×</button>
