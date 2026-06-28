@@ -1,9 +1,11 @@
 const state = {
   me: null,
+  site: { maintenanceMode: false },
   announcements: [],
   posts: [],
   stats: null,
   admins: [],
+  profile: null,
 };
 
 const page = document.body.dataset.page;
@@ -71,6 +73,7 @@ const textFromHtml = (html) => {
 
 const formatDate = (value) =>
   new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
@@ -78,24 +81,23 @@ const formatDate = (value) =>
   }).format(new Date(value));
 
 const isAdmin = () => state.me?.role === "admin";
-const hasMinecraftBinding = (user) => Boolean(user?.minecraft_name);
+const profileName = (user) => user?.username || "玩家";
 const skinUrl = (name, size = 210) => `https://mc-heads.net/body/${encodeURIComponent(name)}/${size}`;
 const avatarUrl = (name, size = 32) => `https://mc-heads.net/avatar/${encodeURIComponent(name)}/${size}`;
-
-const activeSkinSrc = (user, size = 210) => {
-  if (hasMinecraftBinding(user)) return skinUrl(user.minecraft_name, size);
-  return "/assets/unbound-skin.png";
-};
-
-const activeAvatarSrc = (user, size = 32) => {
-  if (hasMinecraftBinding(user)) return avatarUrl(user.minecraft_name, size);
-  return "/assets/unbound-skin.png";
-};
+const activeSkinSrc = (user, size = 210) => (user?.username ? skinUrl(user.username, size) : "/assets/unbound-skin.png");
+const activeAvatarSrc = (user, size = 32) => (user?.username ? avatarUrl(user.username, size) : "/assets/unbound-skin.png");
+const profileHref = (username) => `/profile.html?user=${encodeURIComponent(username)}`;
+const maintenanceActive = () => Boolean(state.site?.maintenanceMode);
 
 const copyText = async (value, label) => {
   await navigator.clipboard.writeText(value);
   showToast(`${label}已复制`);
 };
+
+const openAuthDialog = () => $("#authDialog")?.showModal();
+const closeAuthDialog = () => $("#authDialog")?.close();
+const openPostDialog = () => $("#postDialog")?.showModal();
+const closePostDialog = () => $("#postDialog")?.close();
 
 const renderAuth = () => {
   const actions = $("#authActions");
@@ -109,18 +111,16 @@ const renderAuth = () => {
   } else {
     const avatar = activeAvatarSrc(state.me, 32);
     actions.innerHTML = `
-      <span class="user-badge">
+      <a class="user-badge user-entry" href="${profileHref(state.me.username)}">
         <img class="user-avatar" src="${avatar}" alt="" />
         <span class="user-chip">${escapeHtml(state.me.username)}${isAdmin() ? " · 管理员" : ""}</span>
-      </span>
+      </a>
       <button class="button small ghost" id="logoutButton" type="button">退出</button>
     `;
-    $("#logoutButton").addEventListener("click", async () => {
+    $("#logoutButton")?.addEventListener("click", async () => {
       await api("/logout", { method: "POST" });
       state.me = null;
-      renderAuth();
-      renderProfile();
-      if (page === "admin") renderAdminGate();
+      renderAll();
       showToast("已退出登录");
     });
   }
@@ -128,49 +128,68 @@ const renderAuth = () => {
   $$("[data-open-auth]").forEach((button) => button.addEventListener("click", openAuthDialog));
 };
 
-const openAuthDialog = () => $("#authDialog")?.showModal();
-const closeAuthDialog = () => $("#authDialog")?.close();
-const openPostDialog = () => $("#postDialog")?.showModal();
-const closePostDialog = () => $("#postDialog")?.close();
+const renderMaintenanceBanner = () => {
+  let banner = $("#maintenanceBanner");
+  if (!maintenanceActive() || !isAdmin()) {
+    banner?.remove();
+    return;
+  }
+  if (!banner) {
+    banner = document.createElement("div");
+    banner.id = "maintenanceBanner";
+    banner.className = "maintenance-banner";
+    document.body.prepend(banner);
+  }
+  banner.textContent = "网站正在维护中，当前仅管理员可见。";
+};
 
-const setupAuth = () => {
-  const form = $("#authForm");
-  if (!form) return;
-  $$("[data-close-auth]").forEach((button) => button.addEventListener("click", closeAuthDialog));
-  form.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const mode = event.submitter?.dataset.mode || "login";
-    try {
-      const result = await api(mode === "register" ? "/register" : "/login", {
-        method: "POST",
-        body: JSON.stringify({
-          username: $("#username").value,
-          password: $("#password").value,
-        }),
-      });
-      state.me = result.user;
-      form.reset();
-      closeAuthDialog();
-      renderAuth();
-      renderProfile();
-      showToast(mode === "register" ? "注册成功" : "登录成功");
-      if (page === "admin") await loadAdminData();
-      if (page === "forum") await loadPublicData();
-    } catch (error) {
-      showToast(error.message);
-    }
-  });
+const renderMaintenanceGate = () => {
+  const gate = $("#maintenanceGate");
+  if (!gate) return;
+  const main = document.querySelector("main");
+  if (!maintenanceActive() || isAdmin()) {
+    gate.hidden = true;
+    if (main) main.hidden = false;
+    return;
+  }
+  gate.hidden = false;
+  if (main) main.hidden = true;
+  const body = $("#maintenanceGateBody");
+  if (body) {
+    body.innerHTML = state.me
+      ? `
+        <div class="maintenance-user">
+          <img class="user-avatar large" src="${activeAvatarSrc(state.me, 48)}" alt="" />
+          <div>
+            <strong>${escapeHtml(state.me.username)}</strong>
+            <p>你已登录，网站当前正在维护，请稍后再来。</p>
+          </div>
+        </div>
+      `
+      : `
+        <p>网站正在维护中，稍后会重新开放。</p>
+        <button class="button primary" type="button" data-open-auth>登录账户</button>
+      `;
+  }
+  $$("[data-open-auth]").forEach((button) => button.addEventListener("click", openAuthDialog));
 };
 
 const cardTemplate = (item, type) => {
   const excerpt = item.excerpt || textFromHtml(item.content_html).slice(0, 110);
-  const author = item.minecraft_name || item.author || "玩家";
-  const skin = type === "post" ? `<img class="skin-figure" src="${item.minecraft_name ? skinUrl(author, 170) : "/assets/unbound-skin.png"}" alt="" loading="lazy" />` : "";
+  const author = item.author || "玩家";
+  const skin =
+    type === "post"
+      ? `<a class="skin-link" href="${profileHref(author)}"><img class="skin-figure" src="${skinUrl(author, 170)}" alt="" loading="lazy" /></a>`
+      : "";
   return `
     <article class="post-card ${type === "post" ? "forum-card" : ""}">
       ${skin}
       <h3>${escapeHtml(item.title)}</h3>
-      <div class="meta">${type === "announcement" ? "公告" : "玩家论坛"} · ${escapeHtml(author)} · ${formatDate(item.created_at)}</div>
+      <div class="meta">
+        ${type === "announcement" ? "公告" : "玩家论坛"} ·
+        <a class="author-link" href="${profileHref(author)}">${escapeHtml(author)}</a> ·
+        ${formatDate(item.created_at)}
+      </div>
       <p>${escapeHtml(excerpt || "暂无摘要。")}</p>
       <button class="button ghost read-button" type="button" data-type="${type}" data-id="${item.id}">阅读</button>
     </article>
@@ -203,13 +222,16 @@ const openReader = (type, id) => {
   if (!item || !$("#readerContent")) return;
   api(`/track-view/${type}/${id}`, { method: "POST" }).catch(() => {});
   item.views = Number(item.views || 0) + 1;
-  const author = item.minecraft_name || item.author || "玩家";
+  const author = item.author || "玩家";
   $("#readerContent").innerHTML = `
     <h1>${escapeHtml(item.title)}</h1>
-    <div class="meta">${escapeHtml(author)} · ${formatDate(item.created_at)} · ${item.views || 0} 次浏览</div>
+    <div class="meta">
+      <a class="author-link" href="${profileHref(author)}">${escapeHtml(author)}</a> ·
+      ${formatDate(item.created_at)} · ${item.views || 0} 次浏览
+    </div>
     <div class="reader-body">${item.content_html}</div>
   `;
-  $("#readerDialog").showModal();
+  $("#readerDialog")?.showModal();
 };
 
 const command = (name, value = null) => {
@@ -304,7 +326,7 @@ const setupEditor = () => {
   });
 };
 
-const renderProfile = () => {
+const renderForumProfileCard = () => {
   const card = $("#profileCard");
   if (!card) return;
   if (!state.me) {
@@ -313,56 +335,73 @@ const renderProfile = () => {
       <div class="skin-stage">
         <img src="/assets/unbound-skin.png" alt="" loading="lazy" />
       </div>
-      <p>登录后可以绑定正版 Minecraft 名称，并在帖子里显示对应皮肤人物。</p>
+      <p>登录后可发布帖子，也能从头像或昵称进入你的独立资料页。</p>
       <button class="button primary" type="button" data-open-auth>登录 / 注册</button>
     `;
     $$("[data-open-auth]").forEach((button) => button.addEventListener("click", openAuthDialog));
     return;
   }
 
-  const bound = hasMinecraftBinding(state.me);
   card.innerHTML = `
     <h2>玩家资料</h2>
-    <div class="skin-stage">
-      <img src="${activeSkinSrc(state.me, 210)}" alt="" loading="lazy" />
+    <a class="profile-card-link" href="${profileHref(state.me.username)}">
+      <div class="skin-stage">
+        <img src="${activeSkinSrc(state.me, 210)}" alt="" loading="lazy" />
+      </div>
+      <div class="profile-name">
+        <strong>${escapeHtml(state.me.username)}</strong>
+        <span>${isAdmin() ? "管理员账号" : "注册玩家"}</span>
+      </div>
+    </a>
+    <div class="profile-actions">
+      <a class="button ghost" href="${profileHref(state.me.username)}">查看资料页</a>
+      ${isAdmin() ? `<a class="button primary" href="/admin.html">后台管理</a>` : ""}
     </div>
-    <div class="profile-name">
-      <strong>${escapeHtml(bound ? state.me.minecraft_name : state.me.username)}</strong>
-      <span>${bound ? "已绑定正版 Minecraft" : "未绑定 Minecraft"}</span>
-    </div>
-    <form id="minecraftForm" class="profile-form">
-      <input id="minecraftName" placeholder="正版 Minecraft 用户名" value="${escapeHtml(state.me.minecraft_name || "")}" />
-      <button class="button primary" type="submit">${bound ? "换绑" : "绑定"}</button>
-      ${bound ? `<button class="button ghost" type="button" id="unbindMinecraft">解绑</button>` : ""}
-    </form>
   `;
-  setupMinecraftBinding();
 };
 
-const setupMinecraftBinding = () => {
-  $("#minecraftForm")?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    try {
-      const minecraftName = $("#minecraftName").value.trim();
-      const result = await api("/me/minecraft", {
-        method: "PUT",
-        body: JSON.stringify({ minecraftName }),
-      });
-      state.me = result.user;
-      renderAuth();
-      renderProfile();
-      showToast("Minecraft 绑定已更新");
-    } catch (error) {
-      showToast(error.message);
-    }
-  });
+const renderProfilePage = () => {
+  const panel = $("#profilePanel");
+  const posts = $("#profilePosts");
+  if (!panel || !posts) return;
+  const profile = state.profile;
+  if (!profile) {
+    panel.innerHTML = `<div class="empty">没有找到这个玩家。</div>`;
+    posts.innerHTML = "";
+    return;
+  }
 
-  $("#unbindMinecraft")?.addEventListener("click", async () => {
-    const result = await api("/me/minecraft", { method: "DELETE" });
-    state.me = result.user;
-    renderAuth();
-    renderProfile();
-    showToast("已解绑 Minecraft");
+  panel.innerHTML = `
+    <div class="profile-page-card">
+      <div class="skin-stage large">
+        <img src="${activeSkinSrc(profile, 240)}" alt="" loading="lazy" />
+      </div>
+      <div class="profile-name">
+        <strong>${escapeHtml(profile.username)}</strong>
+        <span>${profile.role === "admin" ? "管理员" : "玩家"} · 注册于 ${formatDate(profile.created_at)}</span>
+      </div>
+      <div class="profile-summary">
+        <div><strong>${profile.postCount}</strong><span>最近帖子</span></div>
+        <div><strong>${profile.role === "admin" ? "ON" : "USER"}</strong><span>账号类型</span></div>
+      </div>
+    </div>
+  `;
+
+  posts.innerHTML = `
+    <div class="section-title compact">
+      <h2>${escapeHtml(profile.username)} 的帖子</h2>
+      <p>展示最近 20 篇玩家内容。</p>
+    </div>
+    <div class="list forum-list">
+      ${
+        profile.posts.length
+          ? profile.posts.map((item) => cardTemplate({ ...item, author: profile.username }, "post")).join("")
+          : `<div class="empty">这个玩家暂时还没有发帖。</div>`
+      }
+    </div>
+  `;
+  $$(".read-button").forEach((button) => {
+    button.addEventListener("click", () => openReader(button.dataset.type, Number(button.dataset.id)));
   });
 };
 
@@ -453,6 +492,10 @@ const renderStats = () => {
     statCard("论坛浏览", state.stats.postViews),
     statCard("注册用户", state.stats.userCount),
   ].join("");
+  if ($("#maintenanceToggle")) $("#maintenanceToggle").checked = Boolean(state.stats.maintenanceMode);
+  if ($("#maintenanceStatusText")) {
+    $("#maintenanceStatusText").textContent = state.stats.maintenanceMode ? "当前维护模式已开启。" : "当前网站正常开放。";
+  }
 };
 
 const adminRows = (items, type) =>
@@ -463,7 +506,7 @@ const adminRows = (items, type) =>
             <div class="table-row">
               <div>
                 <strong>${escapeHtml(item.title)}</strong>
-                <span>${escapeHtml(item.minecraft_name || item.author || "玩家")} · ${formatDate(item.created_at)} · ${item.views || 0} 次浏览</span>
+                <span>${escapeHtml(item.author || "玩家")} · ${formatDate(item.created_at)} · ${item.views || 0} 次浏览</span>
               </div>
               <div class="row-actions">
                 <button class="button small ghost" type="button" data-edit="${type}" data-id="${item.id}">编辑</button>
@@ -490,7 +533,7 @@ const renderManagement = () => {
       $("#contentType").setAttribute("disabled", "disabled");
       $("#title").value = item.title;
       $("#editor").innerHTML = item.content_html;
-      $("#publishForm").scrollIntoView({ behavior: "smooth", block: "start" });
+      $("#publishForm")?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
   });
 
@@ -515,7 +558,7 @@ const renderAdmins = () => {
             <div class="table-row user-row">
               <div>
                 <strong>${escapeHtml(user.username)}</strong>
-                <span>${user.minecraft_name ? `Minecraft: ${escapeHtml(user.minecraft_name)}` : "未绑定 Minecraft"} · ${user.is_owner ? "初始管理员" : "管理员"} · ${formatDate(user.created_at)}</span>
+                <span>${user.is_owner ? "初始管理员" : "管理员"} · ${formatDate(user.created_at)}</span>
               </div>
               <div class="row-actions">
                 <button class="button small danger" type="button" data-remove-admin="${user.id}" ${user.is_owner ? "disabled" : ""}>删除管理员</button>
@@ -555,6 +598,25 @@ const setupAdminUsers = () => {
   });
 };
 
+const setupMaintenanceToggle = () => {
+  $("#maintenanceToggle")?.addEventListener("change", async (event) => {
+    try {
+      const result = await api("/admin/settings/maintenance", {
+        method: "PUT",
+        body: JSON.stringify({ enabled: event.target.checked }),
+      });
+      state.site.maintenanceMode = result.maintenanceMode;
+      if (state.stats) state.stats.maintenanceMode = result.maintenanceMode;
+      renderStats();
+      renderMaintenanceBanner();
+      showToast(result.maintenanceMode ? "已开启维护模式" : "已关闭维护模式");
+    } catch (error) {
+      event.target.checked = !event.target.checked;
+      showToast(error.message);
+    }
+  });
+};
+
 const setupHomeActions = () => {
   $("#copyServerAddress")?.addEventListener("click", async () => {
     try {
@@ -565,23 +627,67 @@ const setupHomeActions = () => {
   });
 };
 
+const setupAuth = () => {
+  const form = $("#authForm");
+  if (!form) return;
+  $$("[data-close-auth]").forEach((button) => button.addEventListener("click", closeAuthDialog));
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const mode = event.submitter?.dataset.mode || "login";
+    try {
+      const result = await api(mode === "register" ? "/register" : "/login", {
+        method: "POST",
+        body: JSON.stringify({
+          username: $("#username").value,
+          password: $("#password").value,
+        }),
+      });
+      state.me = result.user;
+      form.reset();
+      closeAuthDialog();
+      await refreshPageData();
+      showToast(mode === "register" ? "注册成功" : "登录成功");
+    } catch (error) {
+      showToast(error.message);
+    }
+  });
+};
+
+const currentProfileQuery = () => new URL(window.location.href).searchParams.get("user") || "";
+
+const loadBaseState = async () => {
+  const me = await api("/me").catch(() => ({ user: null, site: { maintenanceMode: false } }));
+  state.me = me.user;
+  state.site = me.site || { maintenanceMode: false };
+};
+
 const loadPublicData = async () => {
-  const requests = [api("/me").catch(() => ({ user: null }))];
-  if (page === "home") requests.push(api("/announcements").catch(() => ({ items: [] })));
-  if (page === "forum") requests.push(api("/posts").catch(() => ({ items: [] })));
-  const results = await Promise.all(requests);
-  state.me = results[0].user;
-  if (page === "home") state.announcements = results[1].items;
-  if (page === "forum") state.posts = results[1].items;
-  renderAuth();
-  renderProfile();
-  renderLists();
+  await loadBaseState();
+  if (page === "home") {
+    const announcements = await api("/announcements").catch(() => ({ items: [] }));
+    state.announcements = announcements.items;
+  }
+  if (page === "forum") {
+    const posts = await api("/posts").catch(() => ({ items: [] }));
+    state.posts = posts.items;
+  }
+  if (page === "profile") {
+    const username = currentProfileQuery();
+    if (username) {
+      const result = await api(`/profiles/${encodeURIComponent(username)}`).catch(() => ({ profile: null }));
+      state.profile = result.profile;
+      state.posts = state.profile?.posts || [];
+    } else {
+      state.profile = null;
+      state.posts = [];
+    }
+  }
+  renderAll();
 };
 
 const loadAdminData = async () => {
-  const me = await api("/me").catch(() => ({ user: null }));
-  state.me = me.user;
-  renderAuth();
+  await loadBaseState();
+  renderAll();
   renderAdminGate();
   if (!isAdmin()) return;
 
@@ -594,18 +700,36 @@ const loadAdminData = async () => {
   state.announcements = announcements.items;
   state.posts = posts.items;
   state.stats = stats;
+  state.site.maintenanceMode = Boolean(stats.maintenanceMode);
   state.admins = admins.items;
+  renderAll();
   renderStats();
   renderManagement();
   renderAdmins();
 };
 
-$("#closeDialog")?.addEventListener("click", () => $("#readerDialog").close());
+const refreshPageData = async () => {
+  if (page === "admin") return loadAdminData();
+  return loadPublicData();
+};
+
+const renderAll = () => {
+  renderAuth();
+  renderMaintenanceBanner();
+  renderMaintenanceGate();
+  renderLists();
+  renderForumProfileCard();
+  renderProfilePage();
+  if (page === "admin") renderAdminGate();
+};
+
+$("#closeDialog")?.addEventListener("click", () => $("#readerDialog")?.close());
 setupAuth();
 setupEditor();
 setupForumPost();
 setupPublish();
 setupAdminUsers();
+setupMaintenanceToggle();
 setupHomeActions();
 
 if (page === "admin") {

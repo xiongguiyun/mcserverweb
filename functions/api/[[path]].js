@@ -70,16 +70,40 @@ const publicUser = (user) =>
         id: user.id,
         username: user.username,
         role: user.role,
-        minecraft_name: user.minecraft_name,
-        minecraft_uuid: user.minecraft_uuid,
+        created_at: user.created_at,
       }
     : null;
+
+const getSiteSettings = async (env) => {
+  try {
+    const { results } = await env.DB.prepare("SELECT key, value FROM site_settings").all();
+    const map = Object.fromEntries((results || []).map((row) => [row.key, row.value]));
+    return {
+      maintenanceMode: map.maintenance_mode === "on",
+    };
+  } catch (error) {
+    if (/no such table/i.test(messageFromError(error))) {
+      return { maintenanceMode: false, missingTable: true };
+    }
+    throw error;
+  }
+};
+
+const setSiteSetting = async (env, key, value) => {
+  await env.DB.prepare(
+    `INSERT INTO site_settings (key, value, updated_at)
+     VALUES (?, ?, CURRENT_TIMESTAMP)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`,
+  )
+    .bind(key, value)
+    .run();
+};
 
 const currentUser = async (env, request) => {
   const token = getCookie(request, "session");
   if (!token) return null;
   return env.DB.prepare(
-    `SELECT users.id, users.username, users.role, users.minecraft_name, users.minecraft_uuid, users.created_at
+    `SELECT users.id, users.username, users.role, users.created_at
      FROM sessions
      JOIN users ON users.id = sessions.user_id
      WHERE sessions.token = ? AND sessions.expires_at > datetime('now')`,
@@ -104,6 +128,12 @@ const requireAdmin = async (env, request) => {
 
 const ownerUser = async (env) => env.DB.prepare("SELECT id FROM users ORDER BY id ASC LIMIT 1").first();
 
+const me = async (env, request) => {
+  const user = await currentUser(env, request);
+  const site = await getSiteSettings(env);
+  return json({ user: publicUser(user), site: { maintenanceMode: site.maintenanceMode } });
+};
+
 const listAnnouncements = async (env) => {
   const { results } = await env.DB.prepare(
     `SELECT announcements.id, announcements.title, announcements.content_html, announcements.pinned,
@@ -119,13 +149,43 @@ const listAnnouncements = async (env) => {
 const listPosts = async (env) => {
   const { results } = await env.DB.prepare(
     `SELECT posts.id, posts.title, posts.excerpt, posts.content_html, posts.views, posts.created_at,
-            posts.updated_at, users.username AS author, users.minecraft_name, users.minecraft_uuid
+            posts.updated_at, users.username AS author
      FROM posts
      JOIN users ON users.id = posts.author_id
      ORDER BY posts.created_at DESC
      LIMIT 100`,
   ).all();
   return json({ items: results || [] });
+};
+
+const profile = async (env, username) => {
+  const user = await env.DB.prepare(
+    `SELECT id, username, role, created_at
+     FROM users
+     WHERE lower(username) = lower(?)`,
+  )
+    .bind(username)
+    .first();
+  if (!user) return json({ error: "没有找到这个玩家" }, 404);
+  const posts = await env.DB.prepare(
+    `SELECT id, title, excerpt, content_html, views, created_at, updated_at
+     FROM posts
+     WHERE author_id = ?
+     ORDER BY created_at DESC
+     LIMIT 20`,
+  )
+    .bind(user.id)
+    .all();
+  return json({
+    profile: {
+      id: user.id,
+      username: user.username,
+      role: user.role,
+      created_at: user.created_at,
+      postCount: (posts.results || []).length,
+      posts: posts.results || [],
+    },
+  });
 };
 
 const register = async (env, request) => {
@@ -154,9 +214,7 @@ const login = async (env, request, overrideBody = null) => {
   const body = overrideBody || (await readBody(request));
   const username = String(body.username || "").trim();
   const password = String(body.password || "");
-  const user = await env.DB.prepare(
-    "SELECT id, username, password_hash, role, minecraft_name, minecraft_uuid FROM users WHERE username = ?",
-  )
+  const user = await env.DB.prepare("SELECT id, username, password_hash, role, created_at FROM users WHERE username = ?")
     .bind(username)
     .first();
   if (!user || !(await verifyPassword(password, user.password_hash))) {
@@ -260,87 +318,18 @@ const trackView = async (env, type, id) => {
   return json({ ok: true });
 };
 
-const lookupMinecraft = async (minecraftName) => {
-  if (!/^[A-Za-z0-9_]{3,16}$/.test(minecraftName)) {
-    throw new Response(JSON.stringify({ error: "Minecraft 用户名需要 3-16 位，只能包含字母、数字和下划线" }), { status: 400 });
-  }
-  let response;
-  try {
-    response = await fetch(`https://api.mojang.com/users/profiles/minecraft/${encodeURIComponent(minecraftName)}`, {
-      headers: { Accept: "application/json" },
-    });
-  } catch (error) {
-    throw new Response(JSON.stringify({ error: `连接 Mojang 验证服务失败: ${messageFromError(error, "网络错误")}` }), {
-      status: 502,
-    });
-  }
-  if (response.status === 204 || response.status === 404) {
-    throw new Response(JSON.stringify({ error: "没有找到这个正版 Minecraft 用户名" }), { status: 404 });
-  }
-  if (!response.ok) {
-    throw new Response(JSON.stringify({ error: "暂时无法验证 Minecraft 用户名，请稍后再试" }), { status: 502 });
-  }
-  try {
-    return await response.json();
-  } catch {
-    throw new Response(JSON.stringify({ error: "Minecraft 验证服务返回了无法识别的数据" }), { status: 502 });
-  }
-};
-
-const bindMinecraft = async (env, request) => {
-  try {
-    const user = await requireUser(env, request);
-    const body = await readBody(request);
-    const minecraftName = String(body.minecraftName || "").trim();
-    const profile = await lookupMinecraft(minecraftName);
-
-    try {
-      await env.DB.prepare("UPDATE users SET minecraft_name = ?, minecraft_uuid = ? WHERE id = ?")
-        .bind(profile.name, profile.id, user.id)
-        .run();
-    } catch (error) {
-      const message = messageFromError(error);
-      if (/no such column/i.test(message)) {
-        return json({ error: `数据库结构未更新完整: ${message}。请在 Cloudflare D1 中补齐缺失列后再试。` }, 500);
-      }
-      return json({ error: `保存 Minecraft 绑定失败: ${message}` }, 500);
-    }
-
-    const updated = await env.DB.prepare(
-      "SELECT id, username, role, minecraft_name, minecraft_uuid FROM users WHERE id = ?",
-    )
-      .bind(user.id)
-      .first();
-    return json({ user: publicUser(updated) });
-  } catch (error) {
-    if (error instanceof Response) throw error;
-    return json({ error: `Minecraft 用户名验证失败: ${messageFromError(error, "未知错误")}` }, 502);
-  }
-};
-
-const unbindMinecraft = async (env, request) => {
-  const user = await requireUser(env, request);
-  await env.DB.prepare("UPDATE users SET minecraft_name = NULL, minecraft_uuid = NULL WHERE id = ?").bind(user.id).run();
-  const updated = await env.DB.prepare(
-    "SELECT id, username, role, minecraft_name, minecraft_uuid FROM users WHERE id = ?",
-  )
-    .bind(user.id)
-    .first();
-  return json({ user: publicUser(updated) });
-};
-
 const stats = async (env, request) => {
   await requireAdmin(env, request);
+  const site = await getSiteSettings(env);
   const announcementViews = await env.DB.prepare("SELECT COALESCE(SUM(views), 0) AS total FROM announcements").first();
   const postViews = await env.DB.prepare("SELECT COALESCE(SUM(views), 0) AS total FROM posts").first();
   const userCount = await env.DB.prepare("SELECT COUNT(*) AS total FROM users").first();
-  const boundCount = await env.DB.prepare("SELECT COUNT(*) AS total FROM users WHERE minecraft_name IS NOT NULL").first();
   return json({
     totalViews: Number(announcementViews.total || 0) + Number(postViews.total || 0),
     announcementViews: Number(announcementViews.total || 0),
     postViews: Number(postViews.total || 0),
     userCount: Number(userCount.total || 0),
-    boundCount: Number(boundCount.total || 0),
+    maintenanceMode: site.maintenanceMode,
   });
 };
 
@@ -348,7 +337,7 @@ const listAdmins = async (env, request) => {
   await requireAdmin(env, request);
   const owner = await ownerUser(env);
   const { results } = await env.DB.prepare(
-    `SELECT id, username, role, minecraft_name, minecraft_uuid, created_at
+    `SELECT id, username, role, created_at
      FROM users
      WHERE role = 'admin'
      ORDER BY id ASC`,
@@ -375,18 +364,24 @@ const removeAdmin = async (env, request, id) => {
   return json({ ok: true });
 };
 
+const updateMaintenance = async (env, request) => {
+  await requireAdmin(env, request);
+  const body = await readBody(request);
+  const enabled = Boolean(body.enabled);
+  await setSiteSetting(env, "maintenance_mode", enabled ? "on" : "off");
+  return json({ ok: true, maintenanceMode: enabled });
+};
+
 export async function onRequest(context) {
   const { request, env, params } = context;
   const pathname = `/${(params.path || []).join("/")}`;
   const method = request.method;
 
   try {
-    if (method === "GET" && pathname === "/me") return json({ user: publicUser(await currentUser(env, request)) });
+    if (method === "GET" && pathname === "/me") return me(env, request);
     if (method === "POST" && pathname === "/register") return register(env, request);
     if (method === "POST" && pathname === "/login") return login(env, request);
     if (method === "POST" && pathname === "/logout") return logout(env, request);
-    if (method === "PUT" && pathname === "/me/minecraft") return bindMinecraft(env, request);
-    if (method === "DELETE" && pathname === "/me/minecraft") return unbindMinecraft(env, request);
 
     if (method === "GET" && pathname === "/announcements") return listAnnouncements(env);
     if (method === "POST" && pathname === "/announcements") return createAnnouncement(env, request);
@@ -401,6 +396,9 @@ export async function onRequest(context) {
     if (method === "POST" && pathname === "/posts") return createPost(env, request);
     if (method === "PUT" && /^\/posts\/\d+$/.test(pathname)) return updatePost(env, request, pathname.split("/").at(-1));
     if (method === "DELETE" && /^\/posts\/\d+$/.test(pathname)) return deletePost(env, request, pathname.split("/").at(-1));
+    if (method === "GET" && /^\/profiles\/[^/]+$/.test(pathname)) {
+      return profile(env, decodeURIComponent(pathname.split("/").at(-1)));
+    }
 
     if (method === "POST" && /^\/track-view\/(announcement|post)\/\d+$/.test(pathname)) {
       const [, , type, id] = pathname.split("/");
@@ -412,6 +410,7 @@ export async function onRequest(context) {
     if (method === "DELETE" && /^\/admin\/users\/\d+$/.test(pathname)) {
       return removeAdmin(env, request, pathname.split("/").at(-1));
     }
+    if (method === "PUT" && pathname === "/admin/settings/maintenance") return updateMaintenance(env, request);
 
     return json({ error: "接口不存在" }, 404);
   } catch (error) {

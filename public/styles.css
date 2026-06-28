@@ -115,6 +115,15 @@ select {
   min-width: 0;
 }
 
+.user-entry {
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+.user-entry:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
 .user-avatar {
   width: 28px;
   height: 28px;
@@ -124,6 +133,11 @@ select {
   border: 2px solid rgba(255, 255, 255, 0.18);
   border-radius: 4px;
   background: #2a2a34;
+}
+
+.user-avatar.large {
+  width: 48px;
+  height: 48px;
 }
 
 .user-chip {
@@ -555,6 +569,10 @@ select {
   background: linear-gradient(135deg, #2b1d16, #493120 55%, #1d1713);
 }
 
+.profile-hero {
+  background: linear-gradient(135deg, #231c18, #4a3021 55%, #1d1713);
+}
+
 .admin-shell {
   display: grid;
   gap: 26px;
@@ -587,6 +605,27 @@ select {
 .editor-card,
 .admin-locked {
   padding: 24px;
+}
+
+.maintenance-admin-card,
+.profile-page-card {
+  padding: 22px;
+  background: #fffaf0;
+  border: 2px solid #ead4a6;
+  box-shadow: 0 10px 30px rgba(26, 18, 12, 0.08);
+}
+
+.maintenance-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+}
+
+.maintenance-toggle input {
+  width: 20px;
+  min-height: 20px;
+  accent-color: var(--accent);
 }
 
 .admin-table {
@@ -864,6 +903,69 @@ dialog::backdrop {
   line-height: 1.78;
 }
 
+.author-link {
+  color: #7b4d17;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.skin-link {
+  align-self: flex-start;
+}
+
+.profile-card-link {
+  display: grid;
+  gap: 16px;
+  color: inherit;
+}
+
+.profile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.profile-page {
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+  gap: 26px;
+  padding: 36px clamp(18px, 5vw, 72px) 72px;
+}
+
+.profile-panel,
+.profile-posts {
+  display: grid;
+  align-content: start;
+  gap: 18px;
+}
+
+.profile-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.profile-summary div {
+  padding: 16px;
+  text-align: center;
+  background: #f7ecd7;
+  border: 2px solid #ead4a6;
+}
+
+.profile-summary strong,
+.profile-summary span {
+  display: block;
+}
+
+.profile-summary span {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 850;
+}
+
 .toast {
   position: fixed;
   right: 18px;
@@ -914,6 +1016,60 @@ dialog::backdrop {
   font-weight: 750;
 }
 
+.maintenance-banner {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  padding: 10px 18px;
+  color: #fffaf0;
+  background: #9b3d28;
+  text-align: center;
+  font-weight: 900;
+}
+
+.maintenance-gate {
+  min-height: calc(100vh - 76px);
+  display: grid;
+  place-items: center;
+  padding: 32px 18px;
+  background: linear-gradient(180deg, #271a13, #1b1410);
+}
+
+.maintenance-card {
+  width: min(560px, 100%);
+  padding: 30px;
+  color: #fff6e8;
+  text-align: center;
+  background: rgba(48, 33, 24, 0.92);
+  border: 2px solid rgba(255, 220, 120, 0.28);
+  box-shadow: var(--shadow);
+}
+
+.maintenance-card h1 {
+  margin: 0;
+  font-size: clamp(34px, 7vw, 56px);
+}
+
+.maintenance-card p {
+  color: #f0d8ad;
+}
+
+.maintenance-user {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 14px;
+  align-items: center;
+  margin-top: 18px;
+  padding: 16px;
+  text-align: left;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.maintenance-user p {
+  margin: 6px 0 0;
+}
+
 @media (max-width: 980px) {
   .site-header {
     grid-template-columns: 1fr;
@@ -932,7 +1088,8 @@ dialog::backdrop {
   .feature-band,
   .list,
   .stats-grid,
-  .forum-controls {
+  .forum-controls,
+  .profile-page {
     grid-template-columns: 1fr;
   }
 
@@ -998,5 +1155,10 @@ dialog::backdrop {
 
   #readerContent {
     padding: 28px 18px;
+  }
+
+  .maintenance-user {
+    grid-template-columns: 1fr;
+    text-align: center;
   }
 }

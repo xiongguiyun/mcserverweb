@@ -1,6 +1,6 @@
 # Liou_Yang Server
 
-一个 Minecraft 风格的宣传站，包含主页宣传、论坛公告、玩家论坛、注册登录、富文本编辑器、Bilibili 视频嵌入，以及正版 Minecraft 用户名绑定。
+一个 Minecraft 风格的宣传站，包含主页宣传、论坛公告、玩家论坛、注册登录、富文本编辑器、Bilibili 视频嵌入、独立玩家资料页和维护模式。
 
 ## 本地运行
 
@@ -54,6 +54,11 @@ ALTER TABLE announcements ADD COLUMN views INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE posts ADD COLUMN views INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE users ADD COLUMN minecraft_name TEXT;
 ALTER TABLE users ADD COLUMN minecraft_uuid TEXT;
+CREATE TABLE IF NOT EXISTS site_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 ```
 
 如果提示 `duplicate column name`，说明该列已经存在，可以忽略。
@@ -64,9 +69,12 @@ ALTER TABLE users ADD COLUMN minecraft_uuid TEXT;
 - 主页可一键复制服务器地址。
 - 公告区单独展示，论坛是独立页面。
 - 注册用户可以自由发帖。
-- 所有注册用户都可以绑定、解绑、换绑正版 Minecraft 用户名。
-- 绑定后帖子会显示对应皮肤人物；未绑定时显示项目内置占位皮肤。
+- 玩家皮肤和头像通过站内用户名直接识别显示。
+- 点击顶部头像或用户名可进入独立玩家资料页。
+- 玩家资料页会展示角色形象、账号类型和最近帖子。
 - 管理员可以发布公告、编辑或删除全部论坛内容、添加或删除管理员。
+- 管理员可在后台开启或关闭维护模式。
+- 维护模式开启后，普通访客显示维护界面，管理员仍可正常进入网站并看到维护提示。
 - 第一个注册用户的管理员权限不能删除。
 - 编辑器支持：
   `粗体`、`斜体`、`字号`、`段落格式`、`文本颜色`、`中划线`、`下划线`、`链接`、`图片`、`表格`、`内联遮挡`、`水平线`、`折叠`、`引用`、`代码`、`Bilibili 视频`
@@ -74,7 +82,7 @@ ALTER TABLE users ADD COLUMN minecraft_uuid TEXT;
 ## 如何更新网站
 
 1. 把 `E:\网站` 里的修改推送到你的 GitHub 仓库。
-2. 如果这次有数据库字段更新，先去 Cloudflare D1 控制台执行上面的 `ALTER TABLE`。
+2. 如果这次有数据库字段更新，先去 Cloudflare D1 控制台执行上面的 SQL。
 3. 回到 Cloudflare Pages 项目，进入 `Deployments`。
 4. 点击 `Retry deployment`，或者重新 push 一次代码触发自动部署。
 
