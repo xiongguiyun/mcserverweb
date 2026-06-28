@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>方境 BlockHaven | 我的世界服务器</title>
+    <meta
+      name="description"
+      content="方境 BlockHaven 我的世界服务器宣传站、公告论坛和玩家论坛。"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="#home" aria-label="方境首页">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span>方境 BlockHaven</span>
+      </a>
+      <nav class="top-nav" aria-label="主导航">
+        <a href="#home">主页</a>
+        <a href="#announcements">公告</a>
+        <a href="#forum">玩家论坛</a>
+        <a href="#publish">发布</a>
+      </nav>
+      <div class="auth-actions" id="authActions"></div>
+    </header>
+
+    <main>
+      <section class="hero" id="home">
+        <div class="hero-copy">
+          <h1>在方块世界里，建一座真正有人气的家。</h1>
+          <p>
+            生存、建筑、红石、城镇与玩家故事聚在同一个服务器。公告、活动和玩家文章都会在这里更新。
+          </p>
+          <div class="hero-actions">
+            <a class="button primary" href="#forum">浏览玩家论坛</a>
+            <a class="button ghost" href="#publish">发布文章</a>
+          </div>
+          <dl class="server-panel">
+            <div>
+              <dt>服务器地址</dt>
+              <dd>play.blockhaven.cn</dd>
+            </div>
+            <div>
+              <dt>版本</dt>
+              <dd>Java 1.20+</dd>
+            </div>
+            <div>
+              <dt>玩法</dt>
+              <dd>生存 / 建筑 / 活动</dd>
+            </div>
+          </dl>
+        </div>
+        <div class="world-scene" aria-hidden="true">
+          <div class="sun"></div>
+          <div class="cloud cloud-a"></div>
+          <div class="cloud cloud-b"></div>
+          <div class="floating-island">
+            <span class="tree trunk"></span>
+            <span class="tree crown"></span>
+            <span class="torch"></span>
+          </div>
+          <div class="terrain">
+            <span></span><span></span><span></span><span></span><span></span>
+          </div>
+        </div>
+      </section>
+
+      <section class="feature-band" aria-label="服务器特色">
+        <article>
+          <span class="feature-icon grass"></span>
+          <h2>长期生存</h2>
+          <p>经济、领地与社区项目围绕玩家长期建设展开，避免快餐式开荒。</p>
+        </article>
+        <article>
+          <span class="feature-icon redstone"></span>
+          <h2>活动公告</h2>
+          <p>管理员可发布富文本公告，支持插入 Bilibili 视频。</p>
+        </article>
+        <article>
+          <span class="feature-icon book"></span>
+          <h2>玩家创作</h2>
+          <p>注册玩家可以分享教程、建筑记录、游记和招募帖。</p>
+        </article>
+      </section>
+
+      <section class="content-grid" id="announcements">
+        <div class="section-title">
+          <h2>论坛公告</h2>
+          <p>服务器更新、活动安排和重要通知。</p>
+        </div>
+        <div class="list" id="announcementList"></div>
+      </section>
+
+      <section class="content-grid forum-section" id="forum">
+        <div class="section-title">
+          <h2>玩家论坛</h2>
+          <p>玩家发布的攻略、建筑展示与服务器日常。</p>
+        </div>
+        <div class="list" id="postList"></div>
+      </section>
+
+      <section class="publish-section" id="publish">
+        <div class="section-title">
+          <h2>发布内容</h2>
+          <p>像 Word 一样编辑正文：加粗、标题、列表、链接和 Bilibili 视频。</p>
+        </div>
+        <div class="publish-layout">
+          <form class="editor-card" id="publishForm">
+            <div class="form-row">
+              <label for="contentType">类型</label>
+              <select id="contentType" name="type">
+                <option value="post">玩家文章</option>
+                <option value="announcement">管理员公告</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <label for="title">标题</label>
+              <input id="title" name="title" maxlength="80" required placeholder="例如：周末建筑赛报名开始" />
+            </div>
+            <div class="toolbar" aria-label="编辑工具栏">
+              <button type="button" data-command="bold" title="加粗"><strong>B</strong></button>
+              <button type="button" data-command="italic" title="斜体"><em>I</em></button>
+              <button type="button" data-format="h2" title="标题">H2</button>
+              <button type="button" data-command="insertUnorderedList" title="无序列表">•</button>
+              <button type="button" data-command="insertOrderedList" title="有序列表">1.</button>
+              <button type="button" id="linkButton" title="插入链接">链接</button>
+              <button type="button" id="bilibiliButton" title="插入 Bilibili 视频">Bilibili</button>
+            </div>
+            <div
+              class="rich-editor"
+              id="editor"
+              contenteditable="true"
+              role="textbox"
+              aria-label="正文编辑器"
+            ></div>
+            <button class="button primary submit-button" type="submit">发布</button>
+          </form>
+          <aside class="login-panel">
+            <h3>账号</h3>
+            <form id="authForm">
+              <input id="username" autocomplete="username" placeholder="用户名" required />
+              <input id="password" type="password" autocomplete="current-password" placeholder="密码" required />
+              <div class="split-actions">
+                <button class="button primary" type="submit" data-mode="login">登录</button>
+                <button class="button ghost" type="submit" data-mode="register">注册</button>
+              </div>
+            </form>
+            <p id="authHint">
+              第一个注册用户会自动成为管理员，之后注册的是普通玩家。
+            </p>
+          </aside>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="readerDialog">
+      <button class="dialog-close" type="button" id="closeDialog" aria-label="关闭">×</button>
+      <article id="readerContent"></article>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
