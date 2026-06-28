@@ -6,22 +6,14 @@ const state = {
   stats: null,
   admins: [],
   profile: null,
+  trash: { announcements: [], posts: [] },
+  editingPostId: null,
 };
 
 const page = document.body.dataset.page;
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const serverAddress = "play.blockhaven.cn";
-
-const copyErrorToClipboard = async (message) => {
-  if (!message || !navigator.clipboard?.writeText) return false;
-  try {
-    await navigator.clipboard.writeText(message);
-    return true;
-  } catch {
-    return false;
-  }
-};
 
 const api = async (path, options = {}) => {
   const response = await fetch(`/api${path}`, {
@@ -38,10 +30,9 @@ const api = async (path, options = {}) => {
   }
   if (!response.ok) {
     const message = payload.error || `请求失败 (${response.status})`;
-    const copied = await copyErrorToClipboard(message);
-    const error = new Error(copied ? `${message}（真实错误已自动复制）` : message);
-    error.copied = copied;
-    error.rawMessage = message;
+    navigator.clipboard?.writeText(message).catch(() => {});
+    const error = new Error(`${message}（真实错误已自动复制）`);
+    error.payload = payload;
     throw error;
   }
   return payload;
@@ -81,23 +72,36 @@ const formatDate = (value) =>
   }).format(new Date(value));
 
 const isAdmin = () => state.me?.role === "admin";
-const profileName = (user) => user?.username || "玩家";
+const isSelfName = (username) => state.me?.username?.toLowerCase() === String(username || "").toLowerCase();
 const skinUrl = (name, size = 210) => `https://mc-heads.net/body/${encodeURIComponent(name)}/${size}`;
 const avatarUrl = (name, size = 32) => `https://mc-heads.net/avatar/${encodeURIComponent(name)}/${size}`;
 const activeSkinSrc = (user, size = 210) => (user?.username ? skinUrl(user.username, size) : "/assets/unbound-skin.png");
 const activeAvatarSrc = (user, size = 32) => (user?.username ? avatarUrl(user.username, size) : "/assets/unbound-skin.png");
 const profileHref = (username) => `/profile.html?user=${encodeURIComponent(username)}`;
-const maintenanceActive = () => Boolean(state.site?.maintenanceMode);
-
-const copyText = async (value, label) => {
-  await navigator.clipboard.writeText(value);
-  showToast(`${label}已复制`);
-};
+const currentProfileQuery = () => new URL(window.location.href).searchParams.get("user") || state.me?.username || "";
 
 const openAuthDialog = () => $("#authDialog")?.showModal();
 const closeAuthDialog = () => $("#authDialog")?.close();
 const openPostDialog = () => $("#postDialog")?.showModal();
 const closePostDialog = () => $("#postDialog")?.close();
+
+const authExtraFields = () => {
+  const form = $("#authForm");
+  if (!form || $("#authExtras")) return;
+  const extras = document.createElement("div");
+  extras.id = "authExtras";
+  extras.className = "auth-extra-fields";
+  extras.innerHTML = `
+    <input id="email" autocomplete="email" placeholder="邮箱（Outlook / Google / QQ / 网易）" />
+    <div class="inline-form compact">
+      <input id="emailCode" inputmode="numeric" maxlength="6" placeholder="邮箱验证码" />
+      <button class="button ghost" id="sendEmailCode" type="button">发送验证码</button>
+    </div>
+    <input id="totpCode" inputmode="numeric" maxlength="6" placeholder="双重验证码（已开启时填写）" />
+    <button class="button ghost" id="forgotPasswordButton" type="button">找回密码</button>
+  `;
+  form.insertBefore(extras, form.querySelector(".split-actions"));
+};
 
 const renderAuth = () => {
   const actions = $("#authActions");
@@ -109,10 +113,9 @@ const renderAuth = () => {
   if (!state.me) {
     actions.innerHTML = `<button class="button small primary" type="button" data-open-auth>登录 / 注册</button>`;
   } else {
-    const avatar = activeAvatarSrc(state.me, 32);
     actions.innerHTML = `
       <a class="user-badge user-entry" href="${profileHref(state.me.username)}">
-        <img class="user-avatar" src="${avatar}" alt="" />
+        <img class="user-avatar" src="${activeAvatarSrc(state.me, 32)}" alt="" />
         <span class="user-chip">${escapeHtml(state.me.username)}${isAdmin() ? " · 管理员" : ""}</span>
       </a>
       <button class="button small ghost" id="logoutButton" type="button">退出</button>
@@ -124,13 +127,37 @@ const renderAuth = () => {
       showToast("已退出登录");
     });
   }
-
   $$("[data-open-auth]").forEach((button) => button.addEventListener("click", openAuthDialog));
+};
+
+const renderEmailGuard = () => {
+  let guard = $("#emailGuard");
+  if (!state.me || state.me.email_verified) {
+    guard?.remove();
+    return;
+  }
+  if (!guard) {
+    guard = document.createElement("section");
+    guard.id = "emailGuard";
+    guard.className = "email-guard";
+    document.querySelector("main")?.prepend(guard);
+  }
+  guard.innerHTML = `
+    <div>
+      <strong>请先绑定邮箱</strong>
+      <p>旧账号需要绑定并验证邮箱后才能继续发帖、编辑内容和使用后台。</p>
+    </div>
+    <button class="button primary" type="button" data-open-email-panel>绑定邮箱</button>
+  `;
+  $("[data-open-email-panel]")?.addEventListener("click", () => {
+    if (page !== "profile") window.location.href = profileHref(state.me.username);
+    else $("#profileEmail")?.focus();
+  });
 };
 
 const renderMaintenanceBanner = () => {
   let banner = $("#maintenanceBanner");
-  if (!maintenanceActive() || !isAdmin()) {
+  if (!state.site?.maintenanceMode || !isAdmin()) {
     banner?.remove();
     return;
   }
@@ -147,36 +174,27 @@ const renderMaintenanceGate = () => {
   const gate = $("#maintenanceGate");
   if (!gate) return;
   const main = document.querySelector("main");
-  if (!maintenanceActive() || isAdmin()) {
+  if (!state.site?.maintenanceMode || isAdmin()) {
     gate.hidden = true;
     if (main) main.hidden = false;
     return;
   }
   gate.hidden = false;
   if (main) main.hidden = true;
-  const body = $("#maintenanceGateBody");
-  if (body) {
-    body.innerHTML = state.me
-      ? `
-        <div class="maintenance-user">
-          <img class="user-avatar large" src="${activeAvatarSrc(state.me, 48)}" alt="" />
-          <div>
-            <strong>${escapeHtml(state.me.username)}</strong>
-            <p>你已登录，网站当前正在维护，请稍后再来。</p>
-          </div>
-        </div>
-      `
-      : `
-        <p>网站正在维护中，稍后会重新开放。</p>
-        <button class="button primary" type="button" data-open-auth>登录账户</button>
-      `;
-  }
+  $("#maintenanceGateBody").innerHTML = state.me
+    ? `
+      <div class="maintenance-user">
+        <img class="user-avatar large" src="${activeAvatarSrc(state.me, 48)}" alt="" />
+        <div><strong>${escapeHtml(state.me.username)}</strong><p>你已登录，网站当前正在维护，请稍后再来。</p></div>
+      </div>`
+    : `<p>网站正在维护中，稍后会重新开放。</p><button class="button primary" type="button" data-open-auth>登录账户</button>`;
   $$("[data-open-auth]").forEach((button) => button.addEventListener("click", openAuthDialog));
 };
 
 const cardTemplate = (item, type) => {
   const excerpt = item.excerpt || textFromHtml(item.content_html).slice(0, 110);
   const author = item.author || "玩家";
+  const canManagePost = type === "post" && (isAdmin() || isSelfName(author));
   const skin =
     type === "post"
       ? `<a class="skin-link" href="${profileHref(author)}"><img class="skin-figure" src="${skinUrl(author, 170)}" alt="" loading="lazy" /></a>`
@@ -191,7 +209,15 @@ const cardTemplate = (item, type) => {
         ${formatDate(item.created_at)}
       </div>
       <p>${escapeHtml(excerpt || "暂无摘要。")}</p>
-      <button class="button ghost read-button" type="button" data-type="${type}" data-id="${item.id}">阅读</button>
+      <div class="card-actions">
+        <button class="button ghost read-button" type="button" data-type="${type}" data-id="${item.id}">阅读</button>
+        ${
+          canManagePost
+            ? `<button class="button ghost" type="button" data-edit-post="${item.id}">编辑</button>
+               <button class="button danger" type="button" data-delete-post="${item.id}">删除</button>`
+            : ""
+        }
+      </div>
     </article>
   `;
 };
@@ -203,16 +229,37 @@ const renderLists = () => {
       ? state.announcements.map((item) => cardTemplate(item, "announcement")).join("")
       : `<div class="empty">还没有公告。</div>`;
   }
-
   const postList = $("#postList");
   if (postList) {
     postList.innerHTML = state.posts.length
       ? state.posts.map((item) => cardTemplate(item, "post")).join("")
       : `<div class="empty">还没有帖子，来发第一篇吧。</div>`;
   }
+  bindContentButtons();
+};
 
+const bindContentButtons = () => {
   $$(".read-button").forEach((button) => {
     button.addEventListener("click", () => openReader(button.dataset.type, Number(button.dataset.id)));
+  });
+  $$("[data-edit-post]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const post = state.posts.find((item) => item.id === Number(button.dataset.editPost));
+      if (!post) return;
+      state.editingPostId = post.id;
+      $("#forumTitle").value = post.title;
+      $("#editor").innerHTML = post.content_html;
+      $("#forumPostSubmit").textContent = "保存修改";
+      openPostDialog();
+    });
+  });
+  $$("[data-delete-post]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      if (!window.confirm("删除后会进入回收站，7 天后彻底删除。确定继续吗？")) return;
+      await api(`/posts/${button.dataset.deletePost}`, { method: "DELETE" });
+      await loadPublicData();
+      showToast("帖子已移入回收站");
+    });
   });
 };
 
@@ -225,10 +272,7 @@ const openReader = (type, id) => {
   const author = item.author || "玩家";
   $("#readerContent").innerHTML = `
     <h1>${escapeHtml(item.title)}</h1>
-    <div class="meta">
-      <a class="author-link" href="${profileHref(author)}">${escapeHtml(author)}</a> ·
-      ${formatDate(item.created_at)} · ${item.views || 0} 次浏览
-    </div>
+    <div class="meta"><a class="author-link" href="${profileHref(author)}">${escapeHtml(author)}</a> · ${formatDate(item.created_at)} · ${item.views || 0} 次浏览</div>
     <div class="reader-body">${item.content_html}</div>
   `;
   $("#readerDialog")?.showModal();
@@ -243,86 +287,51 @@ const command = (name, value = null) => {
 
 const insertHtmlBlock = (html) => command("insertHTML", html);
 
-const normalizeBilibili = (value) => {
-  const trimmed = value.trim();
-  const bv = trimmed.match(/BV[a-zA-Z0-9]{8,12}/)?.[0];
-  if (bv) return `https://player.bilibili.com/player.html?bvid=${encodeURIComponent(bv)}`;
-  const av = trimmed.match(/(?:av|aid=)(\d+)/i)?.[1];
-  if (av) return `https://player.bilibili.com/player.html?aid=${encodeURIComponent(av)}`;
-  return null;
-};
-
 const setupEditor = () => {
   if (!$("#editor")) return;
-  $$("[data-command]").forEach((button) => {
-    button.addEventListener("click", () => command(button.dataset.command));
-  });
-
+  $$("[data-command]").forEach((button) => button.addEventListener("click", () => command(button.dataset.command)));
   $("#fontSizeSelect")?.addEventListener("change", (event) => {
     if (event.target.value) command("fontSize", event.target.value);
     event.target.value = "";
   });
-
   $("#blockFormatSelect")?.addEventListener("change", (event) => {
     if (event.target.value) command("formatBlock", event.target.value);
     event.target.value = "";
   });
-
   $("#linkButton")?.addEventListener("click", () => {
     const url = window.prompt("输入链接地址");
     if (url) command("createLink", url);
   });
-
   $("#imageButton")?.addEventListener("click", () => {
     const url = window.prompt("输入图片链接");
     if (url) insertHtmlBlock(`<p><img src="${escapeHtml(url)}" alt="" class="inline-image" /></p>`);
   });
-
-  $("#tableButton")?.addEventListener("click", () => {
-    insertHtmlBlock(
-      `<table class="inline-table"><tr><th>列 1</th><th>列 2</th></tr><tr><td>内容</td><td>内容</td></tr></table><p><br></p>`,
-    );
-  });
-
-  $("#spoilerButton")?.addEventListener("click", () => {
-    insertHtmlBlock(`<span class="spoiler-inline">隐藏内容</span>`);
-  });
-
-  $("#hrButton")?.addEventListener("click", () => {
-    insertHtmlBlock(`<hr class="inline-rule" />`);
-  });
-
-  $("#detailsButton")?.addEventListener("click", () => {
-    insertHtmlBlock(`<details class="inline-details"><summary>点击展开</summary><p>折叠内容</p></details><p><br></p>`);
-  });
-
-  $("#codeButton")?.addEventListener("click", () => {
-    insertHtmlBlock(`<pre class="inline-code"><code>// code</code></pre><p><br></p>`);
-  });
-
-  $("#quoteButton")?.addEventListener("click", () => {
-    insertHtmlBlock(`<blockquote>引用内容</blockquote><p><br></p>`);
-  });
-
+  $("#tableButton")?.addEventListener("click", () =>
+    insertHtmlBlock(`<table class="inline-table"><tr><th>列 1</th><th>列 2</th></tr><tr><td>内容</td><td>内容</td></tr></table><p><br></p>`),
+  );
+  $("#spoilerButton")?.addEventListener("click", () => insertHtmlBlock(`<span class="spoiler-inline">隐藏内容</span>`));
+  $("#hrButton")?.addEventListener("click", () => insertHtmlBlock(`<hr class="inline-rule" />`));
+  $("#detailsButton")?.addEventListener("click", () => insertHtmlBlock(`<details class="inline-details"><summary>点击展开</summary><p>折叠内容</p></details><p><br></p>`));
+  $("#codeButton")?.addEventListener("click", () => insertHtmlBlock(`<pre class="inline-code"><code>// code</code></pre><p><br></p>`));
+  $("#quoteButton")?.addEventListener("click", () => insertHtmlBlock(`<blockquote>引用内容</blockquote><p><br></p>`));
   $("#colorButton")?.addEventListener("click", () => {
     const color = window.prompt("输入文本颜色，例如 #ff6600");
     if (color) command("foreColor", color);
   });
-
   $("#bilibiliButton")?.addEventListener("click", () => {
     const input = window.prompt("粘贴 Bilibili 链接、BV 号或 av 号");
-    if (!input) return;
-    const normalized = normalizeBilibili(input);
-    if (!normalized) return showToast("没有识别到有效的 Bilibili 视频 ID");
-    insertHtmlBlock(`<p><iframe src="${normalized}" allowfullscreen loading="lazy"></iframe></p><p><br></p>`);
+    const bv = input?.match(/BV[a-zA-Z0-9]{8,12}/)?.[0];
+    const av = input?.match(/(?:av|aid=)(\d+)/i)?.[1];
+    const src = bv ? `https://player.bilibili.com/player.html?bvid=${encodeURIComponent(bv)}` : av ? `https://player.bilibili.com/player.html?aid=${encodeURIComponent(av)}` : null;
+    if (!src) return showToast("没有识别到有效的 Bilibili 视频 ID");
+    insertHtmlBlock(`<p><iframe src="${src}" allowfullscreen loading="lazy"></iframe></p><p><br></p>`);
   });
-
-  const moreButton = $("#moreButton");
-  const moreMenu = $("#moreMenu");
-  moreButton?.addEventListener("click", () => {
-    const isOpen = moreButton.getAttribute("aria-expanded") === "true";
-    moreButton.setAttribute("aria-expanded", String(!isOpen));
-    if (moreMenu) moreMenu.hidden = isOpen;
+  $("#moreButton")?.addEventListener("click", () => {
+    const button = $("#moreButton");
+    const menu = $("#moreMenu");
+    const isOpen = button.getAttribute("aria-expanded") === "true";
+    button.setAttribute("aria-expanded", String(!isOpen));
+    if (menu) menu.hidden = isOpen;
   });
 };
 
@@ -332,25 +341,20 @@ const renderForumProfileCard = () => {
   if (!state.me) {
     card.innerHTML = `
       <h2>玩家资料</h2>
-      <div class="skin-stage">
-        <img src="/assets/unbound-skin.png" alt="" loading="lazy" />
-      </div>
+      <div class="skin-stage"><img src="/assets/unbound-skin.png" alt="" loading="lazy" /></div>
       <p>登录后可发布帖子，也能从头像或昵称进入你的独立资料页。</p>
       <button class="button primary" type="button" data-open-auth>登录 / 注册</button>
     `;
     $$("[data-open-auth]").forEach((button) => button.addEventListener("click", openAuthDialog));
     return;
   }
-
   card.innerHTML = `
     <h2>玩家资料</h2>
     <a class="profile-card-link" href="${profileHref(state.me.username)}">
-      <div class="skin-stage">
-        <img src="${activeSkinSrc(state.me, 210)}" alt="" loading="lazy" />
-      </div>
-      <div class="profile-name">
+      <div class="skin-stage"><img src="${activeSkinSrc(state.me, 210)}" alt="" loading="lazy" /></div>
+      <div class="profile-name ${state.me.last_seen_at ? "online" : ""}">
         <strong>${escapeHtml(state.me.username)}</strong>
-        <span>${isAdmin() ? "管理员账号" : "注册玩家"}</span>
+        <span>${isAdmin() ? "管理员" : "成员"} · ${state.me.email_verified ? "邮箱已验证" : "待绑定邮箱"}</span>
       </div>
     </a>
     <div class="profile-actions">
@@ -370,73 +374,109 @@ const renderProfilePage = () => {
     posts.innerHTML = "";
     return;
   }
-
   panel.innerHTML = `
     <div class="profile-page-card">
-      <div class="skin-stage large">
-        <img src="${activeSkinSrc(profile, 240)}" alt="" loading="lazy" />
-      </div>
-      <div class="profile-name">
+      <div class="skin-stage large"><img src="${activeSkinSrc(profile, 240)}" alt="" loading="lazy" /></div>
+      <div class="profile-name ${profile.online ? "online" : ""}">
         <strong>${escapeHtml(profile.username)}</strong>
-        <span>${profile.role === "admin" ? "管理员" : "玩家"} · 注册于 ${formatDate(profile.created_at)}</span>
+        <span>${profile.accountType} · 注册于 ${formatDate(profile.created_at)}</span>
       </div>
       <div class="profile-summary">
         <div><strong>${profile.postCount}</strong><span>最近帖子</span></div>
-        <div><strong>${profile.role === "admin" ? "ON" : "USER"}</strong><span>账号类型</span></div>
+        <div><strong>${profile.accountType}</strong><span>账号类型</span></div>
       </div>
+      ${profile.isSelf ? accountSecurityPanel(profile) : ""}
     </div>
   `;
-
   posts.innerHTML = `
-    <div class="section-title compact">
-      <h2>${escapeHtml(profile.username)} 的帖子</h2>
-      <p>展示最近 20 篇玩家内容。</p>
-    </div>
-    <div class="list forum-list">
-      ${
-        profile.posts.length
-          ? profile.posts.map((item) => cardTemplate({ ...item, author: profile.username }, "post")).join("")
-          : `<div class="empty">这个玩家暂时还没有发帖。</div>`
-      }
-    </div>
+    <div class="section-title compact"><h2>${escapeHtml(profile.username)} 的帖子</h2><p>展示最近 20 篇玩家内容。</p></div>
+    <div class="list forum-list">${
+      profile.posts.length ? profile.posts.map((item) => cardTemplate({ ...item, author: profile.username }, "post")).join("") : `<div class="empty">这个玩家暂时还没有发帖。</div>`
+    }</div>
   `;
-  $$(".read-button").forEach((button) => {
-    button.addEventListener("click", () => openReader(button.dataset.type, Number(button.dataset.id)));
+  bindContentButtons();
+  bindProfileSecurityActions();
+};
+
+const accountSecurityPanel = (profile) => `
+  <div class="account-security">
+    <h3>账号安全</h3>
+    <form id="profileEmailForm" class="security-form">
+      <input id="profileEmail" type="email" placeholder="绑定邮箱" value="${escapeHtml(profile.email || "")}" />
+      <div class="inline-form compact">
+        <input id="profileEmailCode" inputmode="numeric" maxlength="6" placeholder="邮箱验证码" />
+        <button class="button ghost" type="button" id="profileSendEmailCode">发送验证码</button>
+      </div>
+      <button class="button primary" type="submit">保存邮箱</button>
+    </form>
+    <div class="totp-panel">
+      <p>双重验证：${profile.totp_enabled ? "已开启" : "未开启"}</p>
+      <button class="button ghost" type="button" id="beginTotp">${profile.totp_enabled ? "重新设置" : "开启 Authenticator"}</button>
+      ${profile.totp_enabled ? `<button class="button danger" type="button" id="disableTotp">关闭双重验证</button>` : ""}
+      <div id="totpSetup" hidden></div>
+    </div>
+  </div>
+`;
+
+const bindProfileSecurityActions = () => {
+  $("#profileSendEmailCode")?.addEventListener("click", async () => {
+    await api("/email/send-code", { method: "POST", body: JSON.stringify({ email: $("#profileEmail").value.trim() }) });
+    showToast("验证码已发送");
+  });
+  $("#profileEmailForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await api("/me/email", {
+      method: "PUT",
+      body: JSON.stringify({ email: $("#profileEmail").value.trim(), emailCode: $("#profileEmailCode").value.trim() }),
+    });
+    await loadPublicData();
+    showToast("邮箱已更新");
+  });
+  $("#beginTotp")?.addEventListener("click", async () => {
+    const result = await api("/me/totp/begin", { method: "POST" });
+    const box = $("#totpSetup");
+    box.hidden = false;
+    box.innerHTML = `
+      <p>在 Authenticator 中添加这个密钥：</p>
+      <code>${escapeHtml(result.secret)}</code>
+      <input id="totpConfirmCode" inputmode="numeric" maxlength="6" placeholder="输入 6 位验证码" />
+      <button class="button primary" type="button" id="confirmTotp">确认开启</button>
+    `;
+    $("#confirmTotp")?.addEventListener("click", async () => {
+      await api("/me/totp/confirm", { method: "POST", body: JSON.stringify({ code: $("#totpConfirmCode").value.trim() }) });
+      await loadPublicData();
+      showToast("双重验证已开启");
+    });
+  });
+  $("#disableTotp")?.addEventListener("click", async () => {
+    await api("/me/totp", { method: "DELETE" });
+    await loadPublicData();
+    showToast("双重验证已关闭");
   });
 };
 
 const setupForumPost = () => {
   $("#openPostComposer")?.addEventListener("click", () => {
-    if (!state.me) {
-      openAuthDialog();
-      return;
-    }
+    if (!state.me) return openAuthDialog();
+    if (!state.me.email_verified) return showToast("请先绑定并验证邮箱后发帖");
+    state.editingPostId = null;
+    $("#forumPostForm")?.reset();
+    if ($("#editor")) $("#editor").innerHTML = "";
+    if ($("#forumPostSubmit")) $("#forumPostSubmit").textContent = "发布帖子";
     openPostDialog();
   });
-
   $$("[data-close-post]").forEach((button) => button.addEventListener("click", closePostDialog));
-
-  const form = $("#forumPostForm");
-  if (!form) return;
-  form.addEventListener("submit", async (event) => {
+  $("#forumPostForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    try {
-      if (!state.me) throw new Error("请先登录");
-      const title = $("#forumTitle").value.trim();
-      const contentHtml = $("#editor").innerHTML.trim();
-      if (!title || !textFromHtml(contentHtml)) throw new Error("标题和正文都要填写");
-      await api("/posts", {
-        method: "POST",
-        body: JSON.stringify({ title, contentHtml }),
-      });
-      form.reset();
-      $("#editor").innerHTML = "";
-      closePostDialog();
-      await loadPublicData();
-      showToast("帖子已发布");
-    } catch (error) {
-      showToast(error.message);
-    }
+    if (!state.me) return openAuthDialog();
+    const title = $("#forumTitle").value.trim();
+    const contentHtml = $("#editor").innerHTML.trim();
+    const endpoint = state.editingPostId ? `/posts/${state.editingPostId}` : "/posts";
+    await api(endpoint, { method: state.editingPostId ? "PUT" : "POST", body: JSON.stringify({ title, contentHtml }) });
+    state.editingPostId = null;
+    closePostDialog();
+    await loadPublicData();
+    showToast("帖子已保存");
   });
 };
 
@@ -448,28 +488,17 @@ const resetEditor = () => {
 };
 
 const setupPublish = () => {
-  const form = $("#publishForm");
-  if (!form) return;
-  form.addEventListener("submit", async (event) => {
+  $("#publishForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    try {
-      if (!isAdmin()) throw new Error("只有管理员可以发布内容");
-      const type = $("#contentType").value;
-      const id = $("#editingId").value;
-      const title = $("#title").value.trim();
-      const contentHtml = $("#editor").innerHTML.trim();
-      if (!title || !textFromHtml(contentHtml)) throw new Error("标题和正文都要填写");
-      const endpoint = type === "announcement" ? "/announcements" : "/posts";
-      await api(id ? `${endpoint}/${id}` : endpoint, {
-        method: id ? "PUT" : "POST",
-        body: JSON.stringify({ title, contentHtml }),
-      });
-      resetEditor();
-      await loadAdminData();
-      showToast(id ? "内容已更新" : "内容已发布");
-    } catch (error) {
-      showToast(error.message);
-    }
+    const type = $("#contentType").value;
+    const id = $("#editingId").value;
+    const title = $("#title").value.trim();
+    const contentHtml = $("#editor").innerHTML.trim();
+    const endpoint = type === "announcement" ? "/announcements" : "/posts";
+    await api(id ? `${endpoint}/${id}` : endpoint, { method: id ? "PUT" : "POST", body: JSON.stringify({ title, contentHtml }) });
+    resetEditor();
+    await loadAdminData();
+    showToast(id ? "内容已更新" : "内容已发布");
   });
   $("#cancelEditButton")?.addEventListener("click", resetEditor);
 };
@@ -492,10 +521,21 @@ const renderStats = () => {
     statCard("论坛浏览", state.stats.postViews),
     statCard("注册用户", state.stats.userCount),
   ].join("");
-  if ($("#maintenanceToggle")) $("#maintenanceToggle").checked = Boolean(state.stats.maintenanceMode);
-  if ($("#maintenanceStatusText")) {
-    $("#maintenanceStatusText").textContent = state.stats.maintenanceMode ? "当前维护模式已开启。" : "当前网站正常开放。";
+  $("#trashDock")?.remove();
+  if (state.stats.trashCount > 0) {
+    const dock = document.createElement("button");
+    dock.id = "trashDock";
+    dock.className = "trash-dock button danger";
+    dock.type = "button";
+    dock.textContent = `垃圾桶 ${state.stats.trashCount}`;
+    dock.addEventListener("click", () => {
+      location.hash = "#adminTrash";
+      renderTrash();
+    });
+    document.body.append(dock);
   }
+  if ($("#maintenanceToggle")) $("#maintenanceToggle").checked = Boolean(state.stats.maintenanceMode);
+  if ($("#maintenanceStatusText")) $("#maintenanceStatusText").textContent = state.stats.maintenanceMode ? "当前维护模式已开启。" : "当前网站正常开放。";
 };
 
 const adminRows = (items, type) =>
@@ -504,10 +544,7 @@ const adminRows = (items, type) =>
         .map(
           (item) => `
             <div class="table-row">
-              <div>
-                <strong>${escapeHtml(item.title)}</strong>
-                <span>${escapeHtml(item.author || "玩家")} · ${formatDate(item.created_at)} · ${item.views || 0} 次浏览</span>
-              </div>
+              <div><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.author || "玩家")} · ${formatDate(item.created_at)} · ${item.views || 0} 次浏览</span></div>
               <div class="row-actions">
                 <button class="button small ghost" type="button" data-edit="${type}" data-id="${item.id}">编辑</button>
                 <button class="button small danger" type="button" data-delete="${type}" data-id="${item.id}">删除</button>
@@ -520,13 +557,11 @@ const adminRows = (items, type) =>
 const renderManagement = () => {
   if ($("#manageAnnouncements")) $("#manageAnnouncements").innerHTML = adminRows(state.announcements, "announcement");
   if ($("#managePosts")) $("#managePosts").innerHTML = adminRows(state.posts, "post");
-
   $$("[data-edit]").forEach((button) => {
     button.addEventListener("click", () => {
       const type = button.dataset.edit;
-      const id = Number(button.dataset.id);
       const source = type === "announcement" ? state.announcements : state.posts;
-      const item = source.find((entry) => entry.id === id);
+      const item = source.find((entry) => entry.id === Number(button.dataset.id));
       if (!item) return;
       $("#editingId").value = item.id;
       $("#contentType").value = type === "announcement" ? "announcement" : "post";
@@ -536,17 +571,52 @@ const renderManagement = () => {
       $("#publishForm")?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
   });
-
   $$("[data-delete]").forEach((button) => {
     button.addEventListener("click", async () => {
+      if (!window.confirm("删除后会进入垃圾桶。确定继续吗？")) return;
       const type = button.dataset.delete;
-      const id = button.dataset.id;
-      if (!window.confirm("确定删除这条内容吗？")) return;
-      await api(`/${type === "announcement" ? "announcements" : "posts"}/${id}`, { method: "DELETE" });
+      await api(`/${type === "announcement" ? "announcements" : "posts"}/${button.dataset.id}`, { method: "DELETE" });
       await loadAdminData();
-      showToast("内容已删除");
+      showToast("内容已移入垃圾桶");
     });
   });
+};
+
+const renderTrash = async () => {
+  const panel = $("#adminTrash");
+  if (!panel) return;
+  const result = await api("/admin/trash");
+  state.trash = result;
+  const rows = [
+    ...result.announcements.map((item) => ({ ...item, type: "announcement" })),
+    ...result.posts.map((item) => ({ ...item, type: "post" })),
+  ];
+  panel.querySelector(".admin-table").innerHTML = rows.length
+    ? rows
+        .map(
+          (item) => `
+            <div class="table-row">
+              <div><strong>${escapeHtml(item.title)}</strong><span>${item.type === "announcement" ? "公告" : "帖子"} · ${formatDate(item.deleted_at)}</span></div>
+              <div class="row-actions">
+                <button class="button small ghost" type="button" data-restore="${item.type}" data-id="${item.id}">恢复</button>
+                <button class="button small danger" type="button" data-purge="${item.type}" data-id="${item.id}">彻底删除</button>
+              </div>
+            </div>`,
+        )
+        .join("")
+    : `<div class="empty">垃圾桶为空。</div>`;
+  $$("[data-restore]").forEach((button) =>
+    button.addEventListener("click", async () => {
+      await api(`/${button.dataset.restore === "announcement" ? "announcements" : "posts"}/${button.dataset.id}/restore`, { method: "POST" });
+      await loadAdminData();
+    }),
+  );
+  $$("[data-purge]").forEach((button) =>
+    button.addEventListener("click", async () => {
+      await api(`/${button.dataset.purge === "announcement" ? "announcements" : "posts"}/${button.dataset.id}/purge`, { method: "DELETE" });
+      await loadAdminData();
+    }),
+  );
 };
 
 const renderAdmins = () => {
@@ -556,22 +626,15 @@ const renderAdmins = () => {
         .map(
           (user) => `
             <div class="table-row user-row">
-              <div>
-                <strong>${escapeHtml(user.username)}</strong>
-                <span>${user.is_owner ? "初始管理员" : "管理员"} · ${formatDate(user.created_at)}</span>
-              </div>
-              <div class="row-actions">
-                <button class="button small danger" type="button" data-remove-admin="${user.id}" ${user.is_owner ? "disabled" : ""}>删除管理员</button>
-              </div>
+              <div><strong>${escapeHtml(user.username)}</strong><span>${user.is_owner ? "初始管理员" : "管理员"} · ${formatDate(user.created_at)}</span></div>
+              <div class="row-actions"><button class="button small danger" type="button" data-remove-admin="${user.id}" ${user.is_owner ? "disabled" : ""}>删除管理员</button></div>
             </div>`,
         )
         .join("")
     : `<div class="empty">暂无管理员。</div>`;
-
   $$("[data-remove-admin]").forEach((button) => {
     button.addEventListener("click", async () => {
-      if (button.disabled) return;
-      if (!window.confirm("确定删除这个管理员权限吗？")) return;
+      if (button.disabled || !window.confirm("确定删除这个管理员权限吗？")) return;
       await api(`/admin/users/${button.dataset.removeAdmin}`, { method: "DELETE" });
       await loadAdminData();
       showToast("管理员已删除");
@@ -580,40 +643,23 @@ const renderAdmins = () => {
 };
 
 const setupAdminUsers = () => {
-  const form = $("#adminUserForm");
-  if (!form) return;
-  form.addEventListener("submit", async (event) => {
+  $("#adminUserForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    try {
-      await api("/admin/users", {
-        method: "POST",
-        body: JSON.stringify({ username: $("#adminUsername").value.trim() }),
-      });
-      form.reset();
-      await loadAdminData();
-      showToast("已添加管理员");
-    } catch (error) {
-      showToast(error.message);
-    }
+    await api("/admin/users", { method: "POST", body: JSON.stringify({ username: $("#adminUsername").value.trim() }) });
+    event.target.reset();
+    await loadAdminData();
+    showToast("已添加管理员");
   });
 };
 
 const setupMaintenanceToggle = () => {
   $("#maintenanceToggle")?.addEventListener("change", async (event) => {
-    try {
-      const result = await api("/admin/settings/maintenance", {
-        method: "PUT",
-        body: JSON.stringify({ enabled: event.target.checked }),
-      });
-      state.site.maintenanceMode = result.maintenanceMode;
-      if (state.stats) state.stats.maintenanceMode = result.maintenanceMode;
-      renderStats();
-      renderMaintenanceBanner();
-      showToast(result.maintenanceMode ? "已开启维护模式" : "已关闭维护模式");
-    } catch (error) {
-      event.target.checked = !event.target.checked;
-      showToast(error.message);
-    }
+    const result = await api("/admin/settings/maintenance", { method: "PUT", body: JSON.stringify({ enabled: event.target.checked }) });
+    state.site.maintenanceMode = result.maintenanceMode;
+    if (state.stats) state.stats.maintenanceMode = result.maintenanceMode;
+    renderStats();
+    renderMaintenanceBanner();
+    showToast(result.maintenanceMode ? "已开启维护模式" : "已关闭维护模式");
   });
 };
 
@@ -623,53 +669,57 @@ const setupAdminNavigation = () => {
   const sync = () => {
     const current = window.location.hash || "#adminOverview";
     links.forEach((link) => link.classList.toggle("active", link.getAttribute("href") === current));
+    if (current === "#adminTrash") renderTrash().catch((error) => showToast(error.message));
   };
-  links.forEach((link) => {
-    link.addEventListener("click", () => {
-      window.setTimeout(sync, 0);
-    });
-  });
+  links.forEach((link) => link.addEventListener("click", () => window.setTimeout(sync, 0)));
   window.addEventListener("hashchange", sync);
   sync();
 };
 
 const setupHomeActions = () => {
   $("#copyServerAddress")?.addEventListener("click", async () => {
-    try {
-      await copyText(serverAddress, "服务器地址");
-    } catch {
-      showToast("复制失败，请手动复制");
-    }
+    await navigator.clipboard.writeText(serverAddress);
+    showToast("服务器地址已复制");
   });
 };
 
 const setupAuth = () => {
   const form = $("#authForm");
   if (!form) return;
+  authExtraFields();
   $$("[data-close-auth]").forEach((button) => button.addEventListener("click", closeAuthDialog));
+  $("#sendEmailCode")?.addEventListener("click", async () => {
+    await api("/email/send-code", { method: "POST", body: JSON.stringify({ email: $("#email").value.trim() }) });
+    showToast("验证码已发送");
+  });
+  $("#forgotPasswordButton")?.addEventListener("click", async () => {
+    const email = window.prompt("输入已绑定邮箱");
+    if (!email) return;
+    await api("/password/send-reset", { method: "POST", body: JSON.stringify({ email }) });
+    const code = window.prompt("输入邮箱验证码");
+    const password = window.prompt("输入新密码（至少 6 位）");
+    if (!code || !password) return;
+    await api("/password/reset", { method: "POST", body: JSON.stringify({ email, emailCode: code, password }) });
+    showToast("密码已重置，请重新登录");
+  });
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const mode = event.submitter?.dataset.mode || "login";
-    try {
-      const result = await api(mode === "register" ? "/register" : "/login", {
-        method: "POST",
-        body: JSON.stringify({
-          username: $("#username").value,
-          password: $("#password").value,
-        }),
-      });
-      state.me = result.user;
-      form.reset();
-      closeAuthDialog();
-      await refreshPageData();
-      showToast(mode === "register" ? "注册成功" : "登录成功");
-    } catch (error) {
-      showToast(error.message);
-    }
+    const body = {
+      username: $("#username").value,
+      password: $("#password").value,
+      email: $("#email")?.value,
+      emailCode: $("#emailCode")?.value,
+      totpCode: $("#totpCode")?.value,
+    };
+    const result = await api(mode === "register" ? "/register" : "/login", { method: "POST", body: JSON.stringify(body) });
+    state.me = result.user;
+    form.reset();
+    closeAuthDialog();
+    await refreshPageData();
+    showToast(mode === "register" ? "注册成功" : "登录成功");
   });
 };
-
-const currentProfileQuery = () => new URL(window.location.href).searchParams.get("user") || "";
 
 const loadBaseState = async () => {
   const me = await api("/me").catch(() => ({ user: null, site: { maintenanceMode: false } }));
@@ -679,24 +729,12 @@ const loadBaseState = async () => {
 
 const loadPublicData = async () => {
   await loadBaseState();
-  if (page === "home") {
-    const announcements = await api("/announcements").catch(() => ({ items: [] }));
-    state.announcements = announcements.items;
-  }
-  if (page === "forum") {
-    const posts = await api("/posts").catch(() => ({ items: [] }));
-    state.posts = posts.items;
-  }
+  if (page === "home") state.announcements = (await api("/announcements").catch(() => ({ items: [] }))).items;
+  if (page === "forum") state.posts = (await api("/posts").catch(() => ({ items: [] }))).items;
   if (page === "profile") {
     const username = currentProfileQuery();
-    if (username) {
-      const result = await api(`/profiles/${encodeURIComponent(username)}`).catch(() => ({ profile: null }));
-      state.profile = result.profile;
-      state.posts = state.profile?.posts || [];
-    } else {
-      state.profile = null;
-      state.posts = [];
-    }
+    state.profile = username ? (await api(`/profiles/${encodeURIComponent(username)}`).catch(() => ({ profile: null }))).profile : null;
+    state.posts = state.profile?.posts || [];
   }
   renderAll();
 };
@@ -706,13 +744,7 @@ const loadAdminData = async () => {
   renderAll();
   renderAdminGate();
   if (!isAdmin()) return;
-
-  const [announcements, posts, stats, admins] = await Promise.all([
-    api("/announcements"),
-    api("/posts"),
-    api("/admin/stats"),
-    api("/admin/users"),
-  ]);
+  const [announcements, posts, stats, admins] = await Promise.all([api("/announcements"), api("/posts"), api("/admin/stats"), api("/admin/users")]);
   state.announcements = announcements.items;
   state.posts = posts.items;
   state.stats = stats;
@@ -724,13 +756,11 @@ const loadAdminData = async () => {
   renderAdmins();
 };
 
-const refreshPageData = async () => {
-  if (page === "admin") return loadAdminData();
-  return loadPublicData();
-};
+const refreshPageData = async () => (page === "admin" ? loadAdminData() : loadPublicData());
 
 const renderAll = () => {
   renderAuth();
+  renderEmailGuard();
   renderMaintenanceBanner();
   renderMaintenanceGate();
   renderLists();
@@ -749,8 +779,4 @@ setupMaintenanceToggle();
 setupAdminNavigation();
 setupHomeActions();
 
-if (page === "admin") {
-  loadAdminData().catch((error) => showToast(error.message));
-} else {
-  loadPublicData().catch((error) => showToast(error.message));
-}
+refreshPageData().catch((error) => showToast(error.message));

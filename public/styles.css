@@ -410,6 +410,9 @@ select {
   padding: 24px;
   overflow: hidden;
   text-align: center;
+  background:
+    linear-gradient(180deg, rgba(255, 250, 240, 0.94), rgba(245, 234, 211, 0.96)),
+    repeating-linear-gradient(45deg, rgba(139, 90, 55, 0.08) 0 8px, transparent 8px 16px);
 }
 
 .profile-card h2 {
@@ -425,13 +428,12 @@ select {
   margin: 0 auto -18px;
   overflow: hidden;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(0, 0, 0, 0.08)),
-    linear-gradient(45deg, #4a4e5c 25%, transparent 25%) 0 0 / 28px 28px,
-    linear-gradient(-45deg, #4a4e5c 25%, transparent 25%) 0 0 / 28px 28px,
-    linear-gradient(45deg, transparent 75%, #4a4e5c 75%) 0 0 / 28px 28px,
-    linear-gradient(-45deg, transparent 75%, #4a4e5c 75%) 0 0 / 28px 28px,
-    #353947;
-  border: 2px solid #1b120d;
+    radial-gradient(circle at 50% 90%, rgba(245, 164, 58, 0.28), transparent 34%),
+    linear-gradient(45deg, rgba(70, 145, 70, 0.16) 25%, transparent 25%) 0 0 / 30px 30px,
+    linear-gradient(-45deg, rgba(70, 145, 70, 0.16) 25%, transparent 25%) 0 0 / 30px 30px,
+    #fdf3dc;
+  border: 2px solid #c9a56f;
+  box-shadow: inset 0 -28px 0 rgba(139, 90, 55, 0.12);
 }
 
 .skin-stage img {
@@ -449,6 +451,19 @@ select {
   color: #fffaf0;
   background: #2a1d16;
   border: 2px solid #1b120d;
+}
+
+.profile-name.online::before {
+  content: "";
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 10px;
+  height: 10px;
+  background: #35d15f;
+  border: 2px solid #fffaf0;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px rgba(53, 209, 95, 0.2);
 }
 
 .profile-name strong,
@@ -471,6 +486,68 @@ select {
   display: grid;
   gap: 10px;
   margin-top: 16px;
+}
+
+.card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.email-guard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px clamp(18px, 5vw, 72px);
+  color: #fffaf0;
+  background: #8d3e2b;
+}
+
+.email-guard strong,
+.email-guard p {
+  margin: 0;
+}
+
+.email-guard p {
+  margin-top: 4px;
+  color: #f6d8b7;
+}
+
+.account-security {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 2px solid #ead4a6;
+}
+
+.account-security h3 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.security-form,
+.totp-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.totp-panel code {
+  display: block;
+  padding: 10px;
+  overflow-wrap: anywhere;
+  color: #fffaf0;
+  background: #2a1d16;
+  border: 2px solid #1b120d;
+}
+
+.trash-dock {
+  position: fixed;
+  left: 18px;
+  bottom: 18px;
+  z-index: 45;
 }
 
 .forum-main {

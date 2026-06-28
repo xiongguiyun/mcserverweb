@@ -1,96 +1,81 @@
 # Liou_Yang Server
 
-一个 Minecraft 风格的宣传站，包含主页宣传、论坛公告、玩家论坛、注册登录、富文本编辑器、Bilibili 视频嵌入、独立玩家资料页和维护模式。
-
-## 本地运行
-
-```bash
-npm install
-npm run db:init
-npm run dev
-```
-
-打开 Wrangler 给出的本地地址。第一个注册账号会自动成为管理员。
-
-## Cloudflare 部署
-
-1. 登录 Wrangler：
-
-```bash
-npx wrangler login
-```
-
-2. 创建 D1 数据库：
-
-```bash
-npx wrangler d1 create blockhaven_db
-```
-
-3. 把输出的 `database_id` 填进 [wrangler.toml](E:/网站/wrangler.toml)。
-
-4. 初始化线上数据库：
-
-```bash
-npm run db:prod
-```
-
-5. 部署：
-
-```bash
-npm run deploy
-```
-
-6. 在 Cloudflare Dashboard 的 Pages 项目里确认 D1 绑定：
-
-- Binding name: `DB`
-- Database: `blockhaven_db`
+一个 Minecraft 风格的宣传站，包含主页宣传、公告、玩家论坛、玩家资料、后台管理、维护模式、邮箱验证、找回密码、Authenticator 双重验证和回收站。
 
 ## 更新已有 D1 数据库
 
-如果你已经部署过旧版本，需要在 Cloudflare D1 控制台执行：
+如果你已经部署过旧版本，在 Cloudflare D1 控制台执行下面 SQL。提示 `duplicate column name` 或 `already exists` 说明该字段已经存在，可以忽略对应语句。
 
 ```sql
-ALTER TABLE announcements ADD COLUMN views INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE posts ADD COLUMN views INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE users ADD COLUMN minecraft_name TEXT;
-ALTER TABLE users ADD COLUMN minecraft_uuid TEXT;
+ALTER TABLE users ADD COLUMN email TEXT;
+ALTER TABLE users ADD COLUMN email_provider TEXT;
+ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN totp_secret TEXT;
+ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN last_seen_at TEXT;
+ALTER TABLE announcements ADD COLUMN deleted_at TEXT;
+ALTER TABLE posts ADD COLUMN deleted_at TEXT;
+ALTER TABLE posts ADD COLUMN deleted_by INTEGER;
+
 CREATE TABLE IF NOT EXISTS site_settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS email_codes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  email TEXT NOT NULL,
+  purpose TEXT NOT NULL CHECK (purpose IN ('verify_email', 'reset_password')),
+  code_hash TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  used_at TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 ```
 
-如果提示 `duplicate column name`，说明该列已经存在，可以忽略。
+## QQ 邮箱验证码配置
+
+Cloudflare Pages Functions 不能像普通服务器一样直接稳定使用 QQ SMTP 长连接。当前项目预留的是 HTTP 邮件服务接口：推荐用 SMTP2GO、Resend、MailChannels Worker 或你自己的邮件网关，再由网关使用 QQ 邮箱 SMTP 发信。
+
+QQ 邮箱侧：
+
+1. 登录 QQ 邮箱网页版。
+2. 进入 `设置` -> `账号`。
+3. 开启 `POP3/SMTP服务`。
+4. 按提示发送短信验证。
+5. 复制生成的 `授权码`，它不是 QQ 密码。
+
+Cloudflare Pages 侧，在项目 `Settings` -> `Environment variables` 添加：
+
+```text
+SMTP_USER=你的QQ邮箱@qq.com
+SMTP_PASS=QQ邮箱SMTP授权码
+SMTP_FROM=你的QQ邮箱@qq.com
+EMAIL_API_URL=你的邮件网关HTTP地址
+EMAIL_API_KEY=邮件网关API Key
+```
+
+如果暂时不配置邮件服务，网站会把验证码邮件内容写入 Cloudflare Workers Logs，适合本地测试，但不适合正式运营。
 
 ## 现在的功能
 
-- 第一个注册用户自动获得管理员权限。
-- 主页可一键复制服务器地址。
-- 公告区单独展示，论坛是独立页面。
-- 注册用户可以自由发帖。
-- 玩家皮肤和头像通过站内用户名直接识别显示。
-- 点击顶部头像或用户名可进入独立玩家资料页。
-- 玩家资料页会展示角色形象、账号类型和最近帖子。
-- 管理员可以发布公告、编辑或删除全部论坛内容、添加或删除管理员。
-- 管理员可在后台开启或关闭维护模式。
-- 维护模式开启后，普通访客显示维护界面，管理员仍可正常进入网站并看到维护提示。
-- 第一个注册用户的管理员权限不能删除。
-- 编辑器支持：
-  `粗体`、`斜体`、`字号`、`段落格式`、`文本颜色`、`中划线`、`下划线`、`链接`、`图片`、`表格`、`内联遮挡`、`水平线`、`折叠`、`引用`、`代码`、`Bilibili 视频`
+- 注册时必须填写邮箱并输入验证码。
+- 邮箱只支持 Outlook、Google、QQ、网易邮箱。
+- 旧账号没有邮箱时，登录后会被要求先绑定邮箱。
+- 支持邮箱验证码找回密码。
+- 支持 Authenticator 双重验证。
+- 玩家资料显示账号类型：管理员或成员。
+- 最近在线用户名称左上角显示绿色圆点。
+- 玩家可以编辑或删除自己的帖子。
+- 删除的帖子进入回收站，7 天后自动清理。
+- 管理员删除公告或帖子后，后台左下角会出现垃圾桶按钮。
+- 管理员可在垃圾桶恢复或彻底删除内容。
 
-## 如何更新网站
+## 部署更新
 
-1. 把 `E:\网站` 里的修改推送到你的 GitHub 仓库。
-2. 如果这次有数据库字段更新，先去 Cloudflare D1 控制台执行上面的 SQL。
-3. 回到 Cloudflare Pages 项目，进入 `Deployments`。
-4. 点击 `Retry deployment`，或者重新 push 一次代码触发自动部署。
-
-## 生产建议
-
-正式运营前，建议再补：
-
-- 邮箱验证和找回密码
-- 图片上传到 R2
-- 更严格的 HTML 白名单净化
-- 论坛审核、敏感词、举报和封禁机制
+1. 执行上面的 D1 SQL。
+2. 配置邮件环境变量。
+3. 推送代码到 GitHub 或重新部署 Cloudflare Pages。
+4. 部署后先用测试账号验证注册、邮箱验证码、找回密码和 2FA。
