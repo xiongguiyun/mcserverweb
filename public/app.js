@@ -17,8 +17,16 @@ const api = async (path, options = {}) => {
     credentials: "include",
     ...options,
   });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error || "请求失败");
+  const raw = await response.text();
+  let payload = {};
+  try {
+    payload = raw ? JSON.parse(raw) : {};
+  } catch {
+    payload = { error: raw.trim() };
+  }
+  if (!response.ok) {
+    throw new Error(payload.error || `请求失败 (${response.status})`);
+  }
   return payload;
 };
 

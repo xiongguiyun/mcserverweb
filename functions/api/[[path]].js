@@ -273,7 +273,15 @@ const bindMinecraft = async (env, request) => {
   const user = await requireUser(env, request);
   const body = await readBody(request);
   const minecraftName = String(body.minecraftName || "").trim();
-  const profile = await lookupMinecraft(minecraftName);
+  let profile;
+  try {
+    profile = await lookupMinecraft(minecraftName);
+  } catch (error) {
+    if (error instanceof Response) throw error;
+    throw new Response(JSON.stringify({ error: `Minecraft 用户名验证失败: ${error.message || "未知错误"}` }), {
+      status: 502,
+    });
+  }
   await env.DB.prepare("UPDATE users SET minecraft_name = ?, minecraft_uuid = ? WHERE id = ?")
     .bind(profile.name, profile.id, user.id)
     .run();
