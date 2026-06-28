@@ -575,7 +575,8 @@ select {
 
 .admin-shell {
   display: grid;
-  gap: 26px;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 22px;
   background: #f7ecd7;
 }
 
@@ -585,8 +586,64 @@ select {
   gap: 16px;
 }
 
+.stats-grid.compact {
+  gap: 10px;
+}
+
+.admin-sidebar {
+  position: sticky;
+  top: 92px;
+  align-self: start;
+  padding: 18px;
+  background: #2a1d16;
+  border: 2px solid rgba(245, 164, 58, 0.22);
+  box-shadow: 0 7px 0 rgba(106, 69, 35, 0.16);
+}
+
+.admin-sidebar-head h2 {
+  margin: 0;
+  color: #fff4dd;
+  font-size: 22px;
+}
+
+.admin-sidebar-head p {
+  margin: 10px 0 0;
+  color: #d0b38c;
+  font-size: 13px;
+  line-height: 1.6;
+  font-weight: 700;
+}
+
+.admin-nav {
+  display: grid;
+  gap: 6px;
+  margin-top: 16px;
+}
+
+.admin-nav a {
+  padding: 10px 12px;
+  color: #ead8b6;
+  font-size: 13px;
+  font-weight: 900;
+  border: 1px solid transparent;
+  border-radius: 4px;
+}
+
+.admin-nav a:hover,
+.admin-nav a.active {
+  color: #201713;
+  background: var(--accent);
+  border-color: #1b120d;
+}
+
+.admin-workspace {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+
 .stat-card {
-  padding: 22px;
+  padding: 18px;
 }
 
 .stat-card span {
@@ -604,7 +661,7 @@ select {
 .admin-panel,
 .editor-card,
 .admin-locked {
-  padding: 24px;
+  padding: 18px;
 }
 
 .maintenance-admin-card,
@@ -630,15 +687,15 @@ select {
 
 .admin-table {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .table-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 16px;
+  gap: 12px;
   align-items: center;
-  padding: 14px;
+  padding: 12px;
   background: #fffaf0;
   border: 2px solid #ead4a6;
 }
@@ -649,9 +706,9 @@ select {
 }
 
 .table-row span {
-  margin-top: 5px;
+  margin-top: 4px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 750;
 }
 
@@ -659,20 +716,30 @@ select {
 .footer-tools {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
 }
 
 .inline-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
-  margin-bottom: 16px;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.inline-form.compact {
+  max-width: 480px;
+}
+
+.admin-form-grid {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 12px;
 }
 
 .form-row {
   display: grid;
   gap: 8px;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 
 label {
@@ -683,9 +750,9 @@ label {
 
 input,
 select {
-  min-height: 44px;
+  min-height: 38px;
   width: 100%;
-  padding: 0 12px;
+  padding: 0 10px;
   color: var(--text);
   background: #fffdf6;
   border: 2px solid var(--line);
@@ -703,19 +770,19 @@ select:focus,
 .toolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin: 12px 0;
+  gap: 6px;
+  margin: 10px 0;
 }
 
 .toolbar button,
 .toolbar-select {
-  min-width: 42px;
-  height: 36px;
-  padding: 0 10px;
+  min-width: 36px;
+  height: 32px;
+  padding: 0 8px;
   border: 2px solid var(--line);
   border-radius: 4px;
   background: #fffdf6;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 950;
   cursor: pointer;
 }
@@ -749,13 +816,17 @@ select:focus,
 
 .rich-editor {
   min-height: 320px;
-  padding: 18px;
+  padding: 14px;
   overflow: auto;
   background: #fffdf6;
   border: 2px solid var(--line);
   border-radius: 4px;
   line-height: 1.75;
   outline: none;
+}
+
+.admin-editor-card {
+  gap: 0;
 }
 
 .rich-editor:empty::before {
@@ -1093,6 +1164,22 @@ dialog::backdrop {
     grid-template-columns: 1fr;
   }
 
+  .admin-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-sidebar {
+    position: static;
+  }
+
+  .admin-nav {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .admin-form-grid {
+    grid-template-columns: 1fr;
+  }
+
   .profile-card {
     position: static;
   }
@@ -1134,6 +1221,36 @@ dialog::backdrop {
   .hero h1,
   .page-hero h1 {
     font-size: 44px;
+  }
+
+  .button {
+    min-height: 38px;
+    padding: 0 14px;
+    font-size: 13px;
+  }
+
+  .button.small {
+    min-height: 30px;
+    padding: 0 10px;
+    font-size: 11px;
+  }
+
+  input,
+  select {
+    min-height: 36px;
+    padding: 0 9px;
+  }
+
+  .toolbar button,
+  .toolbar-select {
+    min-width: 32px;
+    height: 30px;
+    padding: 0 7px;
+    font-size: 11px;
+  }
+
+  .admin-nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .server-panel {
