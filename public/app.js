@@ -8,6 +8,8 @@ const state = {
   profile: null,
   trash: { announcements: [], posts: [] },
   editingPostId: null,
+  forumSearch: "",
+  forumSearchOpen: false,
 };
 
 const page = document.body.dataset.page;
@@ -86,6 +88,7 @@ const activeAvatarSrc = (user, size = 32) => (user?.username ? avatarUrl(user.us
 const profileHref = (username) => `/profile.html?user=${encodeURIComponent(username)}`;
 const currentProfileQuery = () => new URL(window.location.href).searchParams.get("user") || state.me?.username || "";
 const prefersReducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+const dialogCloseDelay = () => (prefersReducedMotion() ? 0 : 180);
 
 const openDialog = (dialog) => {
   if (!dialog) return;
@@ -103,7 +106,7 @@ const closeDialogAnimated = (dialog) => {
   window.setTimeout(() => {
     dialog.close();
     dialog.classList.remove("is-closing");
-  }, 220);
+  }, dialogCloseDelay());
 };
 
 const openPostDialog = () => openDialog($("#postDialog"));
@@ -217,11 +220,46 @@ const renderLists = () => {
   }
   const postList = $("#postList");
   if (postList) {
-    postList.innerHTML = state.posts.length
-      ? state.posts.map((item) => cardTemplate(item, "post")).join("")
+    const filteredPosts = filterForumPosts(state.posts);
+    postList.innerHTML = filteredPosts.length
+      ? filteredPosts.map((item) => cardTemplate(item, "post")).join("")
       : `<div class="empty">还没有帖子。</div>`;
   }
+  updateForumSearchStatus();
   bindContentButtons();
+};
+
+const normalizeSearchTerms = (value) =>
+  String(value || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+const filterForumPosts = (posts) => {
+  const query = state.forumSearch.trim();
+  if (!query) return posts;
+  const authorTerms = [];
+  const freeTerms = [];
+  for (const term of normalizeSearchTerms(query)) {
+    if (term.startsWith("#") && term.length > 1) authorTerms.push(term.slice(1).toLowerCase());
+    else freeTerms.push(term.toLowerCase());
+  }
+  return posts.filter((item) => {
+    const title = String(item.title || "").toLowerCase();
+    const author = String(item.author || "").toLowerCase();
+    const content = textFromHtml(item.content_html).toLowerCase();
+    const haystack = `${title} ${author} ${content}`;
+    return authorTerms.every((term) => author.includes(term)) && freeTerms.every((term) => haystack.includes(term));
+  });
+};
+
+const updateForumSearchStatus = () => {
+  const status = $("#forumSearchStatus");
+  if (!status) return;
+  const query = state.forumSearch.trim();
+  const total = state.posts.length;
+  const matched = filterForumPosts(state.posts).length;
+  status.textContent = query ? `已筛选 ${matched}/${total} 条帖子` : `共 ${total} 条帖子`;
 };
 
 const bindContentButtons = () => {
@@ -402,6 +440,42 @@ const renderProfilePage = () => {
 };
 
 const setupForumPost = () => {
+  const searchToggle = $("#forumSearchToggle");
+  const searchPanel = $("#forumSearchPanel");
+  const searchInput = $("#forumSearchInput");
+  const searchClear = $("#forumSearchClear");
+
+  const syncSearch = (open = state.forumSearchOpen) => {
+    state.forumSearchOpen = open;
+    if (searchPanel) searchPanel.hidden = !open;
+    if (searchToggle) searchToggle.setAttribute("aria-expanded", String(open));
+    if (open) {
+      window.setTimeout(() => searchInput?.focus(), prefersReducedMotion() ? 0 : 40);
+    }
+  };
+
+  searchToggle?.addEventListener("click", () => syncSearch(!state.forumSearchOpen));
+  searchInput?.addEventListener("input", (event) => {
+    state.forumSearch = event.target.value;
+    renderLists();
+  });
+  searchInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      state.forumSearch = "";
+      searchInput.value = "";
+      renderLists();
+      syncSearch(false);
+    }
+  });
+  searchClear?.addEventListener("click", () => {
+    state.forumSearch = "";
+    if (searchInput) searchInput.value = "";
+    renderLists();
+    searchInput?.focus();
+  });
+  syncSearch(false);
+
   $("#openPostComposer")?.addEventListener("click", () => {
     if (!state.me) {
       window.location.href = "/login.html";
@@ -714,13 +788,7 @@ const setupDialogDismiss = () => {
     });
     dialog.addEventListener("click", (event) => {
       if (event.target !== dialog) return;
-      const rect = dialog.getBoundingClientRect();
-      const clickedBackdrop =
-        event.clientX < rect.left ||
-        event.clientX > rect.right ||
-        event.clientY < rect.top ||
-        event.clientY > rect.bottom;
-      if (clickedBackdrop) closeDialogAnimated(dialog);
+      closeDialogAnimated(dialog);
     });
   });
 };

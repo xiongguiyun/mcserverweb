@@ -40,7 +40,46 @@
             <div class="section-title compact">
               <h2>最新帖子</h2>
             </div>
-            <button class="button primary" type="button" id="openPostComposer">+ 发布新帖</button>
+            <div class="forum-toolbar-actions">
+              <button
+                class="forum-search-toggle"
+                type="button"
+                id="forumSearchToggle"
+                aria-controls="forumSearchPanel"
+                aria-expanded="false"
+                aria-label="搜索论坛帖子"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="11" cy="11" r="6.5"></circle>
+                  <path d="M16.2 16.2 21 21"></path>
+                </svg>
+              </button>
+              <button class="button primary" type="button" id="openPostComposer">+ 发布新帖</button>
+            </div>
+          </div>
+          <div class="forum-search-panel" id="forumSearchPanel" hidden>
+            <div class="forum-search-box">
+              <input
+                id="forumSearchInput"
+                type="search"
+                autocomplete="off"
+                placeholder="搜索标题、内容、发布者"
+                aria-label="搜索论坛帖子"
+              />
+              <button class="forum-search-clear" type="button" id="forumSearchClear" aria-label="清空搜索">×</button>
+            </div>
+            <span
+              class="forum-search-tip"
+              title="支持标题、内容和发布者搜索。输入 #发布者名 可以直接按发布者筛选，例如 #Steve。"
+              aria-label="搜索提示"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="9"></circle>
+                <path d="M12 10v6"></path>
+                <path d="M12 7.25h.01"></path>
+              </svg>
+            </span>
+            <div class="forum-search-status" id="forumSearchStatus"></div>
           </div>
           <div class="list forum-list" id="postList"></div>
         </div>

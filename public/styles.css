@@ -1125,6 +1125,10 @@ body[data-page="login"] {
   animation: menu-pop 0.18s ease;
 }
 
+.toolbar-more-menu[hidden] {
+  display: none;
+}
+
 @keyframes menu-pop {
   from {
     opacity: 0;
@@ -1236,10 +1240,10 @@ dialog {
   background: #fffaf0;
   box-shadow: var(--shadow);
   opacity: 0;
-  transform: translateY(20px) scale(0.97);
+  transform: translateY(14px) scale(0.985);
   transition:
-    opacity 0.24s ease,
-    transform 0.24s ease;
+    opacity 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
+    transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 dialog[open] {
@@ -1249,7 +1253,8 @@ dialog[open] {
 
 dialog.is-closing {
   opacity: 0;
-  transform: translateY(18px) scale(0.97);
+  transform: translateY(8px) scale(0.992);
+  will-change: transform, opacity;
 }
 
 .auth-dialog,
@@ -1279,7 +1284,7 @@ dialog::backdrop {
 }
 
 dialog[open]::backdrop {
-  animation: fade-backdrop 0.24s ease;
+  animation: fade-backdrop 0.18s ease;
 }
 
 dialog.is-closing::backdrop {
@@ -1308,6 +1313,11 @@ dialog.is-closing::backdrop {
   font-size: 28px;
   line-height: 1;
   cursor: pointer;
+  transition:
+    transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 0.18s ease,
+    box-shadow 0.18s ease,
+    background-color 0.18s ease;
 }
 
 .auth-dialog .dialog-close,
@@ -1684,6 +1694,21 @@ dialog.is-closing::backdrop {
   .forum-toolbar {
     display: grid;
     justify-items: stretch;
+    gap: 12px;
+  }
+
+  .forum-toolbar-actions {
+    justify-self: center;
+  }
+
+  .forum-search-panel {
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+  }
+
+  .forum-search-status {
+    grid-column: 1 / -1;
+    white-space: normal;
   }
 
   #openPostComposer {
@@ -1937,6 +1962,99 @@ button,
   margin-bottom: 0;
 }
 
+.forum-toolbar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+
+.forum-search-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  color: #2a1d16;
+  background: linear-gradient(180deg, #fff8e8, #efd8aa);
+  border: 2px solid #c79a5d;
+  border-radius: 4px;
+  box-shadow: 0 4px 0 rgba(106, 69, 35, 0.18);
+}
+
+.forum-search-toggle svg,
+.forum-search-tip svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.forum-search-toggle:hover {
+  background: linear-gradient(180deg, #fff1c5, #f5a43a);
+}
+
+.forum-search-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  margin: 0 0 18px;
+  padding: 14px;
+  background: #fff4dd;
+  border: 2px solid #d7bc8b;
+  border-radius: 6px;
+  box-shadow: 0 6px 0 rgba(106, 69, 35, 0.14);
+}
+
+.forum-search-box {
+  position: relative;
+  display: grid;
+  align-items: center;
+}
+
+.forum-search-box input {
+  min-height: 42px;
+  padding-right: 48px;
+}
+
+.forum-search-clear {
+  position: absolute;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: #2a1d16;
+  background: #fff7e8;
+  border: 2px solid #d7bc8b;
+  border-radius: 50%;
+  box-shadow: 0 2px 0 rgba(106, 69, 35, 0.14);
+}
+
+.forum-search-tip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  color: #7b4d17;
+  background: #fffaf0;
+  border: 2px solid #d7bc8b;
+  border-radius: 50%;
+  cursor: help;
+}
+
+.forum-search-status {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
 .profile-card {
   min-height: 430px;
   padding: 22px;
@@ -2008,13 +2126,13 @@ button,
 }
 
 dialog {
-  animation: dialog-rise 0.24s ease both;
+  animation: dialog-rise 0.18s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
 @keyframes dialog-rise {
   from {
     opacity: 0;
-    transform: translateY(22px) scale(0.965);
+    transform: translateY(14px) scale(0.985);
   }
   to {
     opacity: 1;
