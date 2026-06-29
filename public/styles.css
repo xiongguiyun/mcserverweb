@@ -2471,3 +2471,179 @@ dialog {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Mobile forum composer and overlay polish. */
+#openPostComposer {
+  min-height: 36px;
+  padding: 0 14px;
+  font-size: 13px;
+}
+
+dialog {
+  animation: dialog-open 0.2s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+dialog.is-closing {
+  animation: dialog-close 0.2s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+dialog::backdrop {
+  animation: backdrop-open 0.2s ease both;
+}
+
+dialog.is-closing::backdrop {
+  animation: backdrop-close 0.2s ease both;
+}
+
+@keyframes dialog-open {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes dialog-close {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+}
+
+@keyframes backdrop-open {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes backdrop-close {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@media (max-width: 620px) {
+  .forum-toolbar-actions {
+    justify-content: center;
+  }
+
+  #openPostComposer {
+    width: auto;
+    min-width: 0;
+    max-width: 148px;
+    min-height: 34px;
+    padding: 0 12px;
+    overflow: hidden;
+    font-size: 12px;
+    text-overflow: ellipsis;
+  }
+
+  .compose-dialog {
+    width: calc(100vw - 16px);
+    max-height: calc(100dvh - 16px);
+    padding: 16px 12px 12px;
+    overflow-y: auto;
+  }
+
+  .compose-dialog .dialog-close {
+    top: 6px;
+    right: 6px;
+    width: 34px;
+    height: 34px;
+    font-size: 23px;
+  }
+
+  .compose-dialog h2 {
+    margin: 0 42px 10px 0;
+    font-size: 22px;
+    line-height: 1.15;
+  }
+
+  .compose-dialog form {
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .compose-dialog .form-row {
+    margin-bottom: 4px;
+    min-width: 0;
+  }
+
+  .compose-dialog input {
+    min-height: 38px;
+  }
+
+  .compose-dialog .editor-toolbar-shell {
+    margin-inline: -2px;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .compose-dialog .editor-toolbar {
+    box-sizing: border-box;
+    max-width: 100%;
+    min-height: 40px;
+    padding: 5px;
+    overflow-x: auto;
+  }
+
+  .compose-dialog .editor-toolbar button,
+  .compose-dialog .editor-toolbar .toolbar-select {
+    height: 30px;
+    min-width: 30px;
+    padding: 0 7px;
+    font-size: 11px;
+  }
+
+  .compose-dialog .toolbar-preview-button {
+    min-width: 56px !important;
+  }
+
+  .compose-dialog .rich-editor {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    min-height: 42dvh;
+    max-height: 48dvh;
+    padding: 10px;
+  }
+
+  .compose-dialog .submit-button {
+    justify-self: stretch;
+    min-height: 40px;
+    margin-top: 2px;
+  }
+
+  body[data-page="admin"] .admin-sidebar-backdrop {
+    z-index: 38;
+  }
+
+  body[data-page="admin"] .admin-sidebar-drawer {
+    top: calc(50% - 78px);
+    z-index: 42;
+    width: min(286px, 82vw);
+    max-height: min(72dvh, 440px);
+    transform: translateX(-108%);
+  }
+
+  body[data-page="admin"].admin-drawer-open .admin-sidebar-drawer {
+    transform: translateX(0);
+  }
+
+  body.admin-drawer-open .admin-mobile-toggle {
+    pointer-events: none;
+  }
+}

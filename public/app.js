@@ -16,6 +16,7 @@ const page = document.body.dataset.page;
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const serverAddress = "play.blockhaven.cn";
+let maintenanceRequestId = 0;
 const staticPreviewNotice = "当前是静态预览模式，接口内容暂时不可用。";
 
 const api = async (path, options = {}) => {
@@ -88,10 +89,11 @@ const activeAvatarSrc = (user, size = 32) => (user?.username ? avatarUrl(user.us
 const profileHref = (username) => `/profile.html?user=${encodeURIComponent(username)}`;
 const currentProfileQuery = () => new URL(window.location.href).searchParams.get("user") || state.me?.username || "";
 const prefersReducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
-const dialogCloseDelay = () => (prefersReducedMotion() ? 0 : 180);
+const dialogCloseDelay = () => (prefersReducedMotion() ? 0 : 240);
 
 const openDialog = (dialog) => {
   if (!dialog) return;
+  window.clearTimeout(dialog.closeTimer);
   dialog.classList.remove("is-closing");
   dialog.showModal();
 };
@@ -102,11 +104,19 @@ const closeDialogAnimated = (dialog) => {
     dialog.close();
     return;
   }
+  if (dialog.classList.contains("is-closing")) return;
   dialog.classList.add("is-closing");
-  window.setTimeout(() => {
+  const finishClose = () => {
+    window.clearTimeout(dialog.closeTimer);
     dialog.close();
     dialog.classList.remove("is-closing");
-  }, dialogCloseDelay());
+    dialog.removeEventListener("animationend", onAnimationEnd);
+  };
+  const onAnimationEnd = (event) => {
+    if (event.target === dialog) finishClose();
+  };
+  dialog.addEventListener("animationend", onAnimationEnd);
+  dialog.closeTimer = window.setTimeout(finishClose, dialogCloseDelay() + 80);
 };
 
 const openPostDialog = () => openDialog($("#postDialog"));
@@ -757,12 +767,29 @@ const setupAdminUsers = () => {
 
 const setupMaintenanceToggle = () => {
   $("#maintenanceToggle")?.addEventListener("change", async (event) => {
-    const result = await api("/admin/settings/maintenance", { method: "PUT", body: JSON.stringify({ enabled: event.target.checked }) });
-    state.site.maintenanceMode = result.maintenanceMode;
-    if (state.stats) state.stats.maintenanceMode = result.maintenanceMode;
+    const requestId = ++maintenanceRequestId;
+    const enabled = event.target.checked;
+    const previous = Boolean(state.stats?.maintenanceMode);
+    state.site.maintenanceMode = enabled;
+    if (state.stats) state.stats.maintenanceMode = enabled;
     renderStats();
     renderMaintenanceBanner();
-    showToast(result.maintenanceMode ? "已开启维护模式" : "已关闭维护模式");
+    try {
+      const result = await api("/admin/settings/maintenance", { method: "PUT", body: JSON.stringify({ enabled }) });
+      if (requestId !== maintenanceRequestId) return;
+      state.site.maintenanceMode = result.maintenanceMode;
+      if (state.stats) state.stats.maintenanceMode = result.maintenanceMode;
+      renderStats();
+      renderMaintenanceBanner();
+      showToast(result.maintenanceMode ? "已开启维护模式" : "已关闭维护模式");
+    } catch (error) {
+      if (requestId !== maintenanceRequestId) return;
+      state.site.maintenanceMode = previous;
+      if (state.stats) state.stats.maintenanceMode = previous;
+      renderStats();
+      renderMaintenanceBanner();
+      showToast(error.message);
+    }
   });
 };
 
