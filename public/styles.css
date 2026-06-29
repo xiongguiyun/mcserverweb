@@ -1224,6 +1224,11 @@ dialog::backdrop {
   transform: translateY(0);
 }
 
+.toast.show.copyable {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
 .empty {
   grid-column: 1 / -1;
   padding: 34px;

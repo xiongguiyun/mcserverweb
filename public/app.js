@@ -30,18 +30,21 @@ const api = async (path, options = {}) => {
   }
   if (!response.ok) {
     const message = payload.error || `请求失败 (${response.status})`;
-    navigator.clipboard?.writeText(message).catch(() => {});
-    const error = new Error(`${message}（真实错误已自动复制）`);
+    showToast(message, { copyText: message });
+    const error = new Error(message);
     error.payload = payload;
     throw error;
   }
   return payload;
 };
 
-const showToast = (message) => {
+const showToast = (message, options = {}) => {
   const toast = $("#toast");
   if (!toast) return;
+  const { copyText = "" } = options;
   toast.textContent = message;
+  toast.dataset.copyText = copyText;
+  toast.classList.toggle("copyable", Boolean(copyText));
   toast.classList.add("show");
   window.clearTimeout(showToast.timer);
   showToast.timer = window.setTimeout(() => toast.classList.remove("show"), 2600);
@@ -673,6 +676,12 @@ const renderAll = () => {
   renderProfilePage();
   if (page === "admin") renderAdminGate();
 };
+
+$("#toast")?.addEventListener("click", async (event) => {
+  const copyText = event.currentTarget.dataset.copyText;
+  if (!copyText) return;
+  await navigator.clipboard?.writeText(copyText).catch(() => {});
+});
 
 $("#closeDialog")?.addEventListener("click", () => $("#readerDialog")?.close());
 setupLoginPage();
