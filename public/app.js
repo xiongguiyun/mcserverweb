@@ -87,14 +87,34 @@ const formatDate = (value) =>
 
 const isAdmin = () => state.me?.role === "admin";
 const isOwner = () => Boolean(state.me?.is_owner);
-const skinUrl = (name, size = 210) => `https://mc-heads.net/body/${encodeURIComponent(name)}/${size}`;
-const avatarUrl = (name, size = 32) => `https://mc-heads.net/avatar/${encodeURIComponent(name)}/${size}`;
+const minecraftImageUrl = (kind, name, size) => `/api/minecraft-image/${kind}/${encodeURIComponent(name)}/${size}`;
+const skinUrl = (name, size = 210) => minecraftImageUrl("body", name, size);
+const avatarUrl = (name, size = 32) => minecraftImageUrl("avatar", name, size);
 const activeSkinSrc = (user, size = 210) => (user?.username ? skinUrl(user.username, size) : "/assets/unbound-skin.png");
 const activeAvatarSrc = (user, size = 32) => (user?.username ? avatarUrl(user.username, size) : "/assets/unbound-skin.png");
 const profileHref = (username) => `/profile.html?user=${encodeURIComponent(username)}`;
 const currentProfileQuery = () => new URL(window.location.href).searchParams.get("user") || state.me?.username || "";
 const prefersReducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
 const dialogCloseDelay = () => (prefersReducedMotion() ? 0 : 240);
+
+const renderTotpQrFallback = (result) => `
+  <div class="totp-qr-fallback">
+    <p>&#20108;&#32500;&#30721;&#26080;&#27861;&#26174;&#31034;&#65292;&#35831;&#20351;&#29992;&#25163;&#21160;&#23494;&#38053;&#12290;</p>
+    <div class="totp-secret-card">
+      <span class="totp-secret-label">&#25163;&#21160;&#23494;&#38053;</span>
+      <code>${escapeHtml(result.secret)}</code>
+    </div>
+    <a class="button ghost small" href="${escapeHtml(result.uri)}">&#25171;&#24320;&#39564;&#35777;&#22120;</a>
+  </div>
+`;
+
+const safeRenderQrSvg = (result) => {
+  try {
+    return renderQrSvg(result.uri);
+  } catch {
+    return renderTotpQrFallback(result);
+  }
+};
 
 const openDialog = (dialog) => {
   if (!dialog) return;
@@ -311,7 +331,7 @@ const renderTotpSetupPanel = (setupPanel, result) => {
         `
         : `
           <div class="totp-visual-card" id="totpVisualCard">
-            <div class="totp-qr-shell" id="totpQrShell" aria-label="2FA 二维码">${renderQrSvg(result.uri)}</div>
+            <div class="totp-qr-shell" id="totpQrShell" aria-label="2FA 二维码">${safeRenderQrSvg(result)}</div>
           </div>
           <button class="totp-text-toggle" type="button" id="totpSecretToggle">切换成密钥</button>
           <div class="totp-secret-card" id="totpSecretCard" hidden>

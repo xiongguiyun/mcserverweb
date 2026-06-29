@@ -302,6 +302,45 @@ const logout = async (env, request) => {
   });
 };
 
+const minecraftImage = async (request, waitUntil, kind, username, size) => {
+  if (!["avatar", "body"].includes(kind)) return json({ error: "图片类型不存在" }, 404);
+  const cleanName = String(username || "").trim();
+  const cleanSize = Number(size);
+  const fallbackUrl = new URL("/assets/unbound-skin.png", request.url);
+  if (!/^[\w-]{1,32}$/.test(cleanName) || !Number.isInteger(cleanSize) || cleanSize < 16 || cleanSize > 512) return fetch(fallbackUrl);
+
+  const cache = globalThis.caches?.default;
+  const imageUrl = `https://mc-heads.net/${kind}/${encodeURIComponent(cleanName)}/${cleanSize}`;
+  const cacheRequest = new Request(imageUrl, { method: "GET" });
+  const cached = await cache?.match(cacheRequest);
+  if (cached) return cached;
+
+  try {
+    const upstream = await fetch(imageUrl, {
+      headers: {
+        Accept: "image/png,image/*;q=0.8,*/*;q=0.5",
+        "User-Agent": "blockhaven-site-image-proxy",
+      },
+      cf: { cacheTtl: 86400, cacheEverything: true },
+    });
+    const contentType = upstream.headers.get("content-type") || "";
+    if (!upstream.ok || !contentType.startsWith("image/")) throw new Error(`Minecraft image upstream failed: ${upstream.status}`);
+    const response = new Response(upstream.body, {
+      status: 200,
+      headers: {
+        "Content-Type": contentType,
+        "Cache-Control": "public, max-age=86400, s-maxage=86400",
+      },
+    });
+    if (cache) waitUntil?.(cache.put(cacheRequest, response.clone()));
+    return response;
+  } catch {
+    return fetch(fallbackUrl, {
+      cf: { cacheTtl: 86400, cacheEverything: true },
+    });
+  }
+};
+
 const generateTotpAsync = async (secret, counter) => {
   const key = await crypto.subtle.importKey("raw", base32ToBytes(secret), { name: "HMAC", hash: "SHA-1" }, false, ["sign"]);
   const buffer = new ArrayBuffer(8);
@@ -535,7 +574,7 @@ const updateMaintenance = async (env, request) => {
 };
 
 export async function onRequest(context) {
-  const { request, env, params } = context;
+  const { request, env, params, waitUntil } = context;
   const pathname = `/${(params.path || []).join("/")}`;
   const method = request.method;
 
@@ -563,6 +602,11 @@ export async function onRequest(context) {
 
     if (method === "GET" && /^\/profiles\/[^/]+$/.test(pathname)) {
       return profile(env, request, decodeURIComponent(pathname.split("/").at(-1)));
+    }
+
+    if (method === "GET" && /^\/minecraft-image\/(avatar|body)\/[^/]+\/\d+$/.test(pathname)) {
+      const [, , kind, username, size] = pathname.split("/");
+      return minecraftImage(request, waitUntil, kind, decodeURIComponent(username), size);
     }
 
     if (method === "POST" && /^\/track-view\/(announcement|post)\/\d+$/.test(pathname)) {
