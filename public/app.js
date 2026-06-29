@@ -82,9 +82,12 @@ const activeSkinSrc = (user, size = 210) => (user?.username ? skinUrl(user.usern
 const activeAvatarSrc = (user, size = 32) => (user?.username ? avatarUrl(user.username, size) : "/assets/unbound-skin.png");
 const profileHref = (username) => `/profile.html?user=${encodeURIComponent(username)}`;
 const currentProfileQuery = () => new URL(window.location.href).searchParams.get("user") || state.me?.username || "";
+const prefersReducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
 
 const openPostDialog = () => $("#postDialog")?.showModal();
 const closePostDialog = () => $("#postDialog")?.close();
+const openPreviewDialog = () => $("#previewDialog")?.showModal();
+const closePreviewDialog = () => $("#previewDialog")?.close();
 
 const renderAuth = () => {
   const actions = $("#authActions");
@@ -293,6 +296,18 @@ const setupEditor = () => {
     const isOpen = button.getAttribute("aria-expanded") === "true";
     button.setAttribute("aria-expanded", String(!isOpen));
     if (menu) menu.hidden = isOpen;
+  });
+  $("#previewButton")?.addEventListener("click", () => {
+    const editor = $("#editor");
+    const previewContent = $("#previewContent");
+    if (!editor || !previewContent) return;
+    const title = $("#forumTitle")?.value.trim() || $("#title")?.value.trim() || "预览";
+    previewContent.innerHTML = `
+      <h1>${escapeHtml(title)}</h1>
+      <div class="meta">预览模式 · 仅查看当前编辑内容，不会直接保存</div>
+      <div class="reader-body">${editor.innerHTML.trim() || "<p>暂无内容</p>"}</div>
+    `;
+    openPreviewDialog();
   });
 };
 
@@ -594,15 +609,73 @@ const setupMaintenanceToggle = () => {
 
 const setupAdminNavigation = () => {
   const links = $$(".admin-nav a");
+  const sections = $$(".admin-panel[id]");
   if (!links.length) return;
+  const setActive = (current) => {
+    links.forEach((link) => {
+      const active = link.getAttribute("href") === current;
+      link.classList.toggle("active", active);
+      link.classList.toggle("admin-nav-scrolled", active);
+    });
+  };
   const sync = () => {
     const current = window.location.hash || "#adminOverview";
-    links.forEach((link) => link.classList.toggle("active", link.getAttribute("href") === current));
+    setActive(current);
     if (current === "#adminTrash") renderTrash().catch((error) => showToast(error.message));
   };
   links.forEach((link) => link.addEventListener("click", () => window.setTimeout(sync, 0)));
   window.addEventListener("hashchange", sync);
   sync();
+
+  if (!sections.length) return;
+
+  const observer = new IntersectionObserver(
+    (entries) => {
+      const visible = entries
+        .filter((entry) => entry.isIntersecting)
+        .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+      if (!visible) return;
+      const current = `#${visible.target.id}`;
+      if (window.location.hash !== current) {
+        window.history.replaceState(null, "", current);
+      }
+      setActive(current);
+    },
+    {
+      rootMargin: "-18% 0px -56% 0px",
+      threshold: [0.2, 0.35, 0.55],
+    },
+  );
+
+  sections.forEach((section) => observer.observe(section));
+};
+
+const setupAdminMobileDrawer = () => {
+  const toggle = $("#adminSidebarToggle");
+  const drawer = $("#adminSidebarDrawer");
+  const backdrop = $("#adminSidebarBackdrop");
+  if (!toggle || !drawer || !backdrop) return;
+
+  const setOpen = (open) => {
+    document.body.classList.toggle("admin-drawer-open", open);
+    toggle.setAttribute("aria-expanded", String(open));
+    drawer.setAttribute("aria-hidden", String(!open));
+    backdrop.hidden = false;
+    if (!open) {
+      window.setTimeout(() => {
+        if (!document.body.classList.contains("admin-drawer-open")) {
+          backdrop.hidden = true;
+        }
+      }, prefersReducedMotion() ? 0 : 240);
+    }
+  };
+
+  toggle.addEventListener("click", () => setOpen(!document.body.classList.contains("admin-drawer-open")));
+  backdrop.addEventListener("click", () => setOpen(false));
+  $$(".admin-nav-drawer a").forEach((link) => link.addEventListener("click", () => setOpen(false)));
+  window.addEventListener("resize", () => {
+    if (window.innerWidth > 620) setOpen(false);
+  });
 };
 
 const setupHomeActions = () => {
@@ -610,6 +683,26 @@ const setupHomeActions = () => {
     await navigator.clipboard.writeText(serverAddress);
     showToast("服务器地址已复制");
   });
+};
+
+const setupHeroTyping = () => {
+  const title = $("#heroTypedTitle");
+  if (!title) return;
+  const fullText = title.dataset.text || "Liou_Yang Server";
+  if (prefersReducedMotion()) {
+    title.textContent = fullText;
+    return;
+  }
+  let index = 0;
+  title.textContent = "";
+  const tick = () => {
+    title.textContent = fullText.slice(0, index);
+    if (index < fullText.length) {
+      index += 1;
+      window.setTimeout(tick, index > 9 ? 80 : 112);
+    }
+  };
+  window.setTimeout(tick, 220);
 };
 
 const setupLoginPage = () => {
@@ -684,6 +777,7 @@ $("#toast")?.addEventListener("click", async (event) => {
 });
 
 $("#closeDialog")?.addEventListener("click", () => $("#readerDialog")?.close());
+$$("[data-close-preview]").forEach((button) => button.addEventListener("click", closePreviewDialog));
 setupLoginPage();
 setupEditor();
 setupForumPost();
@@ -691,6 +785,8 @@ setupPublish();
 setupAdminUsers();
 setupMaintenanceToggle();
 setupAdminNavigation();
+setupAdminMobileDrawer();
 setupHomeActions();
+setupHeroTyping();
 
 refreshPageData().catch((error) => showToast(error.message));

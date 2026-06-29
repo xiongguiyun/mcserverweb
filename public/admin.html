@@ -43,6 +43,24 @@
             <a href="#adminTrash">垃圾桶</a>
           </nav>
         </aside>
+        <button class="admin-mobile-toggle" type="button" id="adminSidebarToggle" aria-controls="adminSidebarDrawer" aria-expanded="false">
+          鎺у埗鍙?/button>
+        <div class="admin-sidebar-backdrop" id="adminSidebarBackdrop" hidden></div>
+        <aside class="admin-sidebar admin-sidebar-drawer" id="adminSidebarDrawer" aria-hidden="true">
+          <div class="admin-sidebar-head">
+            <h2>鎺у埗鍙?/h2>
+            <p>鎵嬫満绔彲浠ラ殢鏃跺睍寮€锛屽揩閫熷畾浣嶇鐞嗗尯鍩熴€?/p>
+          </div>
+          <nav class="admin-nav admin-nav-drawer" aria-label="鍚庡彴鍔熻兘绉诲姩鑿滃崟">
+            <a href="#adminOverview" class="active">姒傝</a>
+            <a href="#adminMaintenance">缁存姢妯″紡</a>
+            <a href="#adminEditor">鍐呭鍙戝竷</a>
+            <a href="#adminAnnouncements">鍏憡绠＄悊</a>
+            <a href="#adminPosts">璁哄潧绠＄悊</a>
+            <a href="#adminUsersPanel">绠＄悊鍛?/a>
+            <a href="#adminTrash">鍨冨溇妗?/a>
+          </nav>
+        </aside>
 
         <div class="admin-workspace">
           <section class="admin-panel" id="adminOverview">
@@ -86,6 +104,8 @@
                   <label for="title">标题</label>
                   <input id="title" name="title" maxlength="80" required placeholder="例如：周末建筑赛报名开始" />
                 </div>
+                <span class="toolbar-spacer" aria-hidden="true"></span>
+                <button type="button" id="previewButton" class="toolbar-preview-button">棰勮</button>
               </div>
               <div class="toolbar editor-toolbar" aria-label="编辑工具栏">
                 <button type="button" data-command="bold" title="粗体"><strong>B</strong></button>
@@ -180,6 +200,10 @@
     </main>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <dialog id="previewDialog" class="preview-dialog">
+      <button class="dialog-close" type="button" data-close-preview aria-label="鍏抽棴">脳</button>
+      <article id="previewContent"></article>
+    </dialog>
     <script src="/app.js" type="module"></script>
   </body>
 </html>

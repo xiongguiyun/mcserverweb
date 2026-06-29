@@ -43,6 +43,8 @@
               <p>主要展示帖子内容，发布入口收进一个按钮里。</p>
             </div>
             <button class="button primary" type="button" id="openPostComposer">+ 发布新帖</button>
+            <span class="toolbar-spacer" aria-hidden="true"></span>
+            <button type="button" id="previewButton" class="toolbar-preview-button">棰勮</button>
           </div>
           <div class="list forum-list" id="postList"></div>
         </div>
@@ -105,6 +107,11 @@
     <dialog id="readerDialog">
       <button class="dialog-close" type="button" id="closeDialog" aria-label="关闭">×</button>
       <article id="readerContent"></article>
+    </dialog>
+
+    <dialog id="previewDialog" class="preview-dialog">
+      <button class="dialog-close" type="button" data-close-preview aria-label="鍏抽棴">脳</button>
+      <article id="previewContent"></article>
     </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
