@@ -92,7 +92,7 @@ const authExtraFields = () => {
   extras.id = "authExtras";
   extras.className = "auth-extra-fields";
   extras.innerHTML = `
-    <input id="email" autocomplete="email" placeholder="邮箱（Outlook / Google / QQ / 网易）" />
+    <input id="email" autocomplete="email" placeholder="QQ邮箱（例如 123456@qq.com）" />
     <div class="inline-form compact">
       <input id="emailCode" inputmode="numeric" maxlength="6" placeholder="邮箱验证码" />
       <button class="button ghost" id="sendEmailCode" type="button">发送验证码</button>

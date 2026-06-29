@@ -1,3 +1,5 @@
+import { connect } from "cloudflare:sockets";
+
 const json = (data, status = 200, headers = {}) =>
   new Response(JSON.stringify(data), {
     status,
@@ -7,10 +9,7 @@ const json = (data, status = 200, headers = {}) =>
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 const emailProviders = {
-  outlook: ["outlook.com", "hotmail.com", "live.com"],
-  google: ["gmail.com", "googlemail.com"],
   qq: ["qq.com"],
-  netease: ["163.com", "126.com", "yeah.net"],
 };
 
 const messageFromError = (error, fallback = "服务器错误") => {
@@ -120,6 +119,47 @@ const detectEmailProvider = (email) => {
 
 const normalizeEmail = (email) => String(email || "").trim().toLowerCase();
 
+const bytesToBinary = (bytes) => Array.from(bytes, (byte) => String.fromCharCode(byte)).join("");
+
+const encodeMimeWord = (value) => {
+  const bytes = textEncoder.encode(String(value || ""));
+  return `=?UTF-8?B?${btoa(bytesToBinary(bytes))}?=`;
+};
+
+const encodeBase64Utf8 = (value) => btoa(bytesToBinary(textEncoder.encode(String(value || ""))));
+
+const smtpRead = async (reader, state) => {
+  while (true) {
+    const lines = state.buffer.split(/\r\n/);
+    state.buffer = lines.pop() || "";
+    for (const line of lines) {
+      if (line && /^\d{3} /.test(line)) return line;
+    }
+    const { value, done } = await reader.read();
+    if (done) {
+      if (state.buffer) {
+        const line = state.buffer;
+        state.buffer = "";
+        return line;
+      }
+      throw new Error("SMTP connection closed unexpectedly");
+    }
+    state.buffer += textDecoder.decode(value, { stream: true });
+  }
+};
+
+const smtpExpect = async (reader, state, allowedCodes) => {
+  const line = await smtpRead(reader, state);
+  const code = Number(line.slice(0, 3));
+  if (!allowedCodes.includes(code)) throw new Error(`SMTP ${code}: ${line}`);
+  return line;
+};
+
+const smtpWrite = async (writer, command, sensitive = false) => {
+  if (!sensitive) console.log("SMTP >", command);
+  await writer.write(textEncoder.encode(`${command}\r\n`));
+};
+
 const publicUser = (user) =>
   user
     ? {
@@ -210,28 +250,73 @@ const createSession = async (env, user) => {
 };
 
 const sendEmail = async (env, to, subject, body) => {
-  if (!env.SMTP_USER || !env.SMTP_PASS) {
-    console.log("Email delivery skipped. Configure SMTP_USER and SMTP_PASS.", { to, subject, body });
+  const smtpUser = String(env.SMTP_USER || "").trim();
+  const smtpPass = String(env.SMTP_PASS || "").trim();
+  const smtpFrom = String(env.SMTP_FROM || smtpUser).trim();
+  const smtpHost = String(env.SMTP_HOST || "smtp.qq.com").trim();
+  const smtpPort = Number(env.SMTP_PORT || 465);
+
+  if (!smtpUser || !smtpPass || !smtpFrom) {
+    console.log("Email delivery skipped. Configure SMTP_USER, SMTP_PASS and SMTP_FROM.", { to, subject, body });
     return { skipped: true };
   }
-  const from = env.SMTP_FROM || env.SMTP_USER;
-  const response = await fetch(env.EMAIL_API_URL || "https://api.smtp2go.com/v3/email/send", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Smtp2go-Api-Key": env.EMAIL_API_KEY || "",
-    },
-    body: JSON.stringify({
-      sender: from,
-      to: [to],
-      subject,
-      text_body: body,
-    }),
-  }).catch((error) => ({ ok: false, status: 0, text: async () => messageFromError(error) }));
-  if (!response.ok) {
-    console.log("Email provider failed", await response.text());
+  const socket = connect({
+    hostname: smtpHost,
+    port: smtpPort,
+    secureTransport: smtpPort === 465 ? "on" : "starttls",
+  });
+  const writer = socket.writable.getWriter();
+  const reader = socket.readable.getReader();
+  const state = { buffer: "" };
+
+  try {
+    await smtpExpect(reader, state, [220]);
+    await smtpWrite(writer, "EHLO liouyang-server");
+    await smtpExpect(reader, state, [250]);
+    await smtpWrite(writer, "AUTH LOGIN");
+    await smtpExpect(reader, state, [334]);
+    await smtpWrite(writer, btoa(smtpUser), true);
+    await smtpExpect(reader, state, [334]);
+    await smtpWrite(writer, btoa(smtpPass), true);
+    await smtpExpect(reader, state, [235]);
+    await smtpWrite(writer, `MAIL FROM:<${smtpFrom}>`);
+    await smtpExpect(reader, state, [250]);
+    await smtpWrite(writer, `RCPT TO:<${to}>`);
+    await smtpExpect(reader, state, [250, 251]);
+    await smtpWrite(writer, "DATA");
+    await smtpExpect(reader, state, [354]);
+
+    const message = [
+      `From: ${encodeMimeWord("Liou_Yang Server")} <${smtpFrom}>`,
+      `To: <${to}>`,
+      `Subject: ${encodeMimeWord(subject)}`,
+      "MIME-Version: 1.0",
+      'Content-Type: text/plain; charset="UTF-8"',
+      "Content-Transfer-Encoding: base64",
+      "",
+      encodeBase64Utf8(body).replace(/.{1,76}/g, "$&\r\n").trim(),
+      ".",
+    ].join("\r\n");
+
+    await writer.write(textEncoder.encode(`${message}\r\n`));
+    await smtpExpect(reader, state, [250]);
+    await smtpWrite(writer, "QUIT");
+    await smtpExpect(reader, state, [221]);
+    return { skipped: false };
+  } catch (error) {
+    console.error("QQ SMTP send failed", messageFromError(error), { to, smtpHost, smtpPort });
+    throw new Error(`QQ邮箱 SMTP 发送失败: ${messageFromError(error)}`);
+  } finally {
+    try {
+      writer.releaseLock();
+    } catch {}
+    try {
+      reader.releaseLock();
+    } catch {}
+    try {
+      socket.close();
+    } catch {}
   }
-  return { skipped: false };
 };
 
 const createEmailCode = async (env, { userId = null, email, purpose }) => {
@@ -345,7 +430,7 @@ const register = async (env, request) => {
     return json({ error: "用户名需要 3-20 位，可用中文、字母、数字、下划线和短横线" }, 400);
   }
   if (password.length < 6) return json({ error: "密码至少 6 位" }, 400);
-  if (!provider) return json({ error: "邮箱只支持 Outlook、Google、QQ、网易邮箱" }, 400);
+  if (!provider) return json({ error: "邮箱只支持 QQ 邮箱" }, 400);
   if (!(await verifyEmailCode(env, { email, purpose: "verify_email", code }))) return json({ error: "邮箱验证码错误或已过期" }, 400);
 
   const count = await env.DB.prepare("SELECT COUNT(*) AS total FROM users").first();
@@ -398,7 +483,7 @@ const sendVerifyCode = async (env, request) => {
   const body = await readBody(request);
   const email = normalizeEmail(body.email);
   const provider = detectEmailProvider(email);
-  if (!provider) return json({ error: "邮箱只支持 Outlook、Google、QQ、网易邮箱" }, 400);
+  if (!provider) return json({ error: "邮箱只支持 QQ 邮箱" }, 400);
   const user = await currentUser(env, request);
   await createEmailCode(env, { userId: user?.id || null, email, purpose: "verify_email" });
   return json({ ok: true, provider });
@@ -410,7 +495,7 @@ const updateEmail = async (env, request) => {
   const email = normalizeEmail(body.email);
   const provider = detectEmailProvider(email);
   const code = String(body.emailCode || "").trim();
-  if (!provider) return json({ error: "邮箱只支持 Outlook、Google、QQ、网易邮箱" }, 400);
+  if (!provider) return json({ error: "邮箱只支持 QQ 邮箱" }, 400);
   if (!(await verifyEmailCode(env, { email, purpose: "verify_email", code }))) return json({ error: "邮箱验证码错误或已过期" }, 400);
   await env.DB.prepare("UPDATE users SET email = ?, email_provider = ?, email_verified = 1 WHERE id = ?")
     .bind(email, provider, user.id)

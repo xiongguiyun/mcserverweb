@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS users (
   minecraft_name TEXT,
   minecraft_uuid TEXT,
   email TEXT,
-  email_provider TEXT CHECK (email_provider IN ('outlook', 'google', 'qq', 'netease')),
+  email_provider TEXT CHECK (email_provider IN ('qq')),
   email_verified INTEGER NOT NULL DEFAULT 0,
   totp_secret TEXT,
   totp_enabled INTEGER NOT NULL DEFAULT 0,
