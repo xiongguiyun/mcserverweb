@@ -585,6 +585,14 @@ button {
   gap: 10px;
 }
 
+.account-security p,
+.totp-panel p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.65;
+  font-weight: 750;
+}
+
 .totp-panel code {
   display: block;
   padding: 10px;
@@ -931,6 +939,7 @@ label {
 
 input,
 select {
+  max-width: 100%;
   min-height: 38px;
   width: 100%;
   padding: 0 10px;
@@ -939,6 +948,15 @@ select {
   border: 2px solid var(--line);
   border-radius: 4px;
   outline: none;
+}
+
+input[type="search"]::-webkit-search-cancel-button,
+input[type="search"]::-webkit-search-decoration {
+  appearance: none;
+}
+
+input[type="search"] {
+  appearance: textfield;
 }
 
 input:focus,
@@ -1712,10 +1730,10 @@ dialog.is-closing::backdrop {
   }
 
   #openPostComposer {
-    width: min(220px, 100%);
+    width: auto;
     min-height: 34px;
     margin: 0 auto;
-    padding: 0 18px;
+    padding: 0 14px;
     white-space: nowrap;
   }
 
@@ -2386,16 +2404,44 @@ dialog {
 
   body[data-page="admin"] .admin-shell {
     padding: 22px 12px 52px 48px;
+    overflow-x: hidden;
   }
 
   body[data-page="admin"] .admin-workspace {
     gap: 12px;
+    min-width: 0;
   }
 
   body[data-page="admin"] .admin-panel,
   body[data-page="admin"] .editor-card,
   body[data-page="admin"] .admin-locked {
+    min-width: 0;
     padding: 14px;
+    overflow-x: hidden;
+  }
+
+  body[data-page="admin"] .admin-form-grid,
+  body[data-page="admin"] .inline-form,
+  body[data-page="admin"] .stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  body[data-page="admin"] .admin-table,
+  body[data-page="admin"] .table-row,
+  body[data-page="admin"] .rich-editor,
+  body[data-page="admin"] .editor-toolbar-shell {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  body[data-page="admin"] .editor-toolbar {
+    max-width: 100%;
+  }
+
+  body[data-page="admin"] .row-actions .button,
+  body[data-page="admin"] .inline-form .button {
+    width: auto;
+    min-width: 0;
   }
 
   body[data-page="admin"] .section-title.compact h2 {

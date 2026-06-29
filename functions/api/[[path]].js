@@ -306,7 +306,8 @@ const generateTotpAsync = async (secret, counter) => {
   const key = await crypto.subtle.importKey("raw", base32ToBytes(secret), { name: "HMAC", hash: "SHA-1" }, false, ["sign"]);
   const buffer = new ArrayBuffer(8);
   const view = new DataView(buffer);
-  view.setUint32(4, counter);
+  view.setUint32(0, Math.floor(counter / 0x100000000));
+  view.setUint32(4, counter >>> 0);
   const hmac = new Uint8Array(await crypto.subtle.sign("HMAC", key, buffer));
   const offset = hmac[hmac.length - 1] & 0xf;
   const binary = ((hmac[offset] & 0x7f) << 24) | (hmac[offset + 1] << 16) | (hmac[offset + 2] << 8) | hmac[offset + 3];

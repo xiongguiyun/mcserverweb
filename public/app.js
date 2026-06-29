@@ -262,6 +262,59 @@ const updateForumSearchStatus = () => {
   status.textContent = query ? `已筛选 ${matched}/${total} 条帖子` : `共 ${total} 条帖子`;
 };
 
+const totpPanelTemplate = (profile) => {
+  if (!profile?.isSelf || profile.role !== "admin") return "";
+  return `
+    <section class="account-security" id="accountSecurity">
+      <h3>双重验证</h3>
+      <p>${profile.totp_enabled ? "当前已开启，登录时需要填写 6 位验证码。" : "开启后，登录后台时需要额外填写 Authenticator 验证码。"}</p>
+      <div class="security-form">
+        ${
+          profile.totp_enabled
+            ? `<button class="button danger" type="button" id="disableTotpButton">关闭 2FA</button>`
+            : `<button class="button primary" type="button" id="beginTotpButton">开启 2FA</button>`
+        }
+      </div>
+      <div class="totp-panel" id="totpSetupPanel" hidden></div>
+    </section>
+  `;
+};
+
+const bindTotpSecurity = () => {
+  const beginButton = $("#beginTotpButton");
+  const disableButton = $("#disableTotpButton");
+  const setupPanel = $("#totpSetupPanel");
+
+  beginButton?.addEventListener("click", async () => {
+    const result = await api("/me/totp/begin", { method: "POST" });
+    if (!setupPanel) return;
+    setupPanel.hidden = false;
+    setupPanel.innerHTML = `
+      <p>在 Authenticator 里手动输入下面的密钥，然后填写生成的 6 位验证码确认启用。</p>
+      <code>${escapeHtml(result.secret)}</code>
+      <a class="button ghost small" href="${escapeHtml(result.uri)}">打开验证器链接</a>
+      <div class="security-form">
+        <input id="totpConfirmCode" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6 位验证码" />
+        <button class="button primary" type="button" id="confirmTotpButton">确认启用</button>
+      </div>
+    `;
+    $("#totpConfirmCode")?.focus();
+    $("#confirmTotpButton")?.addEventListener("click", async () => {
+      const code = $("#totpConfirmCode")?.value.trim() || "";
+      await api("/me/totp/confirm", { method: "POST", body: JSON.stringify({ code }) });
+      await refreshPageData();
+      showToast("2FA 已开启");
+    });
+  });
+
+  disableButton?.addEventListener("click", async () => {
+    if (!window.confirm("确定关闭 2FA 吗？")) return;
+    await api("/me/totp", { method: "DELETE" });
+    await refreshPageData();
+    showToast("2FA 已关闭");
+  });
+};
+
 const bindContentButtons = () => {
   $$(".read-button").forEach((button) => {
     button.addEventListener("click", () => openReader(button.dataset.type, Number(button.dataset.id)));
@@ -428,6 +481,7 @@ const renderProfilePage = () => {
         <div><strong>${profile.postCount}</strong><span>最近帖子</span></div>
         <div><strong>${escapeHtml(profile.accountType)}</strong><span>账号类型</span></div>
       </div>
+      ${totpPanelTemplate(profile)}
     </div>
   `;
   posts.innerHTML = `
@@ -436,6 +490,7 @@ const renderProfilePage = () => {
       profile.posts.length ? profile.posts.map((item) => cardTemplate({ ...item, author: profile.username }, "post")).join("") : `<div class="empty">这个玩家暂时还没有发帖。</div>`
     }</div>
   `;
+  bindTotpSecurity();
   bindContentButtons();
 };
 
@@ -825,16 +880,20 @@ const setupLoginPage = () => {
   if (!form) return;
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const result = await api("/login", {
-      method: "POST",
-      body: JSON.stringify({
-        username: $("#loginUsername").value.trim(),
-        password: $("#loginPassword").value,
-        totpCode: $("#loginTotpCode")?.value.trim(),
-      }),
-    });
-    state.me = result.user;
-    window.location.href = "/admin.html";
+    try {
+      const result = await api("/login", {
+        method: "POST",
+        body: JSON.stringify({
+          username: $("#loginUsername").value.trim(),
+          password: $("#loginPassword").value,
+          totpCode: $("#loginTotpCode")?.value.trim(),
+        }),
+      });
+      state.me = result.user;
+      window.location.href = "/admin.html";
+    } catch (error) {
+      if (error.payload?.needsTotp) $("#loginTotpCode")?.focus();
+    }
   });
 };
 
