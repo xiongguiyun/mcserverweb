@@ -13,7 +13,7 @@
         <span>Liou_Yang Server</span>
       </a>
       <nav class="top-nav" aria-label="主导航">
-        <a href="/index.html">主页</a>
+        <a href="/index.html">首页</a>
         <a href="/index.html#announcements">公告</a>
         <a href="/forum.html" class="active">论坛</a>
         <a href="/admin.html" data-admin-link hidden>后台</a>
@@ -31,7 +31,7 @@
     <main>
       <section class="page-hero forum-hero">
         <h1>玩家论坛</h1>
-        <p>注册用户可以自由发帖，分享攻略、建筑展示、活动记录和服务器日常。</p>
+        <p>管理员可发布与编辑论坛内容，玩家资料页会展示对应角色形象与历史帖子。</p>
       </section>
 
       <section class="forum-controls">
@@ -40,7 +40,7 @@
           <div class="forum-toolbar">
             <div class="section-title compact">
               <h2>最新帖子</h2>
-              <p>玩家内容优先展示，发帖入口收进一个按钮里。</p>
+              <p>主要展示帖子内容，发布入口收进一个按钮里。</p>
             </div>
             <button class="button primary" type="button" id="openPostComposer">+ 发布新帖</button>
           </div>
@@ -82,7 +82,7 @@
             <button type="button" id="imageButton" title="插入图片">图片</button>
             <button type="button" id="tableButton" title="插入表格">表格</button>
             <button type="button" id="spoilerButton" title="内联遮挡">遮挡</button>
-            <button type="button" id="hrButton" title="水平线">分隔</button>
+            <button type="button" id="hrButton" title="插入水平线">分隔</button>
             <button type="button" id="detailsButton" title="折叠">折叠</button>
             <button type="button" id="codeButton" title="代码">代码</button>
             <button type="button" id="bilibiliButton" title="插入 Bilibili 视频">Bilibili</button>
@@ -99,19 +99,6 @@
         </div>
         <div class="rich-editor" id="editor" contenteditable="true" role="textbox" aria-label="帖子正文"></div>
         <button class="button primary submit-button" id="forumPostSubmit" type="submit">发布帖子</button>
-      </form>
-    </dialog>
-
-    <dialog id="authDialog" class="auth-dialog">
-      <button class="dialog-close" type="button" data-close-auth aria-label="关闭">×</button>
-      <h2>账号登录</h2>
-      <form id="authForm">
-        <input id="username" autocomplete="username" placeholder="用户名" required />
-        <input id="password" type="password" autocomplete="current-password" placeholder="密码" required />
-        <div class="split-actions">
-          <button class="button primary" type="submit" data-mode="login">登录</button>
-          <button class="button ghost" type="submit" data-mode="register">注册</button>
-        </div>
       </form>
     </dialog>
 

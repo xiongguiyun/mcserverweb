@@ -1,88 +1,105 @@
 # Liou_Yang Server
 
-一个 Minecraft 风格的宣传站，包含主页宣传、公告、玩家论坛、玩家资料、后台管理、维护模式、邮箱验证、找回密码、Authenticator 双重验证和回收站。
+一个 Minecraft 风格的宣传站，包含主页、公告、论坛、玩家资料页、管理员后台、维护模式、回收站和管理员 2FA。
 
-## 更新已有 D1 数据库
+## 当前账号规则
 
-如果你已经部署过旧版本，在 Cloudflare D1 控制台执行下面 SQL。提示 `duplicate column name` 或 `already exists` 表示字段已经存在，可以忽略对应语句。
-
-```sql
-ALTER TABLE users ADD COLUMN email TEXT;
-ALTER TABLE users ADD COLUMN email_provider TEXT;
-ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE users ADD COLUMN totp_secret TEXT;
-ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE users ADD COLUMN last_seen_at TEXT;
-ALTER TABLE announcements ADD COLUMN deleted_at TEXT;
-ALTER TABLE posts ADD COLUMN deleted_at TEXT;
-ALTER TABLE posts ADD COLUMN deleted_by INTEGER;
-
-CREATE TABLE IF NOT EXISTS site_settings (
-  key TEXT PRIMARY KEY,
-  value TEXT NOT NULL,
-  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS email_codes (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-  email TEXT NOT NULL,
-  purpose TEXT NOT NULL CHECK (purpose IN ('verify_email', 'reset_password')),
-  code_hash TEXT NOT NULL,
-  expires_at TEXT NOT NULL,
-  used_at TEXT,
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-```
-
-## QQ 邮箱配置
-
-当前站点强制只使用 QQ 邮箱，不接第三方邮件网关。Cloudflare Pages 中文界面这样配：
-
-1. 打开 Cloudflare 控制台。
-2. 进入 `计算（Workers）`。
-3. 点击 `Workers 和 Pages`。
-4. 选择你的 Pages 项目。
-5. 进入 `设置`。
-6. 找到 `环境变量`。
-7. 添加下面 3 个变量。
-
-```text
-SMTP_USER=你的QQ邮箱@qq.com
-SMTP_PASS=QQ邮箱授权码
-SMTP_FROM=你的QQ邮箱@qq.com
-```
-
-如果你想指定连接参数，也可以继续加：
-
-```text
-SMTP_HOST=smtp.qq.com
-SMTP_PORT=465
-```
-
-QQ 邮箱授权码获取方法：
-
-1. 登录 QQ 邮箱网页版。
-2. 进入 `设置` -> `账户`。
-3. 开启 `POP3/SMTP 服务` 或 `IMAP/SMTP 服务`。
-4. 按页面提示获取授权码。
-5. 把授权码填到 `SMTP_PASS`。
+- 只有 `admin` 角色可以登录。
+- 第一个管理员账号视为 `服主`。
+- 服主之后创建的管理员账号视为 `管理员`。
+- 公开页面不显示登录按钮，只有访问 `/login` 才能看到登录页。
 
 ## 现在的功能
 
-- 注册时必须填写 QQ 邮箱并输入验证码。
-- 旧账号没有邮箱时，登录后会被要求先绑定邮箱。
-- 支持邮箱验证码找回密码。
-- 支持 Authenticator 双重验证。
-- 玩家资料显示账号类型：管理员或成员。
-- 最近在线用户在昵称左上角显示绿色圆点。
-- 玩家可以编辑或删除自己的帖子。
-- 删除的内容进入回收站，7 天后自动清理。
-- 管理员删除公告或帖子后可在垃圾桶中恢复或彻底删除。
+- 首页宣传与服务器地址复制
+- 公告展示与后台公告管理
+- 玩家论坛独立页面
+- 玩家资料独立页面，点击头像或昵称进入
+- 管理员后台查看浏览数据
+- 维护模式开关
+- 公告与帖子删除后进入垃圾桶
+- 帖子 7 天后自动彻底删除
+- 管理员可启用 Authenticator 双重验证
 
-## 部署更新
+## 服主与管理员
 
-1. 执行上面的 D1 SQL。
-2. 在 Cloudflare Pages 设置 QQ 邮箱环境变量。
-3. 推送代码到 GitHub 或重新部署 Pages。
-4. 部署后先用测试账号验证注册、邮箱验证码、找回密码和 2FA。
+### 服主
+
+- 第一个管理员账号就是服主
+- 可以创建后续管理员账号
+- 可以删除后续管理员账号
+- 可以重置后续管理员账号密码
+- 服主账号本身不能被删除
+
+### 管理员
+
+- 可以登录后台
+- 可以发布和编辑公告
+- 可以发布和编辑论坛内容
+- 可以删除公告和帖子
+- 可以开启或关闭自己的双重验证
+
+## 部署后如何更新网站
+
+1. 在本地修改代码后提交到你的 Git 仓库。
+2. 推送到 Cloudflare Pages 绑定的分支。
+3. Cloudflare Pages 会自动重新构建并部署。
+4. 等待部署完成后刷新站点即可。
+
+如果你不是走 Git 自动部署，也可以在 Cloudflare Pages 项目里重新上传构建内容或重新触发部署。
+
+## 旧数据库如何兼容
+
+如果你的 D1 数据库里还保留旧版邮箱字段，不需要删除，它们可以继续留着，不影响现在的网站运行。
+
+如果你是新建数据库，直接使用当前的 [schema.sql](/E:/网站/schema.sql) 即可。
+
+## 如果后续管理员忘记密码
+
+进入后台：
+
+1. 用服主账号登录 `/login`
+2. 打开 `后台 -> 管理员`
+3. 找到对应管理员
+4. 点击 `重置密码`
+5. 输入新密码
+
+## 如果服主自己忘记密码
+
+这个不能在后台里自己改，所以推荐直接手动重置 D1 里的 `password_hash`。
+
+当前密码格式是：
+
+```text
+salt:sha256(salt:password)
+```
+
+最稳的做法有两种：
+
+### 方法 1：我帮你本地生成新密码哈希
+
+你告诉我你想改成的新密码，我可以直接在这个项目里帮你生成一条可用的 `password_hash`，你再去 D1 执行更新 SQL。
+
+### 方法 2：你自己改 D1
+
+先准备一个新的 `password_hash`，然后在 Cloudflare D1 控制台执行：
+
+```sql
+UPDATE users
+SET password_hash = '这里替换成新的 password_hash'
+WHERE id = 1 AND role = 'admin';
+
+DELETE FROM sessions WHERE user_id = 1;
+```
+
+这样服主旧会话会失效，然后你就能用新密码重新登录。
+
+## `/login` 路径
+
+如果你想登录后台，请直接访问：
+
+- [https://你的域名/login](https://你的域名/login)
+
+在 Pages 默认域名下就是类似：
+
+- `https://你的项目.pages.dev/login`

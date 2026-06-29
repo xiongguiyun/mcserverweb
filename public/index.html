@@ -9,12 +9,12 @@
   </head>
   <body data-page="home">
     <header class="site-header">
-      <a class="brand" href="/index.html" aria-label="返回主页">
+      <a class="brand" href="/index.html" aria-label="返回首页">
         <span class="brand-mark" aria-hidden="true"></span>
         <span>Liou_Yang Server</span>
       </a>
       <nav class="top-nav" aria-label="主导航">
-        <a href="/index.html" class="active">主页</a>
+        <a href="/index.html" class="active">首页</a>
         <a href="/index.html#announcements">公告</a>
         <a href="/forum.html">论坛</a>
         <a href="/admin.html" data-admin-link hidden>后台</a>
@@ -70,7 +70,7 @@
         <article>
           <span class="feature-icon book"></span>
           <h2>玩家交流</h2>
-          <p>论坛里可以发攻略、晒建筑、记活动，也能把正版皮肤展示出来。</p>
+          <p>论坛里可以发攻略、晒建筑、记活动，也能展示对应 Minecraft 皮肤形象。</p>
         </article>
       </section>
 
@@ -82,19 +82,6 @@
         <div class="list" id="announcementList"></div>
       </section>
     </main>
-
-    <dialog id="authDialog" class="auth-dialog">
-      <button class="dialog-close" type="button" data-close-auth aria-label="关闭">×</button>
-      <h2>账号登录</h2>
-      <form id="authForm">
-        <input id="username" autocomplete="username" placeholder="用户名" required />
-        <input id="password" type="password" autocomplete="current-password" placeholder="密码" required />
-        <div class="split-actions">
-          <button class="button primary" type="submit" data-mode="login">登录</button>
-          <button class="button ghost" type="submit" data-mode="register">注册</button>
-        </div>
-      </form>
-    </dialog>
 
     <dialog id="readerDialog">
       <button class="dialog-close" type="button" id="closeDialog" aria-label="关闭">×</button>

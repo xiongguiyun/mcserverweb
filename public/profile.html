@@ -13,7 +13,7 @@
         <span>Liou_Yang Server</span>
       </a>
       <nav class="top-nav" aria-label="主导航">
-        <a href="/index.html">主页</a>
+        <a href="/index.html">首页</a>
         <a href="/index.html#announcements">公告</a>
         <a href="/forum.html">论坛</a>
         <a href="/admin.html" data-admin-link hidden>后台</a>
@@ -31,7 +31,7 @@
     <main>
       <section class="page-hero profile-hero">
         <h1>玩家资料</h1>
-        <p>查看玩家角色形象、注册时间和最新发帖内容。</p>
+        <p>查看玩家角色形象、注册时间和最新发布内容。</p>
       </section>
 
       <section class="profile-page" id="profilePage">
@@ -39,19 +39,6 @@
         <div class="profile-posts" id="profilePosts"></div>
       </section>
     </main>
-
-    <dialog id="authDialog" class="auth-dialog">
-      <button class="dialog-close" type="button" data-close-auth aria-label="关闭">×</button>
-      <h2>账号登录</h2>
-      <form id="authForm">
-        <input id="username" autocomplete="username" placeholder="用户名" required />
-        <input id="password" type="password" autocomplete="current-password" placeholder="密码" required />
-        <div class="split-actions">
-          <button class="button primary" type="submit" data-mode="login">登录</button>
-          <button class="button ghost" type="submit" data-mode="register">注册</button>
-        </div>
-      </form>
-    </dialog>
 
     <dialog id="readerDialog">
       <button class="dialog-close" type="button" id="closeDialog" aria-label="关闭">×</button>

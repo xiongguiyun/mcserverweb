@@ -13,7 +13,7 @@
         <span>Liou_Yang Server</span>
       </a>
       <nav class="top-nav" aria-label="主导航">
-        <a href="/index.html">主页</a>
+        <a href="/index.html">首页</a>
         <a href="/index.html#announcements">公告</a>
         <a href="/forum.html">论坛</a>
         <a href="/admin.html" class="active" data-admin-link hidden>后台</a>
@@ -24,14 +24,14 @@
     <main>
       <section class="page-hero admin-hero">
         <h1>管理后台</h1>
-        <p>发布公告、查看浏览数据、编辑论坛内容、管理管理员。</p>
+        <p>发布公告、查看浏览数据、编辑论坛内容、管理管理员账号。</p>
       </section>
 
       <section class="admin-shell" id="adminShell" hidden>
         <aside class="admin-sidebar">
           <div class="admin-sidebar-head">
             <h2>控制台</h2>
-            <p>选择功能区后在右侧执行操作。</p>
+            <p>左侧切换功能区，右侧处理具体内容。</p>
           </div>
           <nav class="admin-nav" aria-label="后台功能">
             <a href="#adminOverview" class="active">概览</a>
@@ -48,7 +48,7 @@
           <section class="admin-panel" id="adminOverview">
             <div class="section-title compact">
               <h2>概览</h2>
-              <p>快速查看网站浏览和账号数据。</p>
+              <p>快速查看网站浏览与账号数据。</p>
             </div>
             <div class="stats-grid compact" id="statsGrid"></div>
           </section>
@@ -111,7 +111,7 @@
                 <button type="button" id="imageButton" title="插入图片">图片</button>
                 <button type="button" id="tableButton" title="插入表格">表格</button>
                 <button type="button" id="spoilerButton" title="内联遮挡">遮挡</button>
-                <button type="button" id="hrButton" title="水平线">分隔</button>
+                <button type="button" id="hrButton" title="插入水平线">分隔</button>
                 <button type="button" id="detailsButton" title="折叠">折叠</button>
                 <button type="button" id="codeButton" title="代码">代码</button>
                 <button type="button" id="bilibiliButton" title="插入 Bilibili 视频">Bilibili</button>
@@ -152,11 +152,12 @@
           <section class="admin-panel" id="adminUsersPanel">
             <div class="section-title compact">
               <h2>管理员管理</h2>
-              <p>可添加或删除管理员，第一个注册用户的管理员权限受到保护。</p>
+              <p>服主可以创建后续管理员账号、重置他们的密码，服主账号本身不可删除。</p>
             </div>
             <form class="inline-form compact" id="adminUserForm">
-              <input id="adminUsername" placeholder="输入用户名" required />
-              <button class="button primary" type="submit">设为管理员</button>
+              <input id="adminUsername" placeholder="输入管理员账号名" required />
+              <input id="adminPassword" type="password" placeholder="初始密码，至少 6 位" required />
+              <button class="button primary" type="submit">创建管理员</button>
             </form>
             <div class="admin-table" id="adminUsers"></div>
           </section>
@@ -164,7 +165,7 @@
           <section class="admin-panel" id="adminTrash">
             <div class="section-title compact">
               <h2>垃圾桶</h2>
-              <p>删除后的公告和帖子会在这里暂存，帖子 7 天后会自动彻底删除。</p>
+              <p>删除后的公告和帖子会暂存在这里，帖子 7 天后会自动彻底删除。</p>
             </div>
             <div class="admin-table"></div>
           </section>
@@ -174,22 +175,9 @@
       <section class="admin-locked" id="adminLocked">
         <h2>请使用管理员账号登录</h2>
         <p>登录后可以进入后台管理内容与权限。</p>
-        <button class="button primary" type="button" data-open-auth>登录 / 注册</button>
+        <a class="button primary" href="/login">前往登录</a>
       </section>
     </main>
-
-    <dialog id="authDialog" class="auth-dialog">
-      <button class="dialog-close" type="button" data-close-auth aria-label="关闭">×</button>
-      <h2>账号登录</h2>
-      <form id="authForm">
-        <input id="username" autocomplete="username" placeholder="用户名" required />
-        <input id="password" type="password" autocomplete="current-password" placeholder="密码" required />
-        <div class="split-actions">
-          <button class="button primary" type="submit" data-mode="login">登录</button>
-          <button class="button ghost" type="submit" data-mode="register">注册</button>
-        </div>
-      </form>
-    </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="/app.js" type="module"></script>

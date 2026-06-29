@@ -1,5 +1,3 @@
-import { connect } from "cloudflare:sockets";
-
 const json = (data, status = 200, headers = {}) =>
   new Response(JSON.stringify(data), {
     status,
@@ -7,10 +5,6 @@ const json = (data, status = 200, headers = {}) =>
   });
 
 const textEncoder = new TextEncoder();
-const textDecoder = new TextDecoder();
-const emailProviders = {
-  qq: ["qq.com"],
-};
 
 const messageFromError = (error, fallback = "服务器错误") => {
   if (!error) return fallback;
@@ -26,12 +20,6 @@ const getCookie = (request, name) => {
     .map((part) => part.trim())
     .find((part) => part.startsWith(`${name}=`))
     ?.slice(name.length + 1);
-};
-
-const base64UrlToBytes = (value) => {
-  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
-  return Uint8Array.from(atob(padded), (char) => char.charCodeAt(0));
 };
 
 const bytesToBase32 = (bytes) => {
@@ -71,13 +59,9 @@ const hashPassword = async (password, salt = crypto.randomUUID()) => {
 };
 
 const verifyPassword = async (password, stored) => {
-  const [salt] = stored.split(":");
+  const [salt] = String(stored || "").split(":");
+  if (!salt) return false;
   return (await hashPassword(password, salt)) === stored;
-};
-
-const hashCode = async (code) => {
-  const digest = await crypto.subtle.digest("SHA-256", textEncoder.encode(String(code)));
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 };
 
 const sanitizeHtml = (html) => {
@@ -112,64 +96,23 @@ const readBody = async (request) => {
   }
 };
 
-const detectEmailProvider = (email) => {
-  const domain = String(email || "").split("@").at(-1)?.toLowerCase();
-  return Object.entries(emailProviders).find(([, domains]) => domains.includes(domain))?.[0] || null;
+const ownerUser = async (env) => env.DB.prepare("SELECT id, username FROM users WHERE role = 'admin' ORDER BY id ASC LIMIT 1").first();
+
+const accountTypeLabel = (user, ownerId) => {
+  if (!user) return "成员";
+  if (ownerId && Number(user.id) === Number(ownerId)) return "服主";
+  if (user.role === "admin") return "管理员";
+  return "成员";
 };
 
-const normalizeEmail = (email) => String(email || "").trim().toLowerCase();
-
-const bytesToBinary = (bytes) => Array.from(bytes, (byte) => String.fromCharCode(byte)).join("");
-
-const encodeMimeWord = (value) => {
-  const bytes = textEncoder.encode(String(value || ""));
-  return `=?UTF-8?B?${btoa(bytesToBinary(bytes))}?=`;
-};
-
-const encodeBase64Utf8 = (value) => btoa(bytesToBinary(textEncoder.encode(String(value || ""))));
-
-const smtpRead = async (reader, state) => {
-  while (true) {
-    const lines = state.buffer.split(/\r\n/);
-    state.buffer = lines.pop() || "";
-    for (const line of lines) {
-      if (line && /^\d{3} /.test(line)) return line;
-    }
-    const { value, done } = await reader.read();
-    if (done) {
-      if (state.buffer) {
-        const line = state.buffer;
-        state.buffer = "";
-        return line;
-      }
-      throw new Error("SMTP connection closed unexpectedly");
-    }
-    state.buffer += textDecoder.decode(value, { stream: true });
-  }
-};
-
-const smtpExpect = async (reader, state, allowedCodes) => {
-  const line = await smtpRead(reader, state);
-  const code = Number(line.slice(0, 3));
-  if (!allowedCodes.includes(code)) throw new Error(`SMTP ${code}: ${line}`);
-  return line;
-};
-
-const smtpWrite = async (writer, command, sensitive = false) => {
-  if (!sensitive) console.log("SMTP >", command);
-  await writer.write(textEncoder.encode(`${command}\r\n`));
-};
-
-const publicUser = (user) =>
+const publicUser = (user, ownerId) =>
   user
     ? {
         id: user.id,
         username: user.username,
         role: user.role,
-        email: user.email,
-        email_provider: user.email_provider,
-        email_verified: Boolean(user.email_verified),
-        must_bind_email: !user.email_verified,
+        is_owner: ownerId ? Number(user.id) === Number(ownerId) : Boolean(user.is_owner),
+        account_type: accountTypeLabel(user, ownerId),
         totp_enabled: Boolean(user.totp_enabled),
         created_at: user.created_at,
         last_seen_at: user.last_seen_at,
@@ -201,8 +144,7 @@ const currentUser = async (env, request) => {
   const token = getCookie(request, "session");
   if (!token) return null;
   const user = await env.DB.prepare(
-    `SELECT users.id, users.username, users.role, users.email, users.email_provider, users.email_verified,
-            users.totp_enabled, users.created_at, users.last_seen_at
+    `SELECT users.id, users.username, users.role, users.totp_enabled, users.created_at, users.last_seen_at
      FROM sessions
      JOIN users ON users.id = sessions.user_id
      WHERE sessions.token = ? AND sessions.expires_at > datetime('now')`,
@@ -221,23 +163,22 @@ const requireUser = async (env, request) => {
   return user;
 };
 
-const requireVerifiedUser = async (env, request) => {
-  const user = await requireUser(env, request);
-  if (!user.email_verified) {
-    throw new Response(JSON.stringify({ error: "请先绑定并验证邮箱后继续使用账户" }), { status: 403 });
-  }
-  return user;
-};
-
 const requireAdmin = async (env, request) => {
-  const user = await requireVerifiedUser(env, request);
+  const user = await requireUser(env, request);
   if (user.role !== "admin") {
     throw new Response(JSON.stringify({ error: "只有管理员可以执行此操作" }), { status: 403 });
   }
   return user;
 };
 
-const ownerUser = async (env) => env.DB.prepare("SELECT id FROM users ORDER BY id ASC LIMIT 1").first();
+const requireOwnerAdmin = async (env, request) => {
+  const user = await requireAdmin(env, request);
+  const owner = await ownerUser(env);
+  if (!owner || Number(owner.id) !== Number(user.id)) {
+    throw new Response(JSON.stringify({ error: "只有服主可以管理管理员账号" }), { status: 403 });
+  }
+  return user;
+};
 
 const createSession = async (env, user) => {
   const token = crypto.randomUUID() + crypto.randomUUID();
@@ -249,105 +190,11 @@ const createSession = async (env, user) => {
   return token;
 };
 
-const sendEmail = async (env, to, subject, body) => {
-  const smtpUser = String(env.SMTP_USER || "").trim();
-  const smtpPass = String(env.SMTP_PASS || "").trim();
-  const smtpFrom = String(env.SMTP_FROM || smtpUser).trim();
-  const smtpHost = String(env.SMTP_HOST || "smtp.qq.com").trim();
-  const smtpPort = Number(env.SMTP_PORT || 465);
-
-  if (!smtpUser || !smtpPass || !smtpFrom) {
-    console.log("Email delivery skipped. Configure SMTP_USER, SMTP_PASS and SMTP_FROM.", { to, subject, body });
-    return { skipped: true };
-  }
-  const socket = connect({
-    hostname: smtpHost,
-    port: smtpPort,
-    secureTransport: smtpPort === 465 ? "on" : "starttls",
-  });
-  const writer = socket.writable.getWriter();
-  const reader = socket.readable.getReader();
-  const state = { buffer: "" };
-
-  try {
-    await smtpExpect(reader, state, [220]);
-    await smtpWrite(writer, "EHLO liouyang-server");
-    await smtpExpect(reader, state, [250]);
-    await smtpWrite(writer, "AUTH LOGIN");
-    await smtpExpect(reader, state, [334]);
-    await smtpWrite(writer, btoa(smtpUser), true);
-    await smtpExpect(reader, state, [334]);
-    await smtpWrite(writer, btoa(smtpPass), true);
-    await smtpExpect(reader, state, [235]);
-    await smtpWrite(writer, `MAIL FROM:<${smtpFrom}>`);
-    await smtpExpect(reader, state, [250]);
-    await smtpWrite(writer, `RCPT TO:<${to}>`);
-    await smtpExpect(reader, state, [250, 251]);
-    await smtpWrite(writer, "DATA");
-    await smtpExpect(reader, state, [354]);
-
-    const message = [
-      `From: ${encodeMimeWord("Liou_Yang Server")} <${smtpFrom}>`,
-      `To: <${to}>`,
-      `Subject: ${encodeMimeWord(subject)}`,
-      "MIME-Version: 1.0",
-      'Content-Type: text/plain; charset="UTF-8"',
-      "Content-Transfer-Encoding: base64",
-      "",
-      encodeBase64Utf8(body).replace(/.{1,76}/g, "$&\r\n").trim(),
-      ".",
-    ].join("\r\n");
-
-    await writer.write(textEncoder.encode(`${message}\r\n`));
-    await smtpExpect(reader, state, [250]);
-    await smtpWrite(writer, "QUIT");
-    await smtpExpect(reader, state, [221]);
-    return { skipped: false };
-  } catch (error) {
-    console.error("QQ SMTP send failed", messageFromError(error), { to, smtpHost, smtpPort });
-    throw new Error(`QQ邮箱 SMTP 发送失败: ${messageFromError(error)}`);
-  } finally {
-    try {
-      writer.releaseLock();
-    } catch {}
-    try {
-      reader.releaseLock();
-    } catch {}
-    try {
-      socket.close();
-    } catch {}
-  }
-};
-
-const createEmailCode = async (env, { userId = null, email, purpose }) => {
-  const code = String(Math.floor(100000 + Math.random() * 900000));
-  await env.DB.prepare(
-    `INSERT INTO email_codes (user_id, email, purpose, code_hash, expires_at)
-     VALUES (?, ?, ?, ?, datetime('now', '+10 minutes'))`,
-  )
-    .bind(userId, email, purpose, await hashCode(code))
-    .run();
-  await sendEmail(env, email, "Liou_Yang Server 验证码", `你的验证码是 ${code}，10 分钟内有效。`);
-  return code;
-};
-
-const verifyEmailCode = async (env, { email, purpose, code }) => {
-  const row = await env.DB.prepare(
-    `SELECT id, code_hash, user_id FROM email_codes
-     WHERE email = ? AND purpose = ? AND used_at IS NULL AND expires_at > datetime('now')
-     ORDER BY id DESC LIMIT 1`,
-  )
-    .bind(email, purpose)
-    .first();
-  if (!row || row.code_hash !== (await hashCode(code))) return null;
-  await env.DB.prepare("UPDATE email_codes SET used_at = CURRENT_TIMESTAMP WHERE id = ?").bind(row.id).run();
-  return row;
-};
-
 const me = async (env, request) => {
   const user = await currentUser(env, request);
+  const owner = await ownerUser(env);
   const site = await getSiteSettings(env);
-  return json({ user: publicUser(user), site: { maintenanceMode: site.maintenanceMode } });
+  return json({ user: publicUser(user, owner?.id), site: { maintenanceMode: site.maintenanceMode } });
 };
 
 const listAnnouncements = async (env, { trash = false } = {}) => {
@@ -382,8 +229,9 @@ const listPosts = async (env, { trash = false } = {}) => {
 
 const profile = async (env, request, username) => {
   const viewer = await currentUser(env, request);
+  const owner = await ownerUser(env);
   const user = await env.DB.prepare(
-    `SELECT id, username, role, email, email_provider, email_verified, totp_enabled, last_seen_at, created_at
+    `SELECT id, username, role, totp_enabled, last_seen_at, created_at
      FROM users
      WHERE lower(username) = lower(?)`,
   )
@@ -405,70 +253,45 @@ const profile = async (env, request, username) => {
       id: user.id,
       username: user.username,
       role: user.role,
-      accountType: user.role === "admin" ? "管理员" : "成员",
-      email: isSelf ? user.email : null,
-      email_provider: isSelf ? user.email_provider : null,
-      email_verified: Boolean(user.email_verified),
+      accountType: accountTypeLabel(user, owner?.id),
       totp_enabled: Boolean(user.totp_enabled),
       online: user.last_seen_at ? Date.now() - new Date(user.last_seen_at).getTime() < 5 * 60 * 1000 : false,
       created_at: user.created_at,
       postCount: (posts.results || []).length,
       posts: posts.results || [],
       isSelf,
+      isOwner: owner?.id ? Number(owner.id) === Number(user.id) : false,
     },
   });
 };
 
-const register = async (env, request) => {
+const login = async (env, request) => {
   const body = await readBody(request);
-  const username = String(body.username || "").trim();
-  const password = String(body.password || "");
-  const email = normalizeEmail(body.email);
-  const code = String(body.emailCode || "").trim();
-  const provider = detectEmailProvider(email);
-  if (!/^[\w\u4e00-\u9fa5-]{3,20}$/.test(username)) {
-    return json({ error: "用户名需要 3-20 位，可用中文、字母、数字、下划线和短横线" }, 400);
-  }
-  if (password.length < 6) return json({ error: "密码至少 6 位" }, 400);
-  if (!provider) return json({ error: "邮箱只支持 QQ 邮箱" }, 400);
-  if (!(await verifyEmailCode(env, { email, purpose: "verify_email", code }))) return json({ error: "邮箱验证码错误或已过期" }, 400);
-
-  const count = await env.DB.prepare("SELECT COUNT(*) AS total FROM users").first();
-  const role = count.total === 0 ? "admin" : "user";
-  const passwordHash = await hashPassword(password);
-  try {
-    await env.DB.prepare(
-      "INSERT INTO users (username, password_hash, role, email, email_provider, email_verified, last_seen_at) VALUES (?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)",
-    )
-      .bind(username, passwordHash, role, email, provider)
-      .run();
-  } catch {
-    return json({ error: "用户名已存在" }, 409);
-  }
-  return login(env, request, { username, password });
-};
-
-const login = async (env, request, overrideBody = null) => {
-  const body = overrideBody || (await readBody(request));
   const username = String(body.username || "").trim();
   const password = String(body.password || "");
   const totpCode = String(body.totpCode || "").trim();
   const user = await env.DB.prepare(
-    "SELECT id, username, password_hash, role, email, email_provider, email_verified, totp_secret, totp_enabled, created_at, last_seen_at FROM users WHERE username = ?",
+    "SELECT id, username, password_hash, role, totp_secret, totp_enabled, created_at, last_seen_at FROM users WHERE username = ?",
   )
     .bind(username)
     .first();
   if (!user || !(await verifyPassword(password, user.password_hash))) {
     return json({ error: "用户名或密码错误" }, 401);
   }
+  if (user.role !== "admin") {
+    return json({ error: "只有管理员账号可以登录" }, 403);
+  }
   if (user.totp_enabled && !(await verifyTotpAsync(user.totp_secret, totpCode))) {
     return json({ error: "请输入正确的双重验证码", needsTotp: true }, 401);
   }
   const token = await createSession(env, user);
   await env.DB.prepare("UPDATE users SET last_seen_at = CURRENT_TIMESTAMP WHERE id = ?").bind(user.id).run();
-  return json({ user: publicUser(user) }, 200, {
-    "Set-Cookie": `session=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=1209600`,
-  });
+  const owner = await ownerUser(env);
+  return json(
+    { user: publicUser(user, owner?.id) },
+    200,
+    { "Set-Cookie": `session=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=1209600` },
+  );
 };
 
 const logout = async (env, request) => {
@@ -477,51 +300,6 @@ const logout = async (env, request) => {
   return json({ ok: true }, 200, {
     "Set-Cookie": "session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0",
   });
-};
-
-const sendVerifyCode = async (env, request) => {
-  const body = await readBody(request);
-  const email = normalizeEmail(body.email);
-  const provider = detectEmailProvider(email);
-  if (!provider) return json({ error: "邮箱只支持 QQ 邮箱" }, 400);
-  const user = await currentUser(env, request);
-  await createEmailCode(env, { userId: user?.id || null, email, purpose: "verify_email" });
-  return json({ ok: true, provider });
-};
-
-const updateEmail = async (env, request) => {
-  const user = await requireUser(env, request);
-  const body = await readBody(request);
-  const email = normalizeEmail(body.email);
-  const provider = detectEmailProvider(email);
-  const code = String(body.emailCode || "").trim();
-  if (!provider) return json({ error: "邮箱只支持 QQ 邮箱" }, 400);
-  if (!(await verifyEmailCode(env, { email, purpose: "verify_email", code }))) return json({ error: "邮箱验证码错误或已过期" }, 400);
-  await env.DB.prepare("UPDATE users SET email = ?, email_provider = ?, email_verified = 1 WHERE id = ?")
-    .bind(email, provider, user.id)
-    .run();
-  return me(env, request);
-};
-
-const sendResetCode = async (env, request) => {
-  const body = await readBody(request);
-  const email = normalizeEmail(body.email);
-  const user = await env.DB.prepare("SELECT id FROM users WHERE email = ? AND email_verified = 1").bind(email).first();
-  if (user) await createEmailCode(env, { userId: user.id, email, purpose: "reset_password" });
-  return json({ ok: true });
-};
-
-const resetPassword = async (env, request) => {
-  const body = await readBody(request);
-  const email = normalizeEmail(body.email);
-  const password = String(body.password || "");
-  const code = String(body.emailCode || "").trim();
-  if (password.length < 6) return json({ error: "密码至少 6 位" }, 400);
-  const verified = await verifyEmailCode(env, { email, purpose: "reset_password", code });
-  if (!verified) return json({ error: "验证码错误或已过期" }, 400);
-  await env.DB.prepare("UPDATE users SET password_hash = ? WHERE id = ?").bind(await hashPassword(password), verified.user_id).run();
-  await env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(verified.user_id).run();
-  return json({ ok: true });
 };
 
 const generateTotpAsync = async (secret, counter) => {
@@ -545,7 +323,7 @@ const verifyTotpAsync = async (secret, token) => {
 };
 
 const beginTotp = async (env, request) => {
-  const user = await requireVerifiedUser(env, request);
+  const user = await requireAdmin(env, request);
   const bytes = crypto.getRandomValues(new Uint8Array(20));
   const secret = bytesToBase32(bytes);
   await env.DB.prepare("UPDATE users SET totp_secret = ?, totp_enabled = 0 WHERE id = ?").bind(secret, user.id).run();
@@ -555,16 +333,18 @@ const beginTotp = async (env, request) => {
 };
 
 const confirmTotp = async (env, request) => {
-  const user = await requireVerifiedUser(env, request);
+  const user = await requireAdmin(env, request);
   const body = await readBody(request);
   const row = await env.DB.prepare("SELECT totp_secret FROM users WHERE id = ?").bind(user.id).first();
-  if (!(await verifyTotpAsync(row?.totp_secret, String(body.code || "").trim()))) return json({ error: "双重验证码不正确" }, 400);
+  if (!(await verifyTotpAsync(row?.totp_secret, String(body.code || "").trim()))) {
+    return json({ error: "双重验证码不正确" }, 400);
+  }
   await env.DB.prepare("UPDATE users SET totp_enabled = 1 WHERE id = ?").bind(user.id).run();
   return json({ ok: true });
 };
 
 const disableTotp = async (env, request) => {
-  const user = await requireVerifiedUser(env, request);
+  const user = await requireAdmin(env, request);
   await env.DB.prepare("UPDATE users SET totp_secret = NULL, totp_enabled = 0 WHERE id = ?").bind(user.id).run();
   return json({ ok: true });
 };
@@ -588,7 +368,7 @@ const createAnnouncement = async (env, request) => {
 };
 
 const createPost = async (env, request) => {
-  const user = await requireVerifiedUser(env, request);
+  const user = await requireAdmin(env, request);
   const { title, contentHtml, excerpt } = await contentPayload(request);
   await env.DB.prepare("INSERT INTO posts (title, excerpt, content_html, author_id) VALUES (?, ?, ?, ?)")
     .bind(title, excerpt, contentHtml, user.id)
@@ -606,10 +386,9 @@ const updateAnnouncement = async (env, request, id) => {
 };
 
 const updatePost = async (env, request, id) => {
-  const user = await requireVerifiedUser(env, request);
-  const post = await env.DB.prepare("SELECT author_id FROM posts WHERE id = ? AND deleted_at IS NULL").bind(id).first();
+  await requireAdmin(env, request);
+  const post = await env.DB.prepare("SELECT id FROM posts WHERE id = ? AND deleted_at IS NULL").bind(id).first();
   if (!post) return json({ error: "帖子不存在" }, 404);
-  if (user.role !== "admin" && post.author_id !== user.id) return json({ error: "只能编辑自己的帖子" }, 403);
   const { title, contentHtml, excerpt } = await contentPayload(request);
   await env.DB.prepare("UPDATE posts SET title = ?, excerpt = ?, content_html = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
     .bind(title, excerpt, contentHtml, id)
@@ -618,10 +397,9 @@ const updatePost = async (env, request, id) => {
 };
 
 const deletePost = async (env, request, id) => {
-  const user = await requireVerifiedUser(env, request);
-  const post = await env.DB.prepare("SELECT author_id FROM posts WHERE id = ? AND deleted_at IS NULL").bind(id).first();
+  const user = await requireAdmin(env, request);
+  const post = await env.DB.prepare("SELECT id FROM posts WHERE id = ? AND deleted_at IS NULL").bind(id).first();
   if (!post) return json({ error: "帖子不存在" }, 404);
-  if (user.role !== "admin" && post.author_id !== user.id) return json({ error: "只能删除自己的帖子" }, 403);
   await env.DB.prepare("UPDATE posts SET deleted_at = CURRENT_TIMESTAMP, deleted_by = ? WHERE id = ?").bind(user.id, id).run();
   return json({ ok: true });
 };
@@ -639,9 +417,9 @@ const purgePost = async (env, request, id) => {
 };
 
 const deleteAnnouncement = async (env, request, id) => {
-  const user = await requireAdmin(env, request);
+  await requireAdmin(env, request);
   await env.DB.prepare("UPDATE announcements SET deleted_at = CURRENT_TIMESTAMP WHERE id = ?").bind(id).run();
-  return json({ ok: true, user: publicUser(user) });
+  return json({ ok: true });
 };
 
 const restoreAnnouncement = async (env, request, id) => {
@@ -668,7 +446,7 @@ const stats = async (env, request) => {
   const site = await getSiteSettings(env);
   const announcementViews = await env.DB.prepare("SELECT COALESCE(SUM(views), 0) AS total FROM announcements WHERE deleted_at IS NULL").first();
   const postViews = await env.DB.prepare("SELECT COALESCE(SUM(views), 0) AS total FROM posts WHERE deleted_at IS NULL").first();
-  const userCount = await env.DB.prepare("SELECT COUNT(*) AS total FROM users").first();
+  const userCount = await env.DB.prepare("SELECT COUNT(*) AS total FROM users WHERE role = 'admin'").first();
   const trashCount = await env.DB.prepare(
     "SELECT (SELECT COUNT(*) FROM posts WHERE deleted_at IS NOT NULL) + (SELECT COUNT(*) FROM announcements WHERE deleted_at IS NOT NULL) AS total",
   ).first();
@@ -686,30 +464,64 @@ const listAdmins = async (env, request) => {
   await requireAdmin(env, request);
   const owner = await ownerUser(env);
   const { results } = await env.DB.prepare(
-    `SELECT id, username, role, email, email_provider, email_verified, created_at
+    `SELECT id, username, role, created_at
      FROM users
      WHERE role = 'admin'
      ORDER BY id ASC`,
   ).all();
-  return json({ items: (results || []).map((user) => ({ ...user, is_owner: owner?.id === user.id })) });
+  return json({
+    items: (results || []).map((user) => ({
+      ...user,
+      is_owner: owner?.id ? Number(owner.id) === Number(user.id) : false,
+      account_type: accountTypeLabel(user, owner?.id),
+    })),
+  });
 };
 
-const addAdmin = async (env, request) => {
-  await requireAdmin(env, request);
+const createAdminAccount = async (env, request) => {
+  await requireOwnerAdmin(env, request);
   const body = await readBody(request);
   const username = String(body.username || "").trim();
-  const result = await env.DB.prepare("UPDATE users SET role = 'admin' WHERE username = ?").bind(username).run();
-  if (!result.meta?.changes) return json({ error: "没有找到这个用户" }, 404);
+  const password = String(body.password || "");
+  if (!/^[\w\u4e00-\u9fa5-]{3,20}$/.test(username)) return json({ error: "用户名需要 3 到 20 位" }, 400);
+  if (password.length < 6) return json({ error: "密码至少 6 位" }, 400);
+  try {
+    await env.DB.prepare("INSERT INTO users (username, password_hash, role, last_seen_at) VALUES (?, ?, 'admin', CURRENT_TIMESTAMP)")
+      .bind(username, await hashPassword(password))
+      .run();
+  } catch {
+    return json({ error: "用户名已存在" }, 409);
+  }
+  return json({ ok: true }, 201);
+};
+
+const removeManagedAdmin = async (env, request, id) => {
+  const user = await requireOwnerAdmin(env, request);
+  const targetId = Number(id);
+  const owner = await ownerUser(env);
+  if (owner?.id && Number(owner.id) === targetId) return json({ error: "服主账号不能删除" }, 400);
+  if (Number(user.id) === targetId) return json({ error: "不能删除自己的账号" }, 400);
+  const result = await env.DB.prepare("DELETE FROM users WHERE id = ? AND role = 'admin'").bind(targetId).run();
+  if (!result.meta?.changes) return json({ error: "没有找到这个管理员" }, 404);
+  await env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(targetId).run();
   return json({ ok: true });
 };
 
-const removeAdmin = async (env, request, id) => {
-  const user = await requireAdmin(env, request);
+const resetManagedAdminPassword = async (env, request, id) => {
+  await requireOwnerAdmin(env, request);
   const targetId = Number(id);
   const owner = await ownerUser(env);
-  if (owner?.id === targetId) return json({ error: "第一个注册用户的管理员权限不能删除" }, 400);
-  if (user.id === targetId) return json({ error: "不能删除自己的管理员权限" }, 400);
-  await env.DB.prepare("UPDATE users SET role = 'user' WHERE id = ? AND role = 'admin'").bind(targetId).run();
+  if (owner?.id && Number(owner.id) === targetId) {
+    return json({ error: "服主密码请使用手动重置方案" }, 400);
+  }
+  const body = await readBody(request);
+  const password = String(body.password || "");
+  if (password.length < 6) return json({ error: "密码至少 6 位" }, 400);
+  const result = await env.DB.prepare("UPDATE users SET password_hash = ? WHERE id = ? AND role = 'admin'")
+    .bind(await hashPassword(password), targetId)
+    .run();
+  if (!result.meta?.changes) return json({ error: "没有找到这个管理员" }, 404);
+  await env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(targetId).run();
   return json({ ok: true });
 };
 
@@ -728,13 +540,8 @@ export async function onRequest(context) {
 
   try {
     if (method === "GET" && pathname === "/me") return me(env, request);
-    if (method === "POST" && pathname === "/email/send-code") return sendVerifyCode(env, request);
-    if (method === "POST" && pathname === "/password/send-reset") return sendResetCode(env, request);
-    if (method === "POST" && pathname === "/password/reset") return resetPassword(env, request);
-    if (method === "POST" && pathname === "/register") return register(env, request);
     if (method === "POST" && pathname === "/login") return login(env, request);
     if (method === "POST" && pathname === "/logout") return logout(env, request);
-    if (method === "PUT" && pathname === "/me/email") return updateEmail(env, request);
     if (method === "POST" && pathname === "/me/totp/begin") return beginTotp(env, request);
     if (method === "POST" && pathname === "/me/totp/confirm") return confirmTotp(env, request);
     if (method === "DELETE" && pathname === "/me/totp") return disableTotp(env, request);
@@ -752,16 +559,25 @@ export async function onRequest(context) {
     if (method === "DELETE" && /^\/posts\/\d+$/.test(pathname)) return deletePost(env, request, pathname.split("/").at(-1));
     if (method === "POST" && /^\/posts\/\d+\/restore$/.test(pathname)) return restorePost(env, request, pathname.split("/").at(-2));
     if (method === "DELETE" && /^\/posts\/\d+\/purge$/.test(pathname)) return purgePost(env, request, pathname.split("/").at(-2));
-    if (method === "GET" && /^\/profiles\/[^/]+$/.test(pathname)) return profile(env, request, decodeURIComponent(pathname.split("/").at(-1)));
+
+    if (method === "GET" && /^\/profiles\/[^/]+$/.test(pathname)) {
+      return profile(env, request, decodeURIComponent(pathname.split("/").at(-1)));
+    }
 
     if (method === "POST" && /^\/track-view\/(announcement|post)\/\d+$/.test(pathname)) {
       const [, , type, id] = pathname.split("/");
       return trackView(env, type, id);
     }
+
     if (method === "GET" && pathname === "/admin/stats") return stats(env, request);
     if (method === "GET" && pathname === "/admin/users") return listAdmins(env, request);
-    if (method === "POST" && pathname === "/admin/users") return addAdmin(env, request);
-    if (method === "DELETE" && /^\/admin\/users\/\d+$/.test(pathname)) return removeAdmin(env, request, pathname.split("/").at(-1));
+    if (method === "POST" && pathname === "/admin/users") return createAdminAccount(env, request);
+    if (method === "PUT" && /^\/admin\/users\/\d+\/password$/.test(pathname)) {
+      return resetManagedAdminPassword(env, request, pathname.split("/").at(-2));
+    }
+    if (method === "DELETE" && /^\/admin\/users\/\d+$/.test(pathname)) {
+      return removeManagedAdmin(env, request, pathname.split("/").at(-1));
+    }
     if (method === "GET" && pathname === "/admin/trash") {
       await requireAdmin(env, request);
       const [announcements, posts] = await Promise.all([listAnnouncements(env, { trash: true }), listPosts(env, { trash: true })]);

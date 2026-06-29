@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>管理员登录 | Liou_Yang Server</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body data-page="login">
+    <main class="login-page">
+      <section class="login-card">
+        <a class="brand login-brand" href="/index.html">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <span>Liou_Yang Server</span>
+        </a>
+        <h1>管理员登录</h1>
+        <form id="loginForm" class="login-form">
+          <input id="loginUsername" autocomplete="username" placeholder="账号名" required />
+          <input id="loginPassword" type="password" autocomplete="current-password" placeholder="密码" required />
+          <input id="loginTotpCode" inputmode="numeric" maxlength="6" placeholder="双重验证码（已开启时填写）" />
+          <button class="button primary" type="submit">登录后台</button>
+        </form>
+      </section>
+    </main>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

@@ -72,7 +72,7 @@ const formatDate = (value) =>
   }).format(new Date(value));
 
 const isAdmin = () => state.me?.role === "admin";
-const isSelfName = (username) => state.me?.username?.toLowerCase() === String(username || "").toLowerCase();
+const isOwner = () => Boolean(state.me?.is_owner);
 const skinUrl = (name, size = 210) => `https://mc-heads.net/body/${encodeURIComponent(name)}/${size}`;
 const avatarUrl = (name, size = 32) => `https://mc-heads.net/avatar/${encodeURIComponent(name)}/${size}`;
 const activeSkinSrc = (user, size = 210) => (user?.username ? skinUrl(user.username, size) : "/assets/unbound-skin.png");
@@ -80,28 +80,8 @@ const activeAvatarSrc = (user, size = 32) => (user?.username ? avatarUrl(user.us
 const profileHref = (username) => `/profile.html?user=${encodeURIComponent(username)}`;
 const currentProfileQuery = () => new URL(window.location.href).searchParams.get("user") || state.me?.username || "";
 
-const openAuthDialog = () => $("#authDialog")?.showModal();
-const closeAuthDialog = () => $("#authDialog")?.close();
 const openPostDialog = () => $("#postDialog")?.showModal();
 const closePostDialog = () => $("#postDialog")?.close();
-
-const authExtraFields = () => {
-  const form = $("#authForm");
-  if (!form || $("#authExtras")) return;
-  const extras = document.createElement("div");
-  extras.id = "authExtras";
-  extras.className = "auth-extra-fields";
-  extras.innerHTML = `
-    <input id="email" autocomplete="email" placeholder="QQ邮箱（例如 123456@qq.com）" />
-    <div class="inline-form compact">
-      <input id="emailCode" inputmode="numeric" maxlength="6" placeholder="邮箱验证码" />
-      <button class="button ghost" id="sendEmailCode" type="button">发送验证码</button>
-    </div>
-    <input id="totpCode" inputmode="numeric" maxlength="6" placeholder="双重验证码（已开启时填写）" />
-    <button class="button ghost" id="forgotPasswordButton" type="button">找回密码</button>
-  `;
-  form.insertBefore(extras, form.querySelector(".split-actions"));
-};
 
 const renderAuth = () => {
   const actions = $("#authActions");
@@ -111,47 +91,26 @@ const renderAuth = () => {
   });
 
   if (!state.me) {
-    actions.innerHTML = `<button class="button small primary" type="button" data-open-auth>登录 / 注册</button>`;
-  } else {
-    actions.innerHTML = `
-      <a class="user-badge user-entry" href="${profileHref(state.me.username)}">
-        <img class="user-avatar" src="${activeAvatarSrc(state.me, 32)}" alt="" />
-        <span class="user-chip">${escapeHtml(state.me.username)}${isAdmin() ? " · 管理员" : ""}</span>
-      </a>
-      <button class="button small ghost" id="logoutButton" type="button">退出</button>
-    `;
-    $("#logoutButton")?.addEventListener("click", async () => {
-      await api("/logout", { method: "POST" });
-      state.me = null;
-      renderAll();
-      showToast("已退出登录");
-    });
-  }
-  $$("[data-open-auth]").forEach((button) => button.addEventListener("click", openAuthDialog));
-};
-
-const renderEmailGuard = () => {
-  let guard = $("#emailGuard");
-  if (!state.me || state.me.email_verified) {
-    guard?.remove();
+    actions.innerHTML = "";
     return;
   }
-  if (!guard) {
-    guard = document.createElement("section");
-    guard.id = "emailGuard";
-    guard.className = "email-guard";
-    document.querySelector("main")?.prepend(guard);
-  }
-  guard.innerHTML = `
-    <div>
-      <strong>请先绑定邮箱</strong>
-      <p>旧账号需要绑定并验证邮箱后才能继续发帖、编辑内容和使用后台。</p>
-    </div>
-    <button class="button primary" type="button" data-open-email-panel>绑定邮箱</button>
+
+  actions.innerHTML = `
+    <a class="user-badge user-entry" href="${profileHref(state.me.username)}">
+      <img class="user-avatar" src="${activeAvatarSrc(state.me, 32)}" alt="" />
+      <span class="user-chip">${escapeHtml(state.me.username)}</span>
+    </a>
+    <button class="button small ghost" id="logoutButton" type="button">退出</button>
   `;
-  $("[data-open-email-panel]")?.addEventListener("click", () => {
-    if (page !== "profile") window.location.href = profileHref(state.me.username);
-    else $("#profileEmail")?.focus();
+  $("#logoutButton")?.addEventListener("click", async () => {
+    await api("/logout", { method: "POST" });
+    state.me = null;
+    if (page === "admin") {
+      window.location.href = "/login";
+      return;
+    }
+    renderAll();
+    showToast("已退出登录");
   });
 };
 
@@ -167,7 +126,7 @@ const renderMaintenanceBanner = () => {
     banner.className = "maintenance-banner";
     document.body.prepend(banner);
   }
-  banner.textContent = "网站正在维护中，当前仅管理员可见。";
+  banner.textContent = "网站正在维护中，当前管理员可继续访问。";
 };
 
 const renderMaintenanceGate = () => {
@@ -185,16 +144,15 @@ const renderMaintenanceGate = () => {
     ? `
       <div class="maintenance-user">
         <img class="user-avatar large" src="${activeAvatarSrc(state.me, 48)}" alt="" />
-        <div><strong>${escapeHtml(state.me.username)}</strong><p>你已登录，网站当前正在维护，请稍后再来。</p></div>
+        <div><strong>${escapeHtml(state.me.username)}</strong><p>你已登录，但网站当前维护中，请稍后再来。</p></div>
       </div>`
-    : `<p>网站正在维护中，稍后会重新开放。</p><button class="button primary" type="button" data-open-auth>登录账户</button>`;
-  $$("[data-open-auth]").forEach((button) => button.addEventListener("click", openAuthDialog));
+    : `<p>网站正在维护中，暂时仅管理员可登录。</p><a class="button primary" href="/login">管理员登录</a>`;
 };
 
 const cardTemplate = (item, type) => {
   const excerpt = item.excerpt || textFromHtml(item.content_html).slice(0, 110);
-  const author = item.author || "玩家";
-  const canManagePost = type === "post" && (isAdmin() || isSelfName(author));
+  const author = item.author || "管理员";
+  const canManagePost = type === "post" && isAdmin();
   const skin =
     type === "post"
       ? `<a class="skin-link" href="${profileHref(author)}"><img class="skin-figure" src="${skinUrl(author, 170)}" alt="" loading="lazy" /></a>`
@@ -233,7 +191,7 @@ const renderLists = () => {
   if (postList) {
     postList.innerHTML = state.posts.length
       ? state.posts.map((item) => cardTemplate(item, "post")).join("")
-      : `<div class="empty">还没有帖子，来发第一篇吧。</div>`;
+      : `<div class="empty">还没有帖子。</div>`;
   }
   bindContentButtons();
 };
@@ -269,7 +227,7 @@ const openReader = (type, id) => {
   if (!item || !$("#readerContent")) return;
   api(`/track-view/${type}/${id}`, { method: "POST" }).catch(() => {});
   item.views = Number(item.views || 0) + 1;
-  const author = item.author || "玩家";
+  const author = item.author || "管理员";
   $("#readerContent").innerHTML = `
     <h1>${escapeHtml(item.title)}</h1>
     <div class="meta"><a class="author-link" href="${profileHref(author)}">${escapeHtml(author)}</a> · ${formatDate(item.created_at)} · ${item.views || 0} 次浏览</div>
@@ -342,10 +300,9 @@ const renderForumProfileCard = () => {
     card.innerHTML = `
       <h2>玩家资料</h2>
       <div class="skin-stage"><img src="/assets/unbound-skin.png" alt="" loading="lazy" /></div>
-      <p>登录后可发布帖子，也能从头像或昵称进入你的独立资料页。</p>
-      <button class="button primary" type="button" data-open-auth>登录 / 注册</button>
+      <p>论坛当前只允许管理员账号登录与发帖管理。</p>
+      <a class="button primary" href="/login">管理员登录</a>
     `;
-    $$("[data-open-auth]").forEach((button) => button.addEventListener("click", openAuthDialog));
     return;
   }
   card.innerHTML = `
@@ -354,7 +311,7 @@ const renderForumProfileCard = () => {
       <div class="skin-stage"><img src="${activeSkinSrc(state.me, 210)}" alt="" loading="lazy" /></div>
       <div class="profile-name ${state.me.last_seen_at ? "online" : ""}">
         <strong>${escapeHtml(state.me.username)}</strong>
-        <span>${isAdmin() ? "管理员" : "成员"} · ${state.me.email_verified ? "邮箱已验证" : "待绑定邮箱"}</span>
+        <span>${escapeHtml(state.me.account_type || "管理员")}</span>
       </div>
     </a>
     <div class="profile-actions">
@@ -379,13 +336,12 @@ const renderProfilePage = () => {
       <div class="skin-stage large"><img src="${activeSkinSrc(profile, 240)}" alt="" loading="lazy" /></div>
       <div class="profile-name ${profile.online ? "online" : ""}">
         <strong>${escapeHtml(profile.username)}</strong>
-        <span>${profile.accountType} · 注册于 ${formatDate(profile.created_at)}</span>
+        <span>${escapeHtml(profile.accountType)} · 注册于 ${formatDate(profile.created_at)}</span>
       </div>
       <div class="profile-summary">
         <div><strong>${profile.postCount}</strong><span>最近帖子</span></div>
-        <div><strong>${profile.accountType}</strong><span>账号类型</span></div>
+        <div><strong>${escapeHtml(profile.accountType)}</strong><span>账号类型</span></div>
       </div>
-      ${profile.isSelf ? accountSecurityPanel(profile) : ""}
     </div>
   `;
   posts.innerHTML = `
@@ -395,70 +351,14 @@ const renderProfilePage = () => {
     }</div>
   `;
   bindContentButtons();
-  bindProfileSecurityActions();
-};
-
-const accountSecurityPanel = (profile) => `
-  <div class="account-security">
-    <h3>账号安全</h3>
-    <form id="profileEmailForm" class="security-form">
-      <input id="profileEmail" type="email" placeholder="绑定邮箱" value="${escapeHtml(profile.email || "")}" />
-      <div class="inline-form compact">
-        <input id="profileEmailCode" inputmode="numeric" maxlength="6" placeholder="邮箱验证码" />
-        <button class="button ghost" type="button" id="profileSendEmailCode">发送验证码</button>
-      </div>
-      <button class="button primary" type="submit">保存邮箱</button>
-    </form>
-    <div class="totp-panel">
-      <p>双重验证：${profile.totp_enabled ? "已开启" : "未开启"}</p>
-      <button class="button ghost" type="button" id="beginTotp">${profile.totp_enabled ? "重新设置" : "开启 Authenticator"}</button>
-      ${profile.totp_enabled ? `<button class="button danger" type="button" id="disableTotp">关闭双重验证</button>` : ""}
-      <div id="totpSetup" hidden></div>
-    </div>
-  </div>
-`;
-
-const bindProfileSecurityActions = () => {
-  $("#profileSendEmailCode")?.addEventListener("click", async () => {
-    await api("/email/send-code", { method: "POST", body: JSON.stringify({ email: $("#profileEmail").value.trim() }) });
-    showToast("验证码已发送");
-  });
-  $("#profileEmailForm")?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    await api("/me/email", {
-      method: "PUT",
-      body: JSON.stringify({ email: $("#profileEmail").value.trim(), emailCode: $("#profileEmailCode").value.trim() }),
-    });
-    await loadPublicData();
-    showToast("邮箱已更新");
-  });
-  $("#beginTotp")?.addEventListener("click", async () => {
-    const result = await api("/me/totp/begin", { method: "POST" });
-    const box = $("#totpSetup");
-    box.hidden = false;
-    box.innerHTML = `
-      <p>在 Authenticator 中添加这个密钥：</p>
-      <code>${escapeHtml(result.secret)}</code>
-      <input id="totpConfirmCode" inputmode="numeric" maxlength="6" placeholder="输入 6 位验证码" />
-      <button class="button primary" type="button" id="confirmTotp">确认开启</button>
-    `;
-    $("#confirmTotp")?.addEventListener("click", async () => {
-      await api("/me/totp/confirm", { method: "POST", body: JSON.stringify({ code: $("#totpConfirmCode").value.trim() }) });
-      await loadPublicData();
-      showToast("双重验证已开启");
-    });
-  });
-  $("#disableTotp")?.addEventListener("click", async () => {
-    await api("/me/totp", { method: "DELETE" });
-    await loadPublicData();
-    showToast("双重验证已关闭");
-  });
 };
 
 const setupForumPost = () => {
   $("#openPostComposer")?.addEventListener("click", () => {
-    if (!state.me) return openAuthDialog();
-    if (!state.me.email_verified) return showToast("请先绑定并验证邮箱后发帖");
+    if (!state.me) {
+      window.location.href = "/login";
+      return;
+    }
     state.editingPostId = null;
     $("#forumPostForm")?.reset();
     if ($("#editor")) $("#editor").innerHTML = "";
@@ -468,7 +368,10 @@ const setupForumPost = () => {
   $$("[data-close-post]").forEach((button) => button.addEventListener("click", closePostDialog));
   $("#forumPostForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    if (!state.me) return openAuthDialog();
+    if (!state.me) {
+      window.location.href = "/login";
+      return;
+    }
     const title = $("#forumTitle").value.trim();
     const contentHtml = $("#editor").innerHTML.trim();
     const endpoint = state.editingPostId ? `/posts/${state.editingPostId}` : "/posts";
@@ -519,7 +422,7 @@ const renderStats = () => {
     statCard("总浏览", state.stats.totalViews),
     statCard("公告浏览", state.stats.announcementViews),
     statCard("论坛浏览", state.stats.postViews),
-    statCard("注册用户", state.stats.userCount),
+    statCard("管理员账号", state.stats.userCount),
   ].join("");
   $("#trashDock")?.remove();
   if (state.stats.trashCount > 0) {
@@ -544,7 +447,7 @@ const adminRows = (items, type) =>
         .map(
           (item) => `
             <div class="table-row">
-              <div><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.author || "玩家")} · ${formatDate(item.created_at)} · ${item.views || 0} 次浏览</span></div>
+              <div><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.author || "管理员")} · ${formatDate(item.created_at)} · ${item.views || 0} 次浏览</span></div>
               <div class="row-actions">
                 <button class="button small ghost" type="button" data-edit="${type}" data-id="${item.id}">编辑</button>
                 <button class="button small danger" type="button" data-delete="${type}" data-id="${item.id}">删除</button>
@@ -626,18 +529,38 @@ const renderAdmins = () => {
         .map(
           (user) => `
             <div class="table-row user-row">
-              <div><strong>${escapeHtml(user.username)}</strong><span>${user.is_owner ? "初始管理员" : "管理员"} · ${formatDate(user.created_at)}</span></div>
-              <div class="row-actions"><button class="button small danger" type="button" data-remove-admin="${user.id}" ${user.is_owner ? "disabled" : ""}>删除管理员</button></div>
+              <div><strong>${escapeHtml(user.username)}</strong><span>${escapeHtml(user.account_type)} · ${formatDate(user.created_at)}</span></div>
+              <div class="row-actions">
+                ${
+                  isOwner() && !user.is_owner
+                    ? `
+                      <button class="button small ghost" type="button" data-reset-admin="${user.id}" data-name="${escapeHtml(user.username)}">重置密码</button>
+                      <button class="button small danger" type="button" data-remove-admin="${user.id}">删除</button>
+                    `
+                    : `<button class="button small ghost" type="button" disabled>${user.is_owner ? "服主账号" : "仅服主可操作"}</button>`
+                }
+              </div>
             </div>`,
         )
         .join("")
     : `<div class="empty">暂无管理员。</div>`;
   $$("[data-remove-admin]").forEach((button) => {
     button.addEventListener("click", async () => {
-      if (button.disabled || !window.confirm("确定删除这个管理员权限吗？")) return;
+      if (!window.confirm("确定删除这个管理员账号吗？")) return;
       await api(`/admin/users/${button.dataset.removeAdmin}`, { method: "DELETE" });
       await loadAdminData();
       showToast("管理员已删除");
+    });
+  });
+  $$("[data-reset-admin]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const password = window.prompt(`为 ${button.dataset.name} 设置新密码（至少 6 位）`);
+      if (!password) return;
+      await api(`/admin/users/${button.dataset.resetAdmin}/password`, {
+        method: "PUT",
+        body: JSON.stringify({ password }),
+      });
+      showToast("密码已重置");
     });
   });
 };
@@ -645,10 +568,13 @@ const renderAdmins = () => {
 const setupAdminUsers = () => {
   $("#adminUserForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    await api("/admin/users", { method: "POST", body: JSON.stringify({ username: $("#adminUsername").value.trim() }) });
+    await api("/admin/users", {
+      method: "POST",
+      body: JSON.stringify({ username: $("#adminUsername").value.trim(), password: $("#adminPassword").value }),
+    });
     event.target.reset();
     await loadAdminData();
-    showToast("已添加管理员");
+    showToast("已创建管理员账号");
   });
 };
 
@@ -683,41 +609,21 @@ const setupHomeActions = () => {
   });
 };
 
-const setupAuth = () => {
-  const form = $("#authForm");
+const setupLoginPage = () => {
+  const form = $("#loginForm");
   if (!form) return;
-  authExtraFields();
-  $$("[data-close-auth]").forEach((button) => button.addEventListener("click", closeAuthDialog));
-  $("#sendEmailCode")?.addEventListener("click", async () => {
-    await api("/email/send-code", { method: "POST", body: JSON.stringify({ email: $("#email").value.trim() }) });
-    showToast("验证码已发送");
-  });
-  $("#forgotPasswordButton")?.addEventListener("click", async () => {
-    const email = window.prompt("输入已绑定邮箱");
-    if (!email) return;
-    await api("/password/send-reset", { method: "POST", body: JSON.stringify({ email }) });
-    const code = window.prompt("输入邮箱验证码");
-    const password = window.prompt("输入新密码（至少 6 位）");
-    if (!code || !password) return;
-    await api("/password/reset", { method: "POST", body: JSON.stringify({ email, emailCode: code, password }) });
-    showToast("密码已重置，请重新登录");
-  });
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const mode = event.submitter?.dataset.mode || "login";
-    const body = {
-      username: $("#username").value,
-      password: $("#password").value,
-      email: $("#email")?.value,
-      emailCode: $("#emailCode")?.value,
-      totpCode: $("#totpCode")?.value,
-    };
-    const result = await api(mode === "register" ? "/register" : "/login", { method: "POST", body: JSON.stringify(body) });
+    const result = await api("/login", {
+      method: "POST",
+      body: JSON.stringify({
+        username: $("#loginUsername").value.trim(),
+        password: $("#loginPassword").value,
+        totpCode: $("#loginTotpCode")?.value.trim(),
+      }),
+    });
     state.me = result.user;
-    form.reset();
-    closeAuthDialog();
-    await refreshPageData();
-    showToast(mode === "register" ? "注册成功" : "登录成功");
+    window.location.href = "/admin.html";
   });
 };
 
@@ -760,7 +666,6 @@ const refreshPageData = async () => (page === "admin" ? loadAdminData() : loadPu
 
 const renderAll = () => {
   renderAuth();
-  renderEmailGuard();
   renderMaintenanceBanner();
   renderMaintenanceGate();
   renderLists();
@@ -770,7 +675,7 @@ const renderAll = () => {
 };
 
 $("#closeDialog")?.addEventListener("click", () => $("#readerDialog")?.close());
-setupAuth();
+setupLoginPage();
 setupEditor();
 setupForumPost();
 setupPublish();
