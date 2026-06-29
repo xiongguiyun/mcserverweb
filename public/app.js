@@ -19,6 +19,9 @@ const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const serverAddress = "play.blockhaven.cn";
 let maintenanceRequestId = 0;
+let vaptchaScriptPromise = null;
+let vaptchaReadyPromise = null;
+let vaptchaInstance = null;
 const isMobileViewport = () => window.matchMedia?.("(max-width: 620px)")?.matches;
 const isCoarsePointer = () => window.matchMedia?.("(pointer: coarse)")?.matches;
 const shouldUseMobileTotpLayout = () => isMobileViewport() || isCoarsePointer();
@@ -96,6 +99,66 @@ const profileHref = (username) => `/profile.html?user=${encodeURIComponent(usern
 const currentProfileQuery = () => new URL(window.location.href).searchParams.get("user") || state.me?.username || "";
 const prefersReducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
 const dialogCloseDelay = () => (prefersReducedMotion() ? 0 : 240);
+
+const loadVaptchaScript = () => {
+  if (window.vaptcha) return Promise.resolve(window.vaptcha);
+  if (vaptchaScriptPromise) return vaptchaScriptPromise;
+  vaptchaScriptPromise = new Promise((resolve, reject) => {
+    const existing = document.querySelector('script[data-vaptcha-sdk="true"]');
+    if (existing) {
+      existing.addEventListener("load", () => resolve(window.vaptcha), { once: true });
+      existing.addEventListener("error", () => reject(new Error("VAPTCHA SDK 加载失败")), { once: true });
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = "https://cdn4.vaptcha.com/src/v4.js";
+    script.async = true;
+    script.dataset.vaptchaSdk = "true";
+    script.addEventListener("load", () => resolve(window.vaptcha), { once: true });
+    script.addEventListener("error", () => reject(new Error("VAPTCHA SDK 加载失败")), { once: true });
+    document.head.append(script);
+  });
+  return vaptchaScriptPromise;
+};
+
+const ensureVaptcha = async () => {
+  if (vaptchaInstance) return vaptchaInstance;
+  if (vaptchaReadyPromise) return vaptchaReadyPromise;
+  const container = $("#vaptchaContainer");
+  if (!container) throw new Error("VAPTCHA 容器不存在");
+  vaptchaReadyPromise = (async () => {
+    const config = await api("/vaptcha/config");
+    await loadVaptchaScript();
+    const instance = await window.vaptcha({
+      vid: config.vid,
+      container: "#vaptchaContainer",
+      lang: "zh-CN",
+    });
+    vaptchaInstance = instance;
+    container.dataset.ready = "true";
+    $("#vaptchaStatus") && ($("#vaptchaStatus").textContent = "人机验证已就绪");
+    return instance;
+  })().catch((error) => {
+    vaptchaReadyPromise = null;
+    $("#vaptchaStatus") && ($("#vaptchaStatus").textContent = error.message || "人机验证加载失败");
+    throw error;
+  });
+  return vaptchaReadyPromise;
+};
+
+const getVaptchaPayload = async () => {
+  const instance = await ensureVaptcha();
+  await instance.validate();
+  const result = instance.getVerifyResult?.();
+  if (!result?.token || !result?.knock) {
+    throw new Error("请先完成人机验证");
+  }
+  return {
+    vaptcha_token: result.token,
+    vaptcha_knock: result.knock,
+    vaptcha_dfu: result.dfu || "",
+  };
+};
 
 const renderTotpQrFallback = (result) => `
   <div class="totp-qr-fallback">
@@ -590,10 +653,16 @@ const setupForumPost = () => {
 
   const syncSearch = (open = state.forumSearchOpen) => {
     state.forumSearchOpen = open;
-    if (searchPanel) searchPanel.hidden = !open;
+    if (searchPanel) {
+      searchPanel.hidden = false;
+      searchPanel.classList.toggle("is-open", open);
+      searchPanel.setAttribute("aria-hidden", String(!open));
+    }
     if (searchToggle) searchToggle.setAttribute("aria-expanded", String(open));
     if (open) {
       window.setTimeout(() => searchInput?.focus(), prefersReducedMotion() ? 0 : 40);
+    } else {
+      searchInput?.blur();
     }
   };
 
@@ -615,7 +684,7 @@ const setupForumPost = () => {
     state.forumSearch = "";
     if (searchInput) searchInput.value = "";
     renderLists();
-    searchInput?.focus();
+    syncSearch(false);
   });
   syncSearch(false);
 
@@ -981,21 +1050,43 @@ const setupHeroTyping = () => {
 };
 
 const setupLoginPage = () => {
-  const form = $("#loginForm");
-  if (!form) return;
-  form.addEventListener("submit", async (event) => {
+  ensureVaptcha().catch((error) => showToast(error.message));
+  const loginForm = $("#loginForm");
+  loginForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
     try {
+      const vaptcha = await getVaptchaPayload();
       const result = await api("/login", {
         method: "POST",
         body: JSON.stringify({
           username: $("#loginUsername").value.trim(),
           password: $("#loginPassword").value,
           totpCode: $("#loginTotpCode")?.value.trim(),
+          ...vaptcha,
         }),
       });
       state.me = result.user;
-      window.location.href = "/admin.html";
+      window.location.href = result.user?.role === "admin" ? "/admin.html" : "/forum.html";
+    } catch (error) {
+      if (error.payload?.needsTotp) $("#loginTotpCode")?.focus();
+    }
+  });
+
+  const registerForm = $("#registerForm");
+  registerForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      const vaptcha = await getVaptchaPayload();
+      const result = await api("/register", {
+        method: "POST",
+        body: JSON.stringify({
+          username: $("#registerUsername").value.trim(),
+          password: $("#registerPassword").value,
+          ...vaptcha,
+        }),
+      });
+      state.me = result.user;
+      window.location.href = "/forum.html";
     } catch (error) {
       if (error.payload?.needsTotp) $("#loginTotpCode")?.focus();
     }

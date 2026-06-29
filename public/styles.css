@@ -623,7 +623,8 @@ button {
 }
 
 .totp-text-toggle {
-  justify-self: start;
+  justify-self: center;
+  text-align: center;
   padding: 0;
   color: #7b4d17;
   background: transparent;
@@ -1079,6 +1080,55 @@ body[data-page="login"] {
 .login-form {
   display: grid;
   gap: 14px;
+}
+
+.login-divider {
+  display: grid;
+  place-items: center;
+  margin: 18px 0;
+}
+
+.login-divider span {
+  display: inline-block;
+  padding: 0 12px;
+  color: #e8cf9e;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+
+.vaptcha-panel {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(255, 221, 99, 0.2);
+}
+
+.vaptcha-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #fff0c2;
+  font-size: 13px;
+}
+
+.vaptcha-head strong {
+  font-size: 14px;
+}
+
+.vaptcha-head span {
+  color: #d7cbb8;
+  text-align: right;
+}
+
+.vaptcha-container {
+  min-height: 92px;
+  padding: 12px;
+  background: rgba(255, 250, 240, 0.08);
+  border: 1px solid rgba(255, 221, 99, 0.22);
+  border-radius: 4px;
 }
 
 .login-form input {
@@ -1771,6 +1821,7 @@ dialog.is-closing::backdrop {
   }
 
   .forum-search-panel {
+    width: 100%;
     grid-template-columns: 1fr auto;
     gap: 8px;
   }
@@ -2072,12 +2123,26 @@ button,
   grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 10px;
   align-items: center;
-  margin: 0 0 18px;
+  margin: 0 0 18px auto;
   padding: 14px;
+  width: min(100%, 520px);
+  transform-origin: right center;
+  transform: translateX(18px) scaleX(0.18);
+  opacity: 0;
+  pointer-events: none;
   background: #fff4dd;
   border: 2px solid #d7bc8b;
   border-radius: 6px;
   box-shadow: 0 6px 0 rgba(106, 69, 35, 0.14);
+  transition:
+    transform 0.22s ease,
+    opacity 0.18s ease;
+}
+
+.forum-search-panel.is-open {
+  transform: translateX(0) scaleX(1);
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .forum-search-box {

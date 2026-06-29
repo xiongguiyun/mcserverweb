@@ -5,6 +5,7 @@ const json = (data, status = 200, headers = {}) =>
   });
 
 const textEncoder = new TextEncoder();
+const VAPTCHA_VERIFY_URL = "https://v4i.vaptcha.com/api/v1/verify";
 
 const messageFromError = (error, fallback = "服务器错误") => {
   if (!error) return fallback;
@@ -20,6 +21,56 @@ const getCookie = (request, name) => {
     .map((part) => part.trim())
     .find((part) => part.startsWith(`${name}=`))
     ?.slice(name.length + 1);
+};
+
+const getClientIp = (request) => {
+  const headers = request.headers;
+  return (
+    headers.get("CF-Connecting-IP") ||
+    headers.get("X-Real-IP") ||
+    headers
+      .get("X-Forwarded-For")
+      ?.split(",")
+      .map((part) => part.trim())
+      .find(Boolean) ||
+    ""
+  );
+};
+
+const getVaptchaConfig = (env) => ({
+  vid: String(env.VAPTCHA_VID || "").trim(),
+  vkey: String(env.VAPTCHA_VKEY || "").trim(),
+});
+
+const verifyVaptchaChallenge = async (env, request, body) => {
+  const token = String(body.vaptcha_token || body.vaptchaToken || "").trim();
+  const knock = String(body.vaptcha_knock || body.vaptchaKnock || "").trim();
+  const dfu = String(body.vaptcha_dfu || body.vaptchaDfu || "").trim();
+  const { vid, vkey } = getVaptchaConfig(env);
+  if (!vid || !vkey) {
+    throw new Response(JSON.stringify({ error: "VAPTCHA 未完成服务端配置" }), { status: 500 });
+  }
+  if (!token || !knock) {
+    throw new Response(JSON.stringify({ error: "请先完成人机验证" }), { status: 400 });
+  }
+
+  const response = await fetch(VAPTCHA_VERIFY_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      vid,
+      vkey,
+      token,
+      knock,
+      dfu,
+      ip: getClientIp(request),
+    }),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || !result?.data?.result) {
+    throw new Response(JSON.stringify({ error: result?.msg || result?.data?.message || "人机验证失败" }), { status: 403 });
+  }
+  return { ok: true };
 };
 
 const bytesToBase32 = (bytes) => {
@@ -267,6 +318,7 @@ const profile = async (env, request, username) => {
 
 const login = async (env, request) => {
   const body = await readBody(request);
+  await verifyVaptchaChallenge(env, request, body);
   const username = String(body.username || "").trim();
   const password = String(body.password || "");
   const totpCode = String(body.totpCode || "").trim();
@@ -277,9 +329,6 @@ const login = async (env, request) => {
     .first();
   if (!user || !(await verifyPassword(password, user.password_hash))) {
     return json({ error: "用户名或密码错误" }, 401);
-  }
-  if (user.role !== "admin") {
-    return json({ error: "只有管理员账号可以登录" }, 403);
   }
   if (user.totp_enabled && !(await verifyTotpAsync(user.totp_secret, totpCode))) {
     return json({ error: "请输入正确的双重验证码", needsTotp: true }, 401);
@@ -300,6 +349,34 @@ const logout = async (env, request) => {
   return json({ ok: true }, 200, {
     "Set-Cookie": "session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0",
   });
+};
+
+const register = async (env, request) => {
+  const body = await readBody(request);
+  await verifyVaptchaChallenge(env, request, body);
+  const username = String(body.username || "").trim();
+  const password = String(body.password || "");
+  if (!/^[\w\u4e00-\u9fa5-]{3,20}$/.test(username)) return json({ error: "用户名需要 3 到 20 位" }, 400);
+  if (password.length < 6) return json({ error: "密码至少 6 位" }, 400);
+  try {
+    await env.DB.prepare("INSERT INTO users (username, password_hash, role, last_seen_at) VALUES (?, ?, 'user', CURRENT_TIMESTAMP)")
+      .bind(username, await hashPassword(password))
+      .run();
+  } catch {
+    return json({ error: "用户名已存在" }, 409);
+  }
+  const user = await env.DB.prepare(
+    "SELECT id, username, role, totp_enabled, created_at, last_seen_at FROM users WHERE username = ?",
+  )
+    .bind(username)
+    .first();
+  const owner = await ownerUser(env);
+  const token = await createSession(env, user);
+  return json(
+    { user: publicUser(user, owner?.id) },
+    201,
+    { "Set-Cookie": `session=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=1209600` },
+  );
 };
 
 const minecraftImage = async (request, waitUntil, kind, username, size) => {
@@ -409,7 +486,7 @@ const createAnnouncement = async (env, request) => {
 };
 
 const createPost = async (env, request) => {
-  const user = await requireAdmin(env, request);
+  const user = await requireUser(env, request);
   const { title, contentHtml, excerpt } = await contentPayload(request);
   await env.DB.prepare("INSERT INTO posts (title, excerpt, content_html, author_id) VALUES (?, ?, ?, ?)")
     .bind(title, excerpt, contentHtml, user.id)
@@ -427,9 +504,12 @@ const updateAnnouncement = async (env, request, id) => {
 };
 
 const updatePost = async (env, request, id) => {
-  await requireAdmin(env, request);
-  const post = await env.DB.prepare("SELECT id FROM posts WHERE id = ? AND deleted_at IS NULL").bind(id).first();
+  const user = await requireUser(env, request);
+  const post = await env.DB.prepare("SELECT id, author_id FROM posts WHERE id = ? AND deleted_at IS NULL").bind(id).first();
   if (!post) return json({ error: "帖子不存在" }, 404);
+  if (user.role !== "admin" && Number(post.author_id) !== Number(user.id)) {
+    return json({ error: "你只能编辑自己的帖子" }, 403);
+  }
   const { title, contentHtml, excerpt } = await contentPayload(request);
   await env.DB.prepare("UPDATE posts SET title = ?, excerpt = ?, content_html = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
     .bind(title, excerpt, contentHtml, id)
@@ -574,6 +654,12 @@ const updateMaintenance = async (env, request) => {
   return json({ ok: true, maintenanceMode: enabled });
 };
 
+const vaptchaConfig = async (env) => {
+  const { vid } = getVaptchaConfig(env);
+  if (!vid) return json({ error: "VAPTCHA 未完成配置" }, 500);
+  return json({ vid });
+};
+
 export async function onRequest(context) {
   const { request, env, params, waitUntil } = context;
   const pathname = `/${(params.path || []).join("/")}`;
@@ -581,7 +667,9 @@ export async function onRequest(context) {
 
   try {
     if (method === "GET" && pathname === "/me") return me(env, request);
+    if (method === "GET" && pathname === "/vaptcha/config") return vaptchaConfig(env);
     if (method === "POST" && pathname === "/login") return login(env, request);
+    if (method === "POST" && pathname === "/register") return register(env, request);
     if (method === "POST" && pathname === "/logout") return logout(env, request);
     if (method === "POST" && pathname === "/me/totp/begin") return beginTotp(env, request);
     if (method === "POST" && pathname === "/me/totp/confirm") return confirmTotp(env, request);

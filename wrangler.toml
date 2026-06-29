@@ -2,6 +2,9 @@ name = "blockhaven"
 compatibility_date = "2026-06-28"
 pages_build_output_dir = "public"
 
+[vars]
+VAPTCHA_VID = "id_fce7fd580eeb215"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "blockhaven_db"
