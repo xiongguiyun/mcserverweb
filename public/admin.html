@@ -43,22 +43,21 @@
             <a href="#adminTrash">垃圾桶</a>
           </nav>
         </aside>
-        <button class="admin-mobile-toggle" type="button" id="adminSidebarToggle" aria-controls="adminSidebarDrawer" aria-expanded="false">
-          鎺у埗鍙?/button>
+        <button class="admin-mobile-toggle" type="button" id="adminSidebarToggle" aria-controls="adminSidebarDrawer" aria-expanded="false">控制台</button>
         <div class="admin-sidebar-backdrop" id="adminSidebarBackdrop" hidden></div>
         <aside class="admin-sidebar admin-sidebar-drawer" id="adminSidebarDrawer" aria-hidden="true">
           <div class="admin-sidebar-head">
-            <h2>鎺у埗鍙?/h2>
-            <p>鎵嬫満绔彲浠ラ殢鏃跺睍寮€锛屽揩閫熷畾浣嶇鐞嗗尯鍩熴€?/p>
+            <h2>控制台</h2>
+            <p>手机端可随时滑出，快速定位正在管理的内容区域。</p>
           </div>
-          <nav class="admin-nav admin-nav-drawer" aria-label="鍚庡彴鍔熻兘绉诲姩鑿滃崟">
-            <a href="#adminOverview" class="active">姒傝</a>
-            <a href="#adminMaintenance">缁存姢妯″紡</a>
-            <a href="#adminEditor">鍐呭鍙戝竷</a>
-            <a href="#adminAnnouncements">鍏憡绠＄悊</a>
-            <a href="#adminPosts">璁哄潧绠＄悊</a>
-            <a href="#adminUsersPanel">绠＄悊鍛?/a>
-            <a href="#adminTrash">鍨冨溇妗?/a>
+          <nav class="admin-nav admin-nav-drawer" aria-label="后台功能移动菜单">
+            <a href="#adminOverview" class="active">概览</a>
+            <a href="#adminMaintenance">维护模式</a>
+            <a href="#adminEditor">内容发布</a>
+            <a href="#adminAnnouncements">公告管理</a>
+            <a href="#adminPosts">论坛管理</a>
+            <a href="#adminUsersPanel">管理员</a>
+            <a href="#adminTrash">垃圾箱</a>
           </nav>
         </aside>
 
@@ -104,8 +103,6 @@
                   <label for="title">标题</label>
                   <input id="title" name="title" maxlength="80" required placeholder="例如：周末建筑赛报名开始" />
                 </div>
-                <span class="toolbar-spacer" aria-hidden="true"></span>
-                <button type="button" id="previewButton" class="toolbar-preview-button">棰勮</button>
               </div>
               <div class="toolbar editor-toolbar" aria-label="编辑工具栏">
                 <button type="button" data-command="bold" title="粗体"><strong>B</strong></button>
@@ -144,6 +141,8 @@
                     <button type="button" id="quoteButton">引用</button>
                   </div>
                 </div>
+                <span class="toolbar-spacer" aria-hidden="true"></span>
+                <button type="button" id="previewButton" class="toolbar-preview-button">预览</button>
               </div>
               <div class="rich-editor" id="editor" contenteditable="true" role="textbox" aria-label="正文编辑器"></div>
               <div class="toolbar footer-tools compact">

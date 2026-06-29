@@ -14,6 +14,7 @@ const page = document.body.dataset.page;
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const serverAddress = "play.blockhaven.cn";
+const staticPreviewNotice = "当前是静态预览模式，接口内容暂时不可用。";
 
 const api = async (path, options = {}) => {
   const response = await fetch(`/api${path}`, {
@@ -26,11 +27,13 @@ const api = async (path, options = {}) => {
   try {
     payload = raw ? JSON.parse(raw) : {};
   } catch {
-    payload = { error: raw.trim() };
+    const contentType = response.headers.get("content-type") || "";
+    const isHtmlFallback = contentType.includes("text/html") || /^\s*<!doctype html/i.test(raw);
+    payload = { error: isHtmlFallback ? staticPreviewNotice : raw.trim() };
   }
   if (!response.ok) {
     const message = payload.error || `请求失败 (${response.status})`;
-    showToast(message, { copyText: message });
+    showToast(message, { copyText: message === staticPreviewNotice ? "" : message });
     const error = new Error(message);
     error.payload = payload;
     throw error;
@@ -297,7 +300,7 @@ const setupEditor = () => {
     button.setAttribute("aria-expanded", String(!isOpen));
     if (menu) menu.hidden = isOpen;
   });
-  $("#previewButton")?.addEventListener("click", () => {
+  $$(".toolbar-preview-button").forEach((button) => button.addEventListener("click", () => {
     const editor = $("#editor");
     const previewContent = $("#previewContent");
     if (!editor || !previewContent) return;
@@ -308,7 +311,7 @@ const setupEditor = () => {
       <div class="reader-body">${editor.innerHTML.trim() || "<p>暂无内容</p>"}</div>
     `;
     openPreviewDialog();
-  });
+  }));
 };
 
 const renderForumProfileCard = () => {
@@ -629,25 +632,24 @@ const setupAdminNavigation = () => {
 
   if (!sections.length) return;
 
-  const observer = new IntersectionObserver(
-    (entries) => {
-      const visible = entries
-        .filter((entry) => entry.isIntersecting)
-        .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
-      if (!visible) return;
-      const current = `#${visible.target.id}`;
-      if (window.location.hash !== current) {
-        window.history.replaceState(null, "", current);
-      }
-      setActive(current);
-    },
-    {
-      rootMargin: "-18% 0px -56% 0px",
-      threshold: [0.2, 0.35, 0.55],
-    },
-  );
+  const syncByScroll = () => {
+    const anchorLine = Math.min(window.innerHeight * 0.42, 360);
+    const currentSection =
+      sections.find((section) => {
+        const rect = section.getBoundingClientRect();
+        return rect.top <= anchorLine && rect.bottom >= anchorLine;
+      }) || sections.find((section) => section.getBoundingClientRect().top > 0) || sections.at(-1);
+    if (!currentSection) return;
+    const current = `#${currentSection.id}`;
+    if (window.location.hash !== current) {
+      window.history.replaceState(null, "", current);
+    }
+    setActive(current);
+  };
 
-  sections.forEach((section) => observer.observe(section));
+  window.addEventListener("scroll", () => window.requestAnimationFrame(syncByScroll), { passive: true });
+  window.addEventListener("resize", syncByScroll);
+  syncByScroll();
 };
 
 const setupAdminMobileDrawer = () => {
