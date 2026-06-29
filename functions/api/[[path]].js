@@ -42,6 +42,28 @@ const getVaptchaConfig = (env) => ({
   vkey: String(env.VAPTCHA_VKEY || "").trim(),
 });
 
+const isVaptchaVerifyPassed = (result) => {
+  const data = result?.data || {};
+  const explicitResult = data.result ?? data.success ?? result?.result ?? result?.success;
+  if (explicitResult !== undefined) {
+    return explicitResult === true || explicitResult === 1 || explicitResult === "true" || explicitResult === "1";
+  }
+  return (
+    result?.code === 0 ||
+    result?.code === 200 ||
+    result?.code === "0" ||
+    result?.code === "200"
+  );
+};
+
+const getVaptchaVerifyMessage = (result) =>
+  result?.msg ||
+  result?.message ||
+  result?.data?.msg ||
+  result?.data?.message ||
+  result?.error ||
+  "人机验证失败，请重新验证";
+
 const verifyVaptchaChallenge = async (env, request, body) => {
   const token = String(body.vaptcha_token || body.vaptchaToken || "").trim();
   const knock = String(body.vaptcha_knock || body.vaptchaKnock || "").trim();
@@ -67,8 +89,11 @@ const verifyVaptchaChallenge = async (env, request, body) => {
     }),
   });
   const result = await response.json().catch(() => ({}));
-  if (!response.ok || !result?.data?.result) {
-    throw new Response(JSON.stringify({ error: result?.msg || result?.data?.message || "人机验证失败" }), { status: 403 });
+  if (!response.ok || !isVaptchaVerifyPassed(result)) {
+    throw new Response(JSON.stringify({ error: getVaptchaVerifyMessage(result) }), {
+      status: response.ok ? 403 : response.status,
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+    });
   }
   return { ok: true };
 };

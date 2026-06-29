@@ -22,6 +22,7 @@ let maintenanceRequestId = 0;
 let vaptchaScriptPromise = null;
 let vaptchaReadyPromise = null;
 let vaptchaInstance = null;
+let vaptchaPassedPayload = null;
 const isMobileViewport = () => window.matchMedia?.("(max-width: 620px)")?.matches;
 const isCoarsePointer = () => window.matchMedia?.("(pointer: coarse)")?.matches;
 const shouldUseMobileTotpLayout = () => isMobileViewport() || isCoarsePointer();
@@ -121,6 +122,21 @@ const loadVaptchaScript = () => {
   return vaptchaScriptPromise;
 };
 
+const setVaptchaStatus = (message, state = "") => {
+  const status = $("#vaptchaStatus");
+  const container = $("#vaptchaContainer");
+  if (status) status.textContent = message;
+  if (container) container.dataset.state = state;
+};
+
+const normalizeVaptchaResult = (result) => {
+  const source = result || {};
+  const token = String(source.token || source.vaptcha_token || "").trim();
+  const knock = String(source.knock || source.vaptcha_knock || "").trim();
+  const dfu = String(source.dfu || source.vaptcha_dfu || "").trim();
+  return token && knock ? { token, knock, dfu } : null;
+};
+
 const ensureVaptcha = async () => {
   if (vaptchaInstance) return vaptchaInstance;
   if (vaptchaReadyPromise) return vaptchaReadyPromise;
@@ -134,13 +150,24 @@ const ensureVaptcha = async () => {
       container: "#vaptchaContainer",
       lang: "zh-CN",
     });
+    instance.listen?.("pass", (result) => {
+      vaptchaPassedPayload = normalizeVaptchaResult(result);
+      setVaptchaStatus("人机验证已通过", "passed");
+    });
+    instance.listen?.("close", () => {
+      setVaptchaStatus("人机验证已关闭，请重新验证", "idle");
+    });
+    instance.listen?.("error", (message) => {
+      vaptchaPassedPayload = null;
+      setVaptchaStatus(message || "人机验证未通过，请重试", "failed");
+    });
     vaptchaInstance = instance;
     container.dataset.ready = "true";
-    $("#vaptchaStatus") && ($("#vaptchaStatus").textContent = "人机验证已就绪");
+    setVaptchaStatus("人机验证已就绪", "idle");
     return instance;
   })().catch((error) => {
     vaptchaReadyPromise = null;
-    $("#vaptchaStatus") && ($("#vaptchaStatus").textContent = error.message || "人机验证加载失败");
+    setVaptchaStatus(error.message || "人机验证加载失败", "failed");
     throw error;
   });
   return vaptchaReadyPromise;
@@ -148,16 +175,34 @@ const ensureVaptcha = async () => {
 
 const getVaptchaPayload = async () => {
   const instance = await ensureVaptcha();
-  await instance.validate();
-  const result = instance.getVerifyResult?.();
-  if (!result?.token || !result?.knock) {
-    throw new Error("请先完成人机验证");
+  setVaptchaStatus("正在进行人机验证...", "checking");
+  try {
+    const validateResult = await instance.validate();
+    const result = normalizeVaptchaResult(validateResult) || normalizeVaptchaResult(instance.getVerifyResult?.()) || vaptchaPassedPayload;
+    if (!result) {
+      setVaptchaStatus("人机验证未通过，请重试", "failed");
+      throw new Error("请先完成人机验证");
+    }
+    vaptchaPassedPayload = result;
+    setVaptchaStatus("人机验证已通过", "passed");
+    return {
+      vaptcha_token: result.token,
+      vaptcha_knock: result.knock,
+      vaptcha_dfu: result.dfu || "",
+    };
+  } catch (error) {
+    vaptchaPassedPayload = null;
+    const message = error.message === "Verification closed" ? "人机验证已关闭，请重新验证" : error.message || "人机验证未通过，请重试";
+    setVaptchaStatus(message, "failed");
+    showToast(message);
+    throw error;
   }
-  return {
-    vaptcha_token: result.token,
-    vaptcha_knock: result.knock,
-    vaptcha_dfu: result.dfu || "",
-  };
+};
+
+const markVaptchaRejected = (message = "人机验证未通过，请重新验证") => {
+  vaptchaPassedPayload = null;
+  vaptchaInstance?.reset?.();
+  setVaptchaStatus(message, "failed");
 };
 
 const renderTotpQrFallback = (result) => `
@@ -1071,6 +1116,7 @@ const setupLoginPage = () => {
       state.me = result.user;
       window.location.href = result.user?.role === "admin" ? "/admin.html" : "/forum.html";
     } catch (error) {
+      if (/人机验证|VAPTCHA/i.test(error.message)) markVaptchaRejected(error.message);
       if (error.payload?.needsTotp) $("#loginTotpCode")?.focus();
     }
   });
