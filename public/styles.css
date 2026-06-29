@@ -1467,6 +1467,14 @@ dialog.is-closing::backdrop {
   transform: translateY(-8px);
 }
 
+.profile-page-card .profile-name {
+  text-align: center;
+}
+
+.profile-page-card .profile-name.online::before {
+  left: 14px;
+}
+
 .profile-summary div {
   padding: 16px;
   text-align: center;
