@@ -1,3 +1,5 @@
+import { renderQrSvg } from "./qrcode-local.js";
+
 const state = {
   me: null,
   site: { maintenanceMode: false },
@@ -17,6 +19,9 @@ const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const serverAddress = "play.blockhaven.cn";
 let maintenanceRequestId = 0;
+const isMobileViewport = () => window.matchMedia?.("(max-width: 620px)")?.matches;
+const isCoarsePointer = () => window.matchMedia?.("(pointer: coarse)")?.matches;
+const shouldUseMobileTotpLayout = () => isMobileViewport() || isCoarsePointer();
 const staticPreviewNotice = "当前是静态预览模式，接口内容暂时不可用。";
 
 const api = async (path, options = {}) => {
@@ -290,6 +295,58 @@ const totpPanelTemplate = (profile) => {
   `;
 };
 
+const renderTotpSetupPanel = (setupPanel, result) => {
+  const mobileLayout = shouldUseMobileTotpLayout();
+  setupPanel.hidden = false;
+  setupPanel.innerHTML = `
+    <p>${mobileLayout ? "在手机上可以直接打开验证器，也可以手动输入下面的密钥。" : "在电脑上可以直接扫码添加，也可以切换成手动输入密钥。"}</p>
+    ${
+      mobileLayout
+        ? `
+          <a class="button ghost small" href="${escapeHtml(result.uri)}">打开验证器</a>
+          <div class="totp-secret-card">
+            <span class="totp-secret-label">手动密钥</span>
+            <code>${escapeHtml(result.secret)}</code>
+          </div>
+        `
+        : `
+          <div class="totp-visual-card" id="totpVisualCard">
+            <div class="totp-qr-shell" id="totpQrShell" aria-label="2FA 二维码">${renderQrSvg(result.uri)}</div>
+          </div>
+          <button class="totp-text-toggle" type="button" id="totpSecretToggle">切换成密钥</button>
+          <div class="totp-secret-card" id="totpSecretCard" hidden>
+            <span class="totp-secret-label">手动密钥</span>
+            <code>${escapeHtml(result.secret)}</code>
+          </div>
+        `
+    }
+    <div class="security-form">
+      <input id="totpConfirmCode" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6 位验证码" />
+      <button class="button primary" type="button" id="confirmTotpButton">确认启用</button>
+    </div>
+  `;
+
+  if (!mobileLayout) {
+    $("#totpSecretToggle")?.addEventListener("click", () => {
+      const visualCard = $("#totpVisualCard");
+      const secretCard = $("#totpSecretCard");
+      const showingSecret = !secretCard?.hidden;
+      if (secretCard) secretCard.hidden = showingSecret;
+      if (visualCard) visualCard.hidden = !showingSecret;
+      const toggle = $("#totpSecretToggle");
+      if (toggle) toggle.textContent = showingSecret ? "切换成密钥" : "切换成二维码";
+    });
+  }
+
+  $("#totpConfirmCode")?.focus();
+  $("#confirmTotpButton")?.addEventListener("click", async () => {
+    const code = $("#totpConfirmCode")?.value.trim() || "";
+    await api("/me/totp/confirm", { method: "POST", body: JSON.stringify({ code }) });
+    await refreshPageData();
+    showToast("2FA 已开启");
+  });
+};
+
 const bindTotpSecurity = () => {
   const beginButton = $("#beginTotpButton");
   const disableButton = $("#disableTotpButton");
@@ -298,7 +355,8 @@ const bindTotpSecurity = () => {
   beginButton?.addEventListener("click", async () => {
     const result = await api("/me/totp/begin", { method: "POST" });
     if (!setupPanel) return;
-    setupPanel.hidden = false;
+    renderTotpSetupPanel(setupPanel, result);
+    return;
     setupPanel.innerHTML = `
       <p>在 Authenticator 里手动输入下面的密钥，然后填写生成的 6 位验证码确认启用。</p>
       <code>${escapeHtml(result.secret)}</code>
