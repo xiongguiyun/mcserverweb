@@ -87,10 +87,29 @@ const profileHref = (username) => `/profile.html?user=${encodeURIComponent(usern
 const currentProfileQuery = () => new URL(window.location.href).searchParams.get("user") || state.me?.username || "";
 const prefersReducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
 
-const openPostDialog = () => $("#postDialog")?.showModal();
-const closePostDialog = () => $("#postDialog")?.close();
-const openPreviewDialog = () => $("#previewDialog")?.showModal();
-const closePreviewDialog = () => $("#previewDialog")?.close();
+const openDialog = (dialog) => {
+  if (!dialog) return;
+  dialog.classList.remove("is-closing");
+  dialog.showModal();
+};
+
+const closeDialogAnimated = (dialog) => {
+  if (!dialog?.open) return;
+  if (prefersReducedMotion()) {
+    dialog.close();
+    return;
+  }
+  dialog.classList.add("is-closing");
+  window.setTimeout(() => {
+    dialog.close();
+    dialog.classList.remove("is-closing");
+  }, 220);
+};
+
+const openPostDialog = () => openDialog($("#postDialog"));
+const closePostDialog = () => closeDialogAnimated($("#postDialog"));
+const openPreviewDialog = () => openDialog($("#previewDialog"));
+const closePreviewDialog = () => closeDialogAnimated($("#previewDialog"));
 
 const renderAuth = () => {
   const actions = $("#authActions");
@@ -242,7 +261,7 @@ const openReader = (type, id) => {
     <div class="meta"><a class="author-link" href="${profileHref(author)}">${escapeHtml(author)}</a> · ${formatDate(item.created_at)} · ${item.views || 0} 次浏览</div>
     <div class="reader-body">${item.content_html}</div>
   `;
-  $("#readerDialog")?.showModal();
+  openDialog($("#readerDialog"));
 };
 
 const command = (name, value = null) => {
@@ -299,6 +318,12 @@ const setupEditor = () => {
     const isOpen = button.getAttribute("aria-expanded") === "true";
     button.setAttribute("aria-expanded", String(!isOpen));
     if (menu) menu.hidden = isOpen;
+    button.closest(".toolbar-more")?.classList.toggle("is-open", !isOpen);
+    if (menu && !isOpen) {
+      const rect = button.getBoundingClientRect();
+      menu.style.left = `${Math.min(rect.left, window.innerWidth - 170)}px`;
+      menu.style.top = `${rect.bottom + 8}px`;
+    }
   });
   $$(".toolbar-preview-button").forEach((button) => button.addEventListener("click", () => {
     const editor = $("#editor");
@@ -318,6 +343,7 @@ const renderForumProfileCard = () => {
   const card = $("#profileCard");
   if (!card) return;
   if (!state.me) {
+    card.classList.remove("is-logged-in");
     card.innerHTML = `
       <h2>玩家资料</h2>
       <div class="skin-stage"><img src="/assets/unbound-skin.png" alt="" loading="lazy" /></div>
@@ -326,6 +352,7 @@ const renderForumProfileCard = () => {
     `;
     return;
   }
+  card.classList.add("is-logged-in");
   card.innerHTML = `
     <h2>玩家资料</h2>
     <a class="profile-card-link" href="${profileHref(state.me.username)}">
@@ -618,7 +645,6 @@ const setupAdminNavigation = () => {
     links.forEach((link) => {
       const active = link.getAttribute("href") === current;
       link.classList.toggle("active", active);
-      link.classList.toggle("admin-nav-scrolled", active);
     });
   };
   const sync = () => {
@@ -677,6 +703,25 @@ const setupAdminMobileDrawer = () => {
   $$(".admin-nav-drawer a").forEach((link) => link.addEventListener("click", () => setOpen(false)));
   window.addEventListener("resize", () => {
     if (window.innerWidth > 620) setOpen(false);
+  });
+};
+
+const setupDialogDismiss = () => {
+  $$("dialog").forEach((dialog) => {
+    dialog.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      closeDialogAnimated(dialog);
+    });
+    dialog.addEventListener("click", (event) => {
+      if (event.target !== dialog) return;
+      const rect = dialog.getBoundingClientRect();
+      const clickedBackdrop =
+        event.clientX < rect.left ||
+        event.clientX > rect.right ||
+        event.clientY < rect.top ||
+        event.clientY > rect.bottom;
+      if (clickedBackdrop) closeDialogAnimated(dialog);
+    });
   });
 };
 
@@ -778,8 +823,9 @@ $("#toast")?.addEventListener("click", async (event) => {
   await navigator.clipboard?.writeText(copyText).catch(() => {});
 });
 
-$("#closeDialog")?.addEventListener("click", () => $("#readerDialog")?.close());
+$("#closeDialog")?.addEventListener("click", () => closeDialogAnimated($("#readerDialog")));
 $$("[data-close-preview]").forEach((button) => button.addEventListener("click", closePreviewDialog));
+setupDialogDismiss();
 setupLoginPage();
 setupEditor();
 setupForumPost();
