@@ -1050,13 +1050,16 @@ const setupHeroTyping = () => {
 };
 
 const setupLoginPage = () => {
+  if (page !== "login") return;
+  const container = $("#vaptchaContainer");
+  if (!container) return;
   ensureVaptcha().catch((error) => showToast(error.message));
   const loginForm = $("#loginForm");
   loginForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
     try {
       const vaptcha = await getVaptchaPayload();
-      const result = await api("/login", {
+      const result = await api("/account", {
         method: "POST",
         body: JSON.stringify({
           username: $("#loginUsername").value.trim(),
@@ -1067,26 +1070,6 @@ const setupLoginPage = () => {
       });
       state.me = result.user;
       window.location.href = result.user?.role === "admin" ? "/admin.html" : "/forum.html";
-    } catch (error) {
-      if (error.payload?.needsTotp) $("#loginTotpCode")?.focus();
-    }
-  });
-
-  const registerForm = $("#registerForm");
-  registerForm?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    try {
-      const vaptcha = await getVaptchaPayload();
-      const result = await api("/register", {
-        method: "POST",
-        body: JSON.stringify({
-          username: $("#registerUsername").value.trim(),
-          password: $("#registerPassword").value,
-          ...vaptcha,
-        }),
-      });
-      state.me = result.user;
-      window.location.href = "/forum.html";
     } catch (error) {
       if (error.payload?.needsTotp) $("#loginTotpCode")?.focus();
     }

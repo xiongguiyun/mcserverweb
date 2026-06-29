@@ -1082,21 +1082,6 @@ body[data-page="login"] {
   gap: 14px;
 }
 
-.login-divider {
-  display: grid;
-  place-items: center;
-  margin: 18px 0;
-}
-
-.login-divider span {
-  display: inline-block;
-  padding: 0 12px;
-  color: #e8cf9e;
-  font-size: 12px;
-  font-weight: 900;
-  letter-spacing: 0.12em;
-}
-
 .vaptcha-panel {
   display: grid;
   gap: 12px;

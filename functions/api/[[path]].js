@@ -241,6 +241,16 @@ const createSession = async (env, user) => {
   return token;
 };
 
+const createAuthResponse = async (env, user, status = 200, extra = {}) => {
+  const token = await createSession(env, user);
+  const owner = await ownerUser(env);
+  return json(
+    { user: publicUser(user, owner?.id), ...extra },
+    status,
+    { "Set-Cookie": `session=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=1209600` },
+  );
+};
+
 const me = async (env, request) => {
   const user = await currentUser(env, request);
   const owner = await ownerUser(env);
@@ -377,6 +387,48 @@ const register = async (env, request) => {
     201,
     { "Set-Cookie": `session=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=1209600` },
   );
+};
+
+const account = async (env, request) => {
+  const body = await readBody(request);
+  await verifyVaptchaChallenge(env, request, body);
+  const username = String(body.username || "").trim();
+  const password = String(body.password || "");
+  const totpCode = String(body.totpCode || "").trim();
+  if (!/^[\w\u4e00-\u9fa5-]{3,20}$/.test(username)) return json({ error: "用户名需要 3 到 20 位" }, 400);
+  if (password.length < 6) return json({ error: "密码至少 6 位" }, 400);
+
+  const existingUser = await env.DB.prepare(
+    "SELECT id, username, password_hash, role, totp_secret, totp_enabled, created_at, last_seen_at FROM users WHERE lower(username) = lower(?)",
+  )
+    .bind(username)
+    .first();
+
+  if (existingUser) {
+    if (!(await verifyPassword(password, existingUser.password_hash))) {
+      return json({ error: "用户名或密码错误" }, 401);
+    }
+    if (existingUser.totp_enabled && !(await verifyTotpAsync(existingUser.totp_secret, totpCode))) {
+      return json({ error: "请输入正确的双重验证码", needsTotp: true }, 401);
+    }
+    await env.DB.prepare("UPDATE users SET last_seen_at = CURRENT_TIMESTAMP WHERE id = ?").bind(existingUser.id).run();
+    return createAuthResponse(env, existingUser, 200, { mode: "login" });
+  }
+
+  try {
+    await env.DB.prepare("INSERT INTO users (username, password_hash, role, last_seen_at) VALUES (?, ?, 'user', CURRENT_TIMESTAMP)")
+      .bind(username, await hashPassword(password))
+      .run();
+  } catch {
+    return json({ error: "用户名已存在，请直接登录" }, 409);
+  }
+
+  const user = await env.DB.prepare(
+    "SELECT id, username, role, totp_enabled, created_at, last_seen_at FROM users WHERE username = ?",
+  )
+    .bind(username)
+    .first();
+  return createAuthResponse(env, user, 201, { mode: "register" });
 };
 
 const minecraftImage = async (request, waitUntil, kind, username, size) => {
@@ -668,6 +720,7 @@ export async function onRequest(context) {
   try {
     if (method === "GET" && pathname === "/me") return me(env, request);
     if (method === "GET" && pathname === "/vaptcha/config") return vaptchaConfig(env);
+    if (method === "POST" && pathname === "/account") return account(env, request);
     if (method === "POST" && pathname === "/login") return login(env, request);
     if (method === "POST" && pathname === "/register") return register(env, request);
     if (method === "POST" && pathname === "/logout") return logout(env, request);
