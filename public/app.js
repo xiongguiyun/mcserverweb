@@ -106,7 +106,7 @@ const renderAuth = () => {
     await api("/logout", { method: "POST" });
     state.me = null;
     if (page === "admin") {
-      window.location.href = "/login";
+      window.location.href = "/login.html";
       return;
     }
     renderAll();
@@ -146,7 +146,7 @@ const renderMaintenanceGate = () => {
         <img class="user-avatar large" src="${activeAvatarSrc(state.me, 48)}" alt="" />
         <div><strong>${escapeHtml(state.me.username)}</strong><p>你已登录，但网站当前维护中，请稍后再来。</p></div>
       </div>`
-    : `<p>网站正在维护中，暂时仅管理员可登录。</p><a class="button primary" href="/login">管理员登录</a>`;
+    : `<p>网站正在维护中，暂时仅管理员可登录。</p><a class="button primary" href="/login.html">管理员登录</a>`;
 };
 
 const cardTemplate = (item, type) => {
@@ -301,7 +301,7 @@ const renderForumProfileCard = () => {
       <h2>玩家资料</h2>
       <div class="skin-stage"><img src="/assets/unbound-skin.png" alt="" loading="lazy" /></div>
       <p>论坛当前只允许管理员账号登录与发帖管理。</p>
-      <a class="button primary" href="/login">管理员登录</a>
+      <a class="button primary" href="/login.html">管理员登录</a>
     `;
     return;
   }
@@ -356,7 +356,7 @@ const renderProfilePage = () => {
 const setupForumPost = () => {
   $("#openPostComposer")?.addEventListener("click", () => {
     if (!state.me) {
-      window.location.href = "/login";
+      window.location.href = "/login.html";
       return;
     }
     state.editingPostId = null;
@@ -369,7 +369,7 @@ const setupForumPost = () => {
   $("#forumPostForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!state.me) {
-      window.location.href = "/login";
+      window.location.href = "/login.html";
       return;
     }
     const title = $("#forumTitle").value.trim();
