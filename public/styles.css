@@ -1082,15 +1082,15 @@ body[data-page="login"] {
   gap: 14px;
 }
 
-.vaptcha-panel {
+.waf-panel {
   display: grid;
-  gap: 12px;
+  gap: 10px;
   margin-top: 18px;
   padding-top: 18px;
   border-top: 1px solid rgba(255, 221, 99, 0.2);
 }
 
-.vaptcha-head {
+.waf-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1099,35 +1099,18 @@ body[data-page="login"] {
   font-size: 13px;
 }
 
-.vaptcha-head strong {
+.waf-head strong {
   font-size: 14px;
 }
 
-.vaptcha-head span {
+.waf-note {
+  margin: 0;
+  padding: 12px 14px;
   color: #d7cbb8;
-  text-align: right;
-}
-
-.vaptcha-container {
-  min-height: 92px;
-  padding: 12px;
+  line-height: 1.7;
   background: rgba(255, 250, 240, 0.08);
   border: 1px solid rgba(255, 221, 99, 0.22);
   border-radius: 4px;
-}
-
-.vaptcha-container[data-state="checking"] {
-  border-color: rgba(120, 190, 255, 0.62);
-}
-
-.vaptcha-container[data-state="passed"] {
-  background: rgba(42, 179, 116, 0.14);
-  border-color: rgba(80, 227, 149, 0.64);
-}
-
-.vaptcha-container[data-state="failed"] {
-  background: rgba(255, 92, 92, 0.12);
-  border-color: rgba(255, 120, 120, 0.66);
 }
 
 .login-form input {

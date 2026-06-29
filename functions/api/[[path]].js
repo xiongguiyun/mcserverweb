@@ -5,7 +5,6 @@ const json = (data, status = 200, headers = {}) =>
   });
 
 const textEncoder = new TextEncoder();
-const VAPTCHA_VERIFY_URL = "https://v4i.vaptcha.com/api/v1/verify";
 
 const messageFromError = (error, fallback = "服务器错误") => {
   if (!error) return fallback;
@@ -353,7 +352,6 @@ const profile = async (env, request, username) => {
 
 const login = async (env, request) => {
   const body = await readBody(request);
-  await verifyVaptchaChallenge(env, request, body);
   const username = String(body.username || "").trim();
   const password = String(body.password || "");
   const totpCode = String(body.totpCode || "").trim();
@@ -388,7 +386,6 @@ const logout = async (env, request) => {
 
 const register = async (env, request) => {
   const body = await readBody(request);
-  await verifyVaptchaChallenge(env, request, body);
   const username = String(body.username || "").trim();
   const password = String(body.password || "");
   if (!/^[\w\u4e00-\u9fa5-]{3,20}$/.test(username)) return json({ error: "用户名需要 3 到 20 位" }, 400);
@@ -416,7 +413,6 @@ const register = async (env, request) => {
 
 const account = async (env, request) => {
   const body = await readBody(request);
-  await verifyVaptchaChallenge(env, request, body);
   const username = String(body.username || "").trim();
   const password = String(body.password || "");
   const totpCode = String(body.totpCode || "").trim();
@@ -744,7 +740,6 @@ export async function onRequest(context) {
 
   try {
     if (method === "GET" && pathname === "/me") return me(env, request);
-    if (method === "GET" && pathname === "/vaptcha/config") return vaptchaConfig(env);
     if (method === "POST" && pathname === "/account") return account(env, request);
     if (method === "POST" && pathname === "/login") return login(env, request);
     if (method === "POST" && pathname === "/register") return register(env, request);
