@@ -149,6 +149,26 @@ const closePostDialog = () => closeDialogAnimated($("#postDialog"));
 const openPreviewDialog = () => openDialog($("#previewDialog"));
 const closePreviewDialog = () => closeDialogAnimated($("#previewDialog"));
 
+const updateToolbarMorePosition = () => {
+  const menu = $("#moreMenu");
+  const button = $("#moreButton");
+  if (!menu || !button || menu.hidden) return;
+  const rect = button.getBoundingClientRect();
+  const menuWidth = menu.offsetWidth || 156;
+  const left = Math.min(Math.max(8, rect.right - menuWidth), window.innerWidth - menuWidth - 8);
+  menu.style.left = `${left}px`;
+  menu.style.top = `${rect.bottom + 8}px`;
+};
+
+const closeToolbarMore = () => {
+  const button = $("#moreButton");
+  const menu = $("#moreMenu");
+  if (!button || !menu) return;
+  button.setAttribute("aria-expanded", "false");
+  menu.hidden = true;
+  button.closest(".toolbar-more")?.classList.remove("is-open");
+};
+
 const renderAuth = () => {
   const actions = $("#authActions");
   if (!actions) return;
@@ -475,14 +495,20 @@ const setupEditor = () => {
     if (!src) return showToast("没有识别到有效的 Bilibili 视频 ID");
     insertHtmlBlock(`<p><iframe src="${src}" allowfullscreen loading="lazy"></iframe></p><p><br></p>`);
   });
-  $("#moreButton")?.addEventListener("click", () => {
+  $("#moreButton")?.addEventListener("click", (event) => {
+    event.stopPropagation();
     const button = $("#moreButton");
     const menu = $("#moreMenu");
     const isOpen = button.getAttribute("aria-expanded") === "true";
     button.setAttribute("aria-expanded", String(!isOpen));
     if (menu) menu.hidden = isOpen;
     button.closest(".toolbar-more")?.classList.toggle("is-open", !isOpen);
+    updateToolbarMorePosition();
   });
+  $("#moreMenu")?.addEventListener("click", (event) => event.stopPropagation());
+  document.addEventListener("click", closeToolbarMore);
+  window.addEventListener("resize", closeToolbarMore);
+  window.addEventListener("scroll", updateToolbarMorePosition, { passive: true });
   $$(".toolbar-preview-button").forEach((button) => button.addEventListener("click", () => {
     const editor = $("#editor");
     const previewContent = $("#previewContent");
@@ -565,6 +591,26 @@ const setupForumPost = () => {
   const searchPanel = $("#forumSearchPanel");
   const searchInput = $("#forumSearchInput");
   const searchClear = $("#forumSearchClear");
+  const searchTip = $(".forum-search-tip");
+  const searchTipText = "支持标题、内容和发布者搜索。输入 #发布者名 可以直接按发布者筛选，例如 #Steve。";
+
+  if (searchTip) {
+    searchTip.removeAttribute("title");
+    searchTip.setAttribute("role", "button");
+    searchTip.setAttribute("tabindex", "0");
+    searchTip.setAttribute("aria-expanded", "false");
+    searchTip.setAttribute("data-tip", searchTipText);
+    const tipBubble = document.createElement("span");
+    tipBubble.className = "forum-search-tip-bubble";
+    tipBubble.id = "forumSearchTipBubble";
+    tipBubble.textContent = searchTipText;
+    searchTip.append(tipBubble);
+  }
+
+  const setTipOpen = (open) => {
+    searchTip?.classList.toggle("is-open", open);
+    searchTip?.setAttribute("aria-expanded", String(open));
+  };
 
   const syncSearch = (open = state.forumSearchOpen) => {
     state.forumSearchOpen = open;
@@ -581,7 +627,11 @@ const setupForumPost = () => {
     }
   };
 
-  searchToggle?.addEventListener("click", () => syncSearch(!state.forumSearchOpen));
+  searchToggle?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    syncSearch(!state.forumSearchOpen);
+  });
+  searchPanel?.addEventListener("click", (event) => event.stopPropagation());
   searchInput?.addEventListener("input", (event) => {
     state.forumSearch = event.target.value;
     renderLists();
@@ -600,6 +650,26 @@ const setupForumPost = () => {
     if (searchInput) searchInput.value = "";
     renderLists();
     syncSearch(true);
+  });
+  searchTip?.addEventListener("mouseenter", () => setTipOpen(true));
+  searchTip?.addEventListener("mouseleave", () => setTipOpen(false));
+  searchTip?.addEventListener("focus", () => setTipOpen(true));
+  searchTip?.addEventListener("blur", () => setTipOpen(false));
+  searchTip?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    setTipOpen(!searchTip.classList.contains("is-open"));
+  });
+  searchTip?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    setTipOpen(!searchTip.classList.contains("is-open"));
+  });
+  document.addEventListener("click", (event) => {
+    const target = event.target;
+    if (searchTip?.contains(target)) return;
+    setTipOpen(false);
+    if (!state.forumSearchOpen || searchPanel?.contains(target) || searchToggle?.contains(target)) return;
+    syncSearch(false);
   });
   syncSearch(false);
 
@@ -870,7 +940,12 @@ const setupAdminNavigation = () => {
     setActive(current);
     if (current === "#adminTrash") renderTrash().catch((error) => showToast(error.message));
   };
-  links.forEach((link) => link.addEventListener("click", () => window.setTimeout(sync, 0)));
+  links.forEach((link) =>
+    link.addEventListener("click", () => {
+      const target = link.getAttribute("href");
+      if (target) setActive(target);
+    }),
+  );
   window.addEventListener("hashchange", sync);
   sync();
 
@@ -891,7 +966,9 @@ const setupAdminNavigation = () => {
     setActive(current);
   };
 
-  window.addEventListener("scroll", () => window.requestAnimationFrame(syncByScroll), { passive: true });
+  window.addEventListener("scroll", syncByScroll, { passive: true });
+  window.addEventListener("pointermove", syncByScroll, { passive: true });
+  window.addEventListener("touchmove", syncByScroll, { passive: true });
   window.addEventListener("resize", syncByScroll);
   syncByScroll();
 };
