@@ -221,16 +221,20 @@ button {
 .photo-hero {
   color: #fff7e8;
   text-align: center;
-  background: #251811;
+  background:
+    radial-gradient(circle at top, rgba(255, 214, 122, 0.18), transparent 38%),
+    linear-gradient(135deg, #1f1612 0%, #3a281d 48%, #201713 100%);
 }
 
 .hero-bg {
   position: absolute;
   inset: -28px;
   background:
-    linear-gradient(rgba(34, 20, 12, 0.58), rgba(34, 20, 12, 0.74)),
-    url("/assets/group-photo.png") center / cover;
-  filter: blur(7px);
+    radial-gradient(circle at 18% 24%, rgba(255, 221, 99, 0.22), transparent 20%),
+    radial-gradient(circle at 82% 18%, rgba(70, 145, 70, 0.18), transparent 24%),
+    linear-gradient(135deg, rgba(58, 39, 26, 0.96), rgba(29, 20, 15, 0.9)),
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.03) 0 18px, transparent 18px 36px);
+  filter: blur(0);
   transform: scale(1.05);
 }
 
@@ -737,8 +741,8 @@ button {
   color: #fffaf0;
   text-align: center;
   background:
-    linear-gradient(rgba(28, 19, 14, 0.72), rgba(28, 19, 14, 0.78)),
-    url("/assets/group-photo.png") center / cover;
+    radial-gradient(circle at top, rgba(255, 214, 122, 0.16), transparent 34%),
+    linear-gradient(135deg, rgba(35, 24, 18, 0.96), rgba(71, 47, 31, 0.88) 55%, rgba(29, 23, 19, 0.98));
 }
 
 .forum-hero {
@@ -780,8 +784,7 @@ body[data-page="admin"] .admin-locked {
 }
 
 .admin-sidebar {
-  position: sticky;
-  top: 92px;
+  position: static;
   align-self: start;
   padding: 18px;
   background: #2a1d16;
@@ -1031,8 +1034,10 @@ body[data-page="login"] {
   position: absolute;
   inset: -28px;
   background:
-    linear-gradient(rgba(26, 15, 9, 0.46), rgba(26, 15, 9, 0.72)),
-    url("/assets/group-photo.png") center / cover;
+    radial-gradient(circle at 15% 18%, rgba(255, 221, 99, 0.16), transparent 18%),
+    radial-gradient(circle at 82% 12%, rgba(245, 164, 58, 0.16), transparent 16%),
+    linear-gradient(rgba(26, 15, 9, 0.62), rgba(26, 15, 9, 0.82)),
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.03) 0 16px, transparent 16px 32px);
   filter: blur(5px);
   transform: scale(1.04);
 }
@@ -1203,19 +1208,29 @@ body[data-page="login"] {
 
 .toolbar-more {
   position: relative;
+  flex: 0 0 auto;
 }
 
 .toolbar-more-menu {
-  position: fixed;
-  z-index: 4;
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  left: auto;
+  z-index: 50;
   display: grid;
   gap: 6px;
   min-width: 124px;
   padding: 8px;
   background: #fff7e8;
   border: 2px solid var(--line);
+  border-radius: 6px;
   box-shadow: 0 10px 20px rgba(0, 0, 0, 0.14);
   animation: menu-pop 0.18s ease;
+}
+
+.toolbar-more.is-open-upward .toolbar-more-menu {
+  top: auto;
+  bottom: calc(100% + 8px);
 }
 
 .toolbar-more-menu[hidden] {
@@ -1358,6 +1373,142 @@ dialog.is-closing {
 
 .auth-dialog {
   width: min(420px, calc(100vw - 28px));
+}
+
+.site-modal-dialog {
+  width: min(420px, calc(100vw - 28px));
+  padding: 0;
+  overflow: visible;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.site-modal-shell {
+  position: relative;
+  display: grid;
+  gap: 16px;
+  padding: 22px 20px 18px;
+  color: var(--text);
+  background:
+    linear-gradient(180deg, rgba(255, 250, 240, 0.98), rgba(245, 234, 211, 0.98)),
+    repeating-linear-gradient(135deg, rgba(139, 90, 55, 0.06) 0 12px, transparent 12px 24px);
+  border: 2px solid var(--line);
+  border-radius: 16px;
+  box-shadow:
+    0 14px 0 rgba(156, 92, 29, 0.14),
+    0 26px 54px rgba(19, 12, 8, 0.22);
+}
+
+.site-modal-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  margin: 0;
+}
+
+.site-modal-copy {
+  display: grid;
+  gap: 8px;
+  padding-right: 48px;
+}
+
+.site-modal-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  min-height: 26px;
+  padding: 0 10px;
+  color: #7b4d17;
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: #fff4dd;
+  border: 2px solid #ead4a6;
+  border-radius: 999px;
+}
+
+.site-modal-copy h2 {
+  margin: 0;
+  font-size: clamp(24px, 4vw, 30px);
+  line-height: 1.1;
+}
+
+.site-modal-copy p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.65;
+  font-weight: 750;
+}
+
+.site-modal-field {
+  display: grid;
+  gap: 8px;
+}
+
+.site-modal-field span:first-child {
+  color: #463525;
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.site-modal-field input {
+  min-height: 42px;
+  padding: 0 12px;
+  border-radius: 12px;
+  background: #fffdf6;
+}
+
+.site-modal-hint {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  font-weight: 750;
+}
+
+.site-modal-actions {
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  background: #fff7e8;
+  border: 2px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.08);
+}
+
+.site-modal-option {
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 42px;
+  padding: 0 12px;
+  color: #2b1d16;
+  text-align: left;
+  background: #fffaf0;
+  border: 2px solid #d7bc8b;
+  border-radius: 10px;
+  box-shadow: 0 2px 0 rgba(106, 69, 35, 0.14);
+}
+
+.site-modal-option:hover {
+  color: #201713;
+  background: #ffefbd;
+  border-color: #b9813e;
+}
+
+.site-modal-option.is-primary {
+  color: #201713;
+  background: linear-gradient(180deg, #ffdf82, #f5a43a);
+  border-color: #1b120d;
+  box-shadow: 0 3px 0 #9c5c1d;
+}
+
+.site-modal-option.is-danger {
+  color: #fffaf0;
+  background: linear-gradient(180deg, #d95b49, #c74332);
+  border-color: #641d15;
+  box-shadow: 0 3px 0 #7f281e;
 }
 
 .auth-dialog h2,
@@ -2774,8 +2925,6 @@ dialog.is-closing::backdrop {
 }
 
 .toolbar-more-menu {
-  position: fixed;
-  right: auto;
   z-index: 120;
   width: 156px;
   max-width: calc(100vw - 16px);
@@ -2798,8 +2947,10 @@ dialog.is-closing::backdrop {
   right: 0;
   top: calc(100% + 10px);
   z-index: 30;
-  width: min(280px, calc(100vw - 34px));
-  padding: 10px 12px;
+  display: grid;
+  gap: 10px;
+  width: min(312px, calc(100vw - 34px));
+  padding: 12px;
   color: #fffaf0;
   text-align: left;
   line-height: 1.55;
@@ -2815,6 +2966,60 @@ dialog.is-closing::backdrop {
   transition:
     opacity 0.14s ease,
     transform 0.14s ease;
+}
+
+.forum-search-tip-heading,
+.forum-search-tip-copy,
+.forum-search-tip-example {
+  display: block;
+}
+
+.forum-search-tip-heading {
+  color: #ffe5a4;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.forum-search-tip-preview {
+  display: block;
+  padding: 8px;
+  background: rgba(255, 250, 240, 0.08);
+  border: 1px solid rgba(255, 221, 99, 0.2);
+  border-radius: 8px;
+}
+
+.forum-search-tip-field {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 10px;
+  color: #f1d7aa;
+  background: rgba(17, 10, 7, 0.54);
+  border: 1px solid rgba(255, 221, 99, 0.16);
+  border-radius: 999px;
+}
+
+.forum-search-tip-field svg {
+  width: 14px;
+  height: 14px;
+}
+
+.forum-search-tip-placeholder {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #cdb89a;
+}
+
+.forum-search-tip-copy {
+  color: #fffaf0;
+}
+
+.forum-search-tip-example {
+  color: #e7c889;
 }
 
 .forum-search-tip-bubble::before {
@@ -2839,25 +3044,24 @@ dialog.is-closing::backdrop {
 
 .admin-nav a {
   transition:
-    transform 0.08s ease,
-    background-color 0.08s ease,
-    color 0.08s ease,
-    border-color 0.08s ease,
-    box-shadow 0.08s ease;
+    background-color 0.12s ease,
+    color 0.12s ease,
+    border-color 0.12s ease;
 }
 
 .admin-nav a:hover,
 .admin-nav a.active {
   color: #201713;
-  background: var(--accent);
-  border-color: #1b120d;
-  box-shadow: inset 0 -2px 0 rgba(156, 92, 29, 0.28);
+  background: #f5d08b;
+  border-color: #c28940;
+  box-shadow: none;
+  transform: none;
 }
 
 .admin-sidebar-drawer .admin-nav a.active {
   color: #201713;
-  background: var(--accent);
-  border-color: #1b120d;
+  background: #f5d08b;
+  border-color: #c28940;
 }
 
 .skin-stage,
@@ -3100,7 +3304,12 @@ dialog.is-closing::backdrop {
 }
 
 .forum-toolbar-actions {
-  gap: 8px;
+  display: grid;
+  grid-template-columns: auto 42px auto;
+  align-items: center;
+  gap: 10px;
+  width: min(100%, 720px);
+  margin-left: auto;
   transform-origin: right center;
   transition:
     transform 0.42s var(--forum-search-ease),
@@ -3114,7 +3323,7 @@ dialog.is-closing::backdrop {
 }
 
 .forum-toolbar-actions.has-search-query {
-  transform: translateX(-10px);
+  transform: translateX(-6px);
 }
 
 .forum-search-panel {
@@ -3122,36 +3331,42 @@ dialog.is-closing::backdrop {
   grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 8px;
   align-items: center;
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
+  max-width: 0;
   padding: 0;
-  max-width: 468px;
   overflow: hidden;
   background: #fff4dd;
   border: 2px solid #d7bc8b;
-  border-radius: 6px;
+  border-radius: 999px;
   box-shadow: 0 5px 0 rgba(106, 69, 35, 0.13);
   opacity: 0;
-  transform: translateX(12px) scaleX(0.985);
+  transform: translateX(16px) scaleX(0.94);
   transform-origin: right center;
   transition:
-    min-width 0.42s var(--forum-search-ease),
+    max-width 0.42s var(--forum-search-ease),
     padding 0.42s var(--forum-search-ease),
     opacity 0.22s ease,
     transform 0.42s var(--forum-search-ease),
     box-shadow 0.42s var(--forum-search-ease);
-  will-change: min-width, transform, opacity;
+  pointer-events: none;
+  will-change: max-width, transform, opacity;
 }
 
 .forum-search-panel.is-open {
-  padding: 8px;
+  max-width: min(430px, calc(100vw - 480px));
+  padding: 6px 8px 6px 12px;
   opacity: 1;
   transform: translateX(0) scaleX(1);
+  pointer-events: auto;
 }
 
 .forum-search-panel > * {
   opacity: 0;
-  transform: translateX(10px);
+  transform: translateX(12px);
   transition:
-    opacity 0.28s ease 0.1s,
+    opacity 0.24s ease 0.08s,
     transform 0.42s var(--forum-search-ease) 0.04s;
 }
 
@@ -3163,11 +3378,22 @@ dialog.is-closing::backdrop {
 .forum-search-box input {
   min-height: 38px;
   background: #fffdf6;
+  border-radius: 999px;
 }
 
 .forum-search-status {
   min-width: 106px;
   font-size: 12px;
+}
+
+.forum-search-toggle {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+#openPostComposer {
+  grid-column: 3;
+  grid-row: 1;
 }
 
 .profile-card .skin-stage,
@@ -3262,38 +3488,40 @@ dialog.is-closing::backdrop {
 @media (min-width: 621px) {
   .forum-toolbar-actions.is-search-open,
   .forum-toolbar-actions.has-search-query {
-    grid-template-columns: minmax(300px, 430px) 42px auto;
+    grid-template-columns: minmax(270px, 430px) 42px auto;
   }
 
   .forum-search-panel.is-open {
-    min-width: min(430px, calc(100vw - 500px));
+    max-width: min(430px, calc(100vw - 500px));
   }
 }
 
 @media (max-width: 980px) and (min-width: 621px) {
   .forum-toolbar-actions.is-search-open,
   .forum-toolbar-actions.has-search-query {
-    grid-template-columns: minmax(280px, 370px) 42px auto;
+    grid-template-columns: minmax(250px, 370px) 42px auto;
   }
 
   .forum-search-panel.is-open {
-    min-width: min(370px, calc(100vw - 330px));
+    max-width: min(370px, calc(100vw - 330px));
   }
 }
 
 @media (max-width: 620px) {
   .forum-toolbar-actions {
+    width: 100%;
+    max-width: calc(100vw - 28px);
     gap: 7px;
   }
 
   .forum-toolbar-actions.is-search-open,
   .forum-toolbar-actions.has-search-query {
-    grid-template-columns: minmax(190px, 1fr) 42px auto;
+    grid-template-columns: minmax(180px, 1fr) 42px auto;
   }
 
   .forum-search-panel.is-open {
-    min-width: min(238px, calc(100vw - 112px));
-    padding: 7px;
+    max-width: min(238px, calc(100vw - 112px));
+    padding: 6px 7px 6px 10px;
   }
 
   .forum-toolbar-actions.has-search-query {

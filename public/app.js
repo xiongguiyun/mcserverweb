@@ -128,6 +128,7 @@ const openDialog = (dialog) => {
   if (!dialog) return;
   window.clearTimeout(dialog.closeTimer);
   dialog.classList.remove("is-closing");
+  if (dialog.open) return;
   dialog.showModal();
 };
 
@@ -157,15 +158,178 @@ const closePostDialog = () => closeDialogAnimated($("#postDialog"));
 const openPreviewDialog = () => openDialog($("#previewDialog"));
 const closePreviewDialog = () => closeDialogAnimated($("#previewDialog"));
 
+const ensureSiteActionDialog = () => {
+  let dialog = $("#siteActionDialog");
+  if (dialog) return dialog;
+
+  dialog = document.createElement("dialog");
+  dialog.id = "siteActionDialog";
+  dialog.className = "site-modal-dialog";
+  dialog.innerHTML = `
+    <div class="site-modal-shell">
+      <button class="dialog-close site-modal-close" type="button" data-site-modal-cancel aria-label="关闭">×</button>
+      <div class="site-modal-copy">
+        <span class="site-modal-eyebrow" id="siteModalEyebrow">操作</span>
+        <h2 id="siteModalTitle">请确认</h2>
+        <p id="siteModalMessage"></p>
+      </div>
+      <label class="site-modal-field" id="siteModalField" hidden>
+        <span id="siteModalLabel">请输入内容</span>
+        <input id="siteModalInput" />
+        <span class="site-modal-hint" id="siteModalHint" hidden></span>
+      </label>
+      <div class="site-modal-actions" id="siteModalActions">
+        <button class="site-modal-option" type="button" data-site-modal-cancel>取消</button>
+        <button class="site-modal-option is-primary" type="button" data-site-modal-confirm>确认</button>
+      </div>
+    </div>
+  `;
+  document.body.append(dialog);
+
+  const cancel = () => resolveSiteActionDialog(dialog.dataset.mode === "confirm" ? false : null);
+  dialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    cancel();
+  });
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog) cancel();
+  });
+  dialog.querySelectorAll("[data-site-modal-cancel]").forEach((button) => button.addEventListener("click", cancel));
+  dialog.querySelector("[data-site-modal-confirm]")?.addEventListener("click", () => submitSiteActionDialog());
+  dialog.querySelector("#siteModalInput")?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      submitSiteActionDialog();
+    }
+  });
+
+  return dialog;
+};
+
+const resolveSiteActionDialog = (value) => {
+  const dialog = $("#siteActionDialog");
+  if (!dialog) return;
+  const resolver = dialog._resolver;
+  dialog._resolver = null;
+  closeDialogAnimated(dialog);
+  resolver?.(value);
+};
+
+const submitSiteActionDialog = () => {
+  const dialog = $("#siteActionDialog");
+  if (!dialog || !dialog._config) return;
+  const input = $("#siteModalInput");
+
+  if (dialog.dataset.mode === "prompt") {
+    const rawValue = input?.value ?? "";
+    const value = dialog._config.normalize ? dialog._config.normalize(rawValue) : rawValue.trim();
+    if (dialog._config.required && !value) {
+      showToast(dialog._config.requiredMessage || "请输入内容");
+      input?.focus();
+      return;
+    }
+    const validationMessage = dialog._config.validate?.(value);
+    if (validationMessage) {
+      showToast(validationMessage);
+      input?.focus();
+      return;
+    }
+    resolveSiteActionDialog(value);
+    return;
+  }
+
+  resolveSiteActionDialog(true);
+};
+
+const showSiteActionDialog = (config) =>
+  new Promise((resolve) => {
+    const dialog = ensureSiteActionDialog();
+    if (dialog._resolver) {
+      const previousResolver = dialog._resolver;
+      dialog._resolver = null;
+      previousResolver(dialog.dataset.mode === "confirm" ? false : null);
+      window.clearTimeout(dialog.closeTimer);
+      dialog.classList.remove("is-closing");
+      if (dialog.open) dialog.close();
+    }
+
+    dialog._resolver = resolve;
+    dialog._config = config;
+    dialog.dataset.mode = config.mode;
+
+    const eyebrow = $("#siteModalEyebrow");
+    const title = $("#siteModalTitle");
+    const message = $("#siteModalMessage");
+    const field = $("#siteModalField");
+    const label = $("#siteModalLabel");
+    const input = $("#siteModalInput");
+    const hint = $("#siteModalHint");
+    const confirmButton = dialog.querySelector("[data-site-modal-confirm]");
+    const actions = $("#siteModalActions");
+
+    if (eyebrow) eyebrow.textContent = config.eyebrow || (config.mode === "confirm" ? "操作确认" : "输入内容");
+    if (title) title.textContent = config.title || (config.mode === "confirm" ? "请确认这一步操作" : "请输入内容");
+    if (message) message.textContent = config.message || "";
+    if (label) label.textContent = config.inputLabel || "请输入内容";
+    if (hint) {
+      hint.textContent = config.hint || "";
+      hint.hidden = !config.hint;
+    }
+    if (field) field.hidden = config.mode !== "prompt";
+    if (input) {
+      input.value = config.defaultValue || "";
+      input.placeholder = config.placeholder || "";
+      input.type = config.inputType || "text";
+      input.maxLength = config.maxLength ? Number(config.maxLength) : 524288;
+      input.autocomplete = config.autocomplete || "off";
+      input.inputMode = config.inputMode || "text";
+    }
+    dialog.querySelectorAll("[data-site-modal-cancel]").forEach((button) => {
+      button.textContent = config.cancelLabel || "取消";
+    });
+    if (confirmButton) {
+      confirmButton.textContent = config.confirmLabel || "确认";
+      confirmButton.classList.toggle("is-primary", config.confirmTone !== "danger");
+      confirmButton.classList.toggle("is-danger", config.confirmTone === "danger");
+    }
+    actions?.classList.toggle("is-danger", config.confirmTone === "danger");
+
+    openDialog(dialog);
+    window.requestAnimationFrame(() => {
+      if (config.mode === "prompt") {
+        input?.focus();
+        input?.select();
+        return;
+      }
+      confirmButton?.focus();
+    });
+  });
+
+const showConfirmDialog = (message, options = {}) =>
+  showSiteActionDialog({
+    mode: "confirm",
+    message,
+    ...options,
+  });
+
+const showPromptDialog = (message, options = {}) =>
+  showSiteActionDialog({
+    mode: "prompt",
+    message,
+    ...options,
+  });
+
 const updateToolbarMorePosition = () => {
   const menu = $("#moreMenu");
   const button = $("#moreButton");
   if (!menu || !button || menu.hidden) return;
+  const container = button.closest(".toolbar-more");
+  if (!container) return;
+  menu.style.removeProperty("left");
+  menu.style.removeProperty("top");
   const rect = button.getBoundingClientRect();
-  const menuWidth = menu.offsetWidth || 156;
-  const left = Math.min(Math.max(8, rect.right - menuWidth), window.innerWidth - menuWidth - 8);
-  menu.style.left = `${left}px`;
-  menu.style.top = `${rect.bottom + 8}px`;
+  const menuHeight = menu.offsetHeight || 0;
+  container.classList.toggle("is-open-upward", rect.bottom + menuHeight + 12 > window.innerHeight);
 };
 
 const closeToolbarMore = () => {
@@ -174,7 +338,7 @@ const closeToolbarMore = () => {
   if (!button || !menu) return;
   button.setAttribute("aria-expanded", "false");
   menu.hidden = true;
-  button.closest(".toolbar-more")?.classList.remove("is-open");
+  button.closest(".toolbar-more")?.classList.remove("is-open", "is-open-upward");
 };
 
 const renderAuth = () => {
@@ -406,7 +570,13 @@ const bindTotpSecurity = () => {
   });
 
   disableButton?.addEventListener("click", async () => {
-    if (!window.confirm("确定关闭 2FA 吗？")) return;
+    const confirmed = await showConfirmDialog("确定关闭 2FA 吗？", {
+      title: "关闭双重验证",
+      eyebrow: "安全设置",
+      confirmLabel: "关闭 2FA",
+      confirmTone: "danger",
+    });
+    if (!confirmed) return;
     await api("/me/totp", { method: "DELETE" });
     await refreshPageData();
     showToast("2FA 已关闭");
@@ -430,7 +600,13 @@ const bindContentButtons = () => {
   });
   $$("[data-delete-post]").forEach((button) => {
     button.addEventListener("click", async () => {
-      if (!window.confirm("删除后会进入回收站，7 天后彻底删除。确定继续吗？")) return;
+      const confirmed = await showConfirmDialog("删除后会进入回收站，7 天后彻底删除。确定继续吗？", {
+        title: "删除帖子",
+        eyebrow: "内容管理",
+        confirmLabel: "移入回收站",
+        confirmTone: "danger",
+      });
+      if (!confirmed) return;
       await api(`/posts/${button.dataset.deletePost}`, { method: "DELETE" });
       await loadPublicData();
       showToast("帖子已移入回收站");
@@ -473,12 +649,26 @@ const setupEditor = () => {
     if (event.target.value) command("formatBlock", event.target.value);
     event.target.value = "";
   });
-  $("#linkButton")?.addEventListener("click", () => {
-    const url = window.prompt("输入链接地址");
+  $("#linkButton")?.addEventListener("click", async () => {
+    const url = await showPromptDialog("输入需要插入的链接地址。", {
+      title: "插入链接",
+      eyebrow: "编辑工具",
+      inputLabel: "链接地址",
+      placeholder: "https://example.com",
+      confirmLabel: "插入链接",
+      normalize: (value) => value.trim(),
+    });
     if (url) command("createLink", url);
   });
-  $("#imageButton")?.addEventListener("click", () => {
-    const url = window.prompt("输入图片链接");
+  $("#imageButton")?.addEventListener("click", async () => {
+    const url = await showPromptDialog("输入图片链接后会直接插入到正文中。", {
+      title: "插入图片",
+      eyebrow: "编辑工具",
+      inputLabel: "图片链接",
+      placeholder: "https://example.com/image.png",
+      confirmLabel: "插入图片",
+      normalize: (value) => value.trim(),
+    });
     if (url) insertHtmlBlock(`<p><img src="${escapeHtml(url)}" alt="" class="inline-image" /></p>`);
   });
   $("#tableButton")?.addEventListener("click", () =>
@@ -489,12 +679,26 @@ const setupEditor = () => {
   $("#detailsButton")?.addEventListener("click", () => insertHtmlBlock(`<details class="inline-details"><summary>点击展开</summary><p>折叠内容</p></details><p><br></p>`));
   $("#codeButton")?.addEventListener("click", () => insertHtmlBlock(`<pre class="inline-code"><code>// code</code></pre><p><br></p>`));
   $("#quoteButton")?.addEventListener("click", () => insertHtmlBlock(`<blockquote>引用内容</blockquote><p><br></p>`));
-  $("#colorButton")?.addEventListener("click", () => {
-    const color = window.prompt("输入文本颜色，例如 #ff6600");
+  $("#colorButton")?.addEventListener("click", async () => {
+    const color = await showPromptDialog("输入文本颜色，例如 #ff6600 或 rgb(255, 102, 0)。", {
+      title: "文本颜色",
+      eyebrow: "编辑工具",
+      inputLabel: "颜色值",
+      placeholder: "#ff6600",
+      confirmLabel: "应用颜色",
+      normalize: (value) => value.trim(),
+    });
     if (color) command("foreColor", color);
   });
-  $("#bilibiliButton")?.addEventListener("click", () => {
-    const input = window.prompt("粘贴 Bilibili 链接、BV 号或 av 号");
+  $("#bilibiliButton")?.addEventListener("click", async () => {
+    const input = await showPromptDialog("粘贴 Bilibili 链接、BV 号或 av 号。", {
+      title: "插入 Bilibili 视频",
+      eyebrow: "编辑工具",
+      inputLabel: "视频地址或编号",
+      placeholder: "BV1xx... 或 https://www.bilibili.com/...",
+      confirmLabel: "插入视频",
+      normalize: (value) => value.trim(),
+    });
     const bv = input?.match(/BV[a-zA-Z0-9]{8,12}/)?.[0];
     const av = input?.match(/(?:av|aid=)(\d+)/i)?.[1];
     const src = bv ? `https://player.bilibili.com/player.html?bvid=${encodeURIComponent(bv)}` : av ? `https://player.bilibili.com/player.html?aid=${encodeURIComponent(av)}` : null;
@@ -505,11 +709,12 @@ const setupEditor = () => {
     event.stopPropagation();
     const button = $("#moreButton");
     const menu = $("#moreMenu");
+    if (!button || !menu) return;
     const isOpen = button.getAttribute("aria-expanded") === "true";
     button.setAttribute("aria-expanded", String(!isOpen));
-    if (menu) menu.hidden = isOpen;
+    menu.hidden = isOpen;
     button.closest(".toolbar-more")?.classList.toggle("is-open", !isOpen);
-    updateToolbarMorePosition();
+    if (!isOpen) updateToolbarMorePosition();
   });
   $("#moreMenu")?.addEventListener("click", (event) => event.stopPropagation());
   document.addEventListener("click", closeToolbarMore);
@@ -610,7 +815,20 @@ const setupForumPost = () => {
     const tipBubble = document.createElement("span");
     tipBubble.className = "forum-search-tip-bubble";
     tipBubble.id = "forumSearchTipBubble";
-    tipBubble.textContent = searchTipText;
+    tipBubble.innerHTML = `
+      <span class="forum-search-tip-heading">搜索示例</span>
+      <span class="forum-search-tip-preview" aria-hidden="true">
+        <span class="forum-search-tip-field">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="11" cy="11" r="6.5"></circle>
+            <path d="M16.2 16.2 21 21"></path>
+          </svg>
+          <span class="forum-search-tip-placeholder">搜索标题、内容、发布者</span>
+        </span>
+      </span>
+      <span class="forum-search-tip-copy">${searchTipText}</span>
+      <span class="forum-search-tip-example">示例：#Steve 建筑据点</span>
+    `;
     searchTip.append(tipBubble);
   }
 
@@ -803,7 +1021,13 @@ const renderManagement = () => {
   });
   $$("[data-delete]").forEach((button) => {
     button.addEventListener("click", async () => {
-      if (!window.confirm("删除后会进入垃圾桶。确定继续吗？")) return;
+      const confirmed = await showConfirmDialog("删除后会进入垃圾桶。确定继续吗？", {
+        title: "删除内容",
+        eyebrow: "内容管理",
+        confirmLabel: "移入垃圾桶",
+        confirmTone: "danger",
+      });
+      if (!confirmed) return;
       const type = button.dataset.delete;
       await api(`/${type === "announcement" ? "announcements" : "posts"}/${button.dataset.id}`, { method: "DELETE" });
       await loadAdminData();
@@ -873,7 +1097,13 @@ const renderAdmins = () => {
     : `<div class="empty">暂无管理员。</div>`;
   $$("[data-remove-admin]").forEach((button) => {
     button.addEventListener("click", async () => {
-      if (!window.confirm("确定删除这个管理员账号吗？")) return;
+      const confirmed = await showConfirmDialog("确定删除这个管理员账号吗？", {
+        title: "删除管理员",
+        eyebrow: "权限管理",
+        confirmLabel: "删除账号",
+        confirmTone: "danger",
+      });
+      if (!confirmed) return;
       await api(`/admin/users/${button.dataset.removeAdmin}`, { method: "DELETE" });
       await loadAdminData();
       showToast("管理员已删除");
@@ -881,7 +1111,17 @@ const renderAdmins = () => {
   });
   $$("[data-reset-admin]").forEach((button) => {
     button.addEventListener("click", async () => {
-      const password = window.prompt(`为 ${button.dataset.name} 设置新密码（至少 6 位）`);
+      const password = await showPromptDialog(`为 ${button.dataset.name} 设置新密码（至少 6 位）。`, {
+        title: "重置管理员密码",
+        eyebrow: "权限管理",
+        inputLabel: "新密码",
+        inputType: "password",
+        autocomplete: "new-password",
+        maxLength: 120,
+        confirmLabel: "重置密码",
+        normalize: (value) => value.trim(),
+        validate: (value) => (value.length >= 6 ? "" : "密码至少需要 6 位"),
+      });
       if (!password) return;
       await api(`/admin/users/${button.dataset.resetAdmin}/password`, {
         method: "PUT",
@@ -935,8 +1175,8 @@ const setupMaintenanceToggle = () => {
 
 const setupAdminNavigation = () => {
   const links = $$(".admin-nav a");
-  const sections = $$(".admin-panel[id]");
   if (!links.length) return;
+
   const setActive = (current) => {
     links.forEach((link) => {
       const active = link.getAttribute("href") === current;
@@ -956,29 +1196,6 @@ const setupAdminNavigation = () => {
   );
   window.addEventListener("hashchange", sync);
   sync();
-
-  if (!sections.length) return;
-
-  const syncByScroll = () => {
-    const anchorLine = Math.min(window.innerHeight * 0.42, 360);
-    const currentSection =
-      sections.find((section) => {
-        const rect = section.getBoundingClientRect();
-        return rect.top <= anchorLine && rect.bottom >= anchorLine;
-      }) || sections.find((section) => section.getBoundingClientRect().top > 0) || sections.at(-1);
-    if (!currentSection) return;
-    const current = `#${currentSection.id}`;
-    if (window.location.hash !== current) {
-      window.history.replaceState(null, "", current);
-    }
-    setActive(current);
-  };
-
-  window.addEventListener("scroll", syncByScroll, { passive: true });
-  window.addEventListener("pointermove", syncByScroll, { passive: true });
-  window.addEventListener("touchmove", syncByScroll, { passive: true });
-  window.addEventListener("resize", syncByScroll);
-  syncByScroll();
 };
 
 const setupAdminMobileDrawer = () => {
