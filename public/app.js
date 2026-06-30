@@ -11,17 +11,6 @@ const state = {
   trash: { announcements: [], posts: [] },
   serverStatus: null,
   serverStatusSettings: null,
-  captcha: {
-    id: "",
-    verified: false,
-    dragging: false,
-    dragStartX: 0,
-    thumbStartX: 0,
-    currentX: 0,
-    maxX: 0,
-    scale: 1,
-    challenge: null,
-  },
   editingPostId: null,
   forumSearch: "",
   forumSearchOpen: false,
@@ -464,16 +453,27 @@ const serverStatusTemplate = (settings = {}, status = {}, options = {}) => {
   const isDisabled = status?.status === "disabled" || settings.enabled === false;
   const address = settings.address || status.host || serverAddress();
   const title = settings.title || "服务器状态";
-  const motd = stripMinecraftFormatting(status.motd || (isLoading ? "正在查询服务器状态..." : isDisabled ? "状态展示已关闭" : "暂时没有获取到 MOTD"));
-  const version = status.version || "未知";
-  const delay = Number.isFinite(Number(status.delay)) ? `${Math.round(Number(status.delay))}ms` : "--";
+  const motd = stripMinecraftFormatting(status.motd || (isLoading ? "正在查询服务器状态..." : isDisabled ? "状态展示已关闭" : "该服务器暂时没有返回 MOTD"));
+  const version = status.version || "未知版本";
+  const protocol = status.protocol || "未返回";
+  const delayValue = Number(status.delay);
+  const delay = Number.isFinite(delayValue) ? `${Math.round(delayValue)}ms` : "--";
   const onlinePlayers = Number(status.players?.online || 0);
   const maxPlayers = Number(status.players?.max || 0);
   const playerText = maxPlayers ? `${onlinePlayers} / ${maxPlayers}` : isOnline ? String(onlinePlayers) : "--";
+  const samplePlayers = Array.isArray(status.players?.sample) ? status.players.sample.filter(Boolean).slice(0, 5) : [];
+  const typeText = status.type || (settings.serverType === "je" ? "java" : settings.serverType === "be" ? "bedrock" : "自动");
   const statusLabel = isLoading ? "查询中" : isOnline ? "在线" : isDisabled ? "已关闭" : "离线";
   const statusClass = isLoading ? "is-loading" : isOnline ? "is-online" : "is-offline";
   const icon = status.icon || settings.icon || "/assets/unbound-skin.png";
-  const footer = settings.footer || "API by mcmotdapi";
+  const footer = settings.footer || "API by motd.minebbs.com";
+  const summary = isOnline
+    ? `当前连接正常，${maxPlayers ? `在线 ${playerText}` : "可正常访问"}`
+    : isLoading
+      ? "正在获取最新探针结果"
+      : isDisabled
+        ? "管理员已关闭状态展示"
+        : stripMinecraftFormatting(status.error || "探针未返回可用数据");
   const embedAttr = options.embed ? ' data-server-status-embed="true"' : "";
 
   return `
@@ -495,8 +495,13 @@ const serverStatusTemplate = (settings = {}, status = {}, options = {}) => {
           </button>
         </div>
       </div>
+      <p class="mc-status-summary">${escapeHtml(summary)}</p>
       <div class="mc-status-motd">${escapeHtml(motd)}</div>
       <dl class="mc-status-metrics">
+        <div>
+          <dt>核心类型</dt>
+          <dd>${escapeHtml(typeText)}</dd>
+        </div>
         <div>
           <dt>版本</dt>
           <dd>${escapeHtml(version)}</dd>
@@ -508,6 +513,14 @@ const serverStatusTemplate = (settings = {}, status = {}, options = {}) => {
         <div>
           <dt>在线人数</dt>
           <dd>${escapeHtml(playerText)}</dd>
+        </div>
+        <div>
+          <dt>协议号</dt>
+          <dd>${escapeHtml(protocol)}</dd>
+        </div>
+        <div>
+          <dt>采样玩家</dt>
+          <dd>${escapeHtml(samplePlayers.length ? samplePlayers.join(", ") : isOnline ? "暂无" : "--")}</dd>
         </div>
       </dl>
       <p class="mc-status-footer">${escapeHtml(footer)}</p>
@@ -550,6 +563,14 @@ const loadServerStatus = async () => {
     state.serverStatus = { status: "offline", error: error.message, players: { online: 0, max: 0 } };
   }
   renderServerStatus();
+};
+
+const reloadServerStatusFromForm = async () => {
+  if (page !== "admin") return;
+  const settings = readServerStatusForm();
+  const result = await api(`/server-status${serverStatusQuery(settings)}`);
+  state.serverStatus = result.status;
+  return result;
 };
 
 const cardTemplate = (item, type) => {
@@ -1455,6 +1476,29 @@ const readServerStatusForm = () => ({
   footer: $("#serverStatusFooter")?.value.trim() || "API by motd.minebbs.com",
 });
 
+const serverStatusQuery = (settings = {}) => {
+  const params = new URLSearchParams();
+  const add = (key, value) => {
+    if (value === undefined || value === null) return;
+    const text = String(value).trim();
+    if (!text) return;
+    params.set(key, text);
+  };
+  const addBool = (key, value) => {
+    params.set(key, value ? "true" : "false");
+  };
+  addBool("enabled", settings.enabled !== false);
+  add("title", settings.title);
+  add("address", settings.address);
+  add("apiBase", settings.apiBase);
+  add("serverType", settings.serverType);
+  addBool("srv", settings.srv !== false);
+  add("icon", settings.icon);
+  add("footer", settings.footer);
+  const query = params.toString();
+  return query ? `?${query}` : "";
+};
+
 const fillServerStatusForm = (settings = {}) => {
   if (!$("#serverStatusForm")) return;
   $("#serverStatusEnabled").checked = settings.enabled !== false;
@@ -1504,9 +1548,13 @@ const setupServerStatusAdmin = () => {
     showToast("服务器状态配置已保存");
   });
   $("#serverStatusReload")?.addEventListener("click", async () => {
-    await loadServerStatus();
-    renderAdminServerStatusPreview();
-    showToast("已重新查询服务器状态");
+    try {
+      await reloadServerStatusFromForm();
+      renderAdminServerStatusPreview();
+      showToast("已重新查询服务器状态");
+    } catch (error) {
+      showToast(error.message);
+    }
   });
 };
 
@@ -1615,132 +1663,11 @@ const setupHeroTyping = () => {
   window.setTimeout(tick, 220);
 };
 
-const setCaptchaOffset = (x) => {
-  const captcha = state.captcha;
-  const value = Math.max(0, Math.min(captcha.maxX || 0, Number(x) || 0));
-  captcha.currentX = value;
-  const thumb = $("#captchaThumb");
-  const piece = $("#captchaPiece");
-  const track = $("#captchaTrack");
-  const pieceSize = Number(captcha.challenge?.pieceSize || 42) + 8;
-  const pieceY = Number(captcha.challenge?.targetY || 0) * (captcha.scale || 1);
-  if (thumb) thumb.style.transform = `translateX(${Math.round(value)}px)`;
-  if (piece) {
-    piece.style.width = `${Math.round(pieceSize * (captcha.scale || 1))}px`;
-    piece.style.transform = `translate(${Math.round(value)}px, ${Math.round(pieceY)}px)`;
-  }
-  if (track) track.style.setProperty("--captcha-progress", `${Math.round(value + 28)}px`);
-};
-
-const setCaptchaMessage = (message, mode = "") => {
-  const text = $("#captchaTrackText");
-  const mask = $("#captchaMask");
-  const track = $("#captchaTrack");
-  if (text) text.textContent = message;
-  if (mask) {
-    mask.textContent = message;
-    mask.hidden = mode !== "loading" && mode !== "error";
-  }
-  if (track) {
-    track.classList.toggle("is-verified", mode === "success");
-    track.classList.toggle("is-error", mode === "error");
-  }
-};
-
-const resetCaptchaDrag = () => {
-  state.captcha.dragging = false;
-  setCaptchaOffset(0);
-};
-
-const loadCaptcha = async () => {
-  if (page !== "login" || !$("#sliderCaptcha")) return;
-  state.captcha.verified = false;
-  state.captcha.id = "";
-  state.captcha.challenge = null;
-  resetCaptchaDrag();
-  setCaptchaMessage("加载验证中", "loading");
-  try {
-    const challenge = await api("/captcha");
-    state.captcha.id = challenge.id;
-    state.captcha.challenge = { ...challenge, targetY: Number(challenge.pieceY || 0) };
-    $("#captchaBg").src = challenge.background;
-    $("#captchaPiece").src = challenge.piece;
-    const stage = $("#captchaStage");
-    const track = $("#captchaTrack");
-    const thumb = $("#captchaThumb");
-    state.captcha.scale = (stage?.clientWidth || challenge.width || 300) / Number(challenge.width || 300);
-    state.captcha.maxX = Math.max(0, (track?.clientWidth || 0) - (thumb?.offsetWidth || 0));
-    $("#captchaMask").hidden = true;
-    setCaptchaOffset(0);
-    setCaptchaMessage("按住滑块，拖到缺口处");
-  } catch (error) {
-    setCaptchaMessage(error.message, "error");
-  }
-};
-
-const verifyCaptcha = async () => {
-  if (!state.captcha.id || state.captcha.verified) return;
-  try {
-    await api("/captcha/verify", {
-      method: "POST",
-      body: JSON.stringify({ id: state.captcha.id, x: Math.round(state.captcha.currentX / (state.captcha.scale || 1)) }),
-    });
-    state.captcha.verified = true;
-    setCaptchaMessage("验证通过", "success");
-  } catch (error) {
-    state.captcha.verified = false;
-    resetCaptchaDrag();
-    setCaptchaMessage(error.message, "error");
-    window.setTimeout(loadCaptcha, 780);
-  }
-};
-
-const setupSliderCaptcha = () => {
-  if (page !== "login" || !$("#sliderCaptcha")) return;
-  const thumb = $("#captchaThumb");
-  const track = $("#captchaTrack");
-  const startDrag = (event) => {
-    if (state.captcha.verified || !state.captcha.id) return;
-    state.captcha.dragging = true;
-    state.captcha.dragStartX = event.clientX;
-    state.captcha.thumbStartX = state.captcha.currentX;
-    thumb?.setPointerCapture?.(event.pointerId);
-    track?.classList.remove("is-error");
-    event.preventDefault();
-  };
-  const moveDrag = (event) => {
-    if (!state.captcha.dragging) return;
-    setCaptchaOffset(state.captcha.thumbStartX + event.clientX - state.captcha.dragStartX);
-  };
-  const endDrag = async (event) => {
-    if (!state.captcha.dragging) return;
-    state.captcha.dragging = false;
-    thumb?.releasePointerCapture?.(event.pointerId);
-    await verifyCaptcha();
-  };
-  thumb?.addEventListener("pointerdown", startDrag);
-  thumb?.addEventListener("pointermove", moveDrag);
-  thumb?.addEventListener("pointerup", endDrag);
-  thumb?.addEventListener("pointercancel", endDrag);
-  $("#captchaRefresh")?.addEventListener("click", loadCaptcha);
-  window.addEventListener("resize", () => {
-    const stage = $("#captchaStage");
-    state.captcha.scale = (stage?.clientWidth || state.captcha.challenge?.width || 300) / Number(state.captcha.challenge?.width || 300);
-    state.captcha.maxX = Math.max(0, (track?.clientWidth || 0) - (thumb?.offsetWidth || 0));
-    setCaptchaOffset(state.captcha.verified ? state.captcha.currentX : 0);
-  });
-  loadCaptcha();
-};
-
 const setupLoginPage = () => {
   if (page !== "login") return;
   const loginForm = $("#loginForm");
   loginForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    if (!state.captcha.verified) {
-      showToast("请先完成滑块验证");
-      return;
-    }
     try {
       const result = await api("/account", {
         method: "POST",
@@ -1748,14 +1675,11 @@ const setupLoginPage = () => {
           username: $("#loginUsername").value.trim(),
           password: $("#loginPassword").value,
           totpCode: $("#loginTotpCode")?.value.trim(),
-          captchaId: state.captcha.id,
         }),
       });
       state.me = result.user;
       window.location.href = result.user?.role === "admin" ? "/admin.html" : "/forum.html";
     } catch (error) {
-      state.captcha.verified = false;
-      loadCaptcha();
       if (error.payload?.needsTotp) $("#loginTotpCode")?.focus();
     }
   });
@@ -1821,7 +1745,6 @@ $("#toast")?.addEventListener("click", async (event) => {
 });
 
 setupDialogDismiss();
-setupSliderCaptcha();
 setupLoginPage();
 setupEditor();
 setupForumPost();

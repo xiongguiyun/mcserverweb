@@ -23,7 +23,7 @@
 
 ## 人机验证
 
-登录和注册使用站内自带的滑动验证码，不再依赖第三方页面组件。
+登录和注册使用基于 [`sliding-vertify-vue`](https://github.com/jia-allen/sliding-vertify-vue) canvas 拼图模型适配的滑动验证码；当前站点不是 Vue 应用，所以前端以原生 JS 复用它的双 canvas、拼图路径、滑轨状态和拖动轨迹校验思路，并在后端做一次性挑战校验。
 
 验证码相关接口：
 

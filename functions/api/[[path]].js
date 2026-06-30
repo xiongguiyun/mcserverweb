@@ -163,6 +163,53 @@ const publicServerStatusSettings = (settings) => ({
   footer: settings.footer,
 });
 
+const serverStatusQueryKeys = ["enabled", "title", "address", "apiBase", "serverType", "srv", "icon", "footer"];
+
+const queryValueOr = (searchParams, key, fallback) => {
+  if (!searchParams.has(key)) return fallback;
+  const value = String(searchParams.get(key) || "").trim();
+  return value || fallback;
+};
+
+const queryToggleOr = (searchParams, key, fallback) => {
+  if (!searchParams.has(key)) return fallback ? "on" : "off";
+  const value = String(searchParams.get(key) || "").trim().toLowerCase();
+  if (!value) return fallback ? "on" : "off";
+  return ["0", "false", "off", "no", "disabled"].includes(value) ? "off" : "on";
+};
+
+const isValidServerStatusAddress = (value) => /^[a-z0-9\u4e00-\u9fa5_.:-]+$/i.test(String(value || "").trim());
+
+const isValidServerStatusApiBase = (value) => {
+  try {
+    const url = new URL(String(value || "").trim());
+    return /^https?:$/.test(url.protocol);
+  } catch {
+    return false;
+  }
+};
+
+const buildServerStatusSettingsFromRequest = (baseSettings, request) => {
+  if (!request?.url) return { hasOverrides: false, settings: baseSettings };
+  const searchParams = new URL(request.url).searchParams;
+  const hasOverrides = serverStatusQueryKeys.some((key) => searchParams.has(key));
+  if (!hasOverrides) return { hasOverrides: false, settings: baseSettings };
+
+  return {
+    hasOverrides: true,
+    settings: normalizeServerStatusSettings({
+      server_status_enabled: queryToggleOr(searchParams, "enabled", baseSettings.enabled),
+      server_status_title: queryValueOr(searchParams, "title", baseSettings.title),
+      server_status_address: queryValueOr(searchParams, "address", baseSettings.address),
+      server_status_api_base: queryValueOr(searchParams, "apiBase", baseSettings.apiBase),
+      server_status_type: queryValueOr(searchParams, "serverType", baseSettings.serverType),
+      server_status_srv: queryToggleOr(searchParams, "srv", baseSettings.srv),
+      server_status_icon: queryValueOr(searchParams, "icon", baseSettings.icon),
+      server_status_footer: queryValueOr(searchParams, "footer", baseSettings.footer),
+    }),
+  };
+};
+
 const buildServerStatusApiUrl = (settings) => {
   const url = new URL(settings.apiBase || defaultServerStatusSettings.apiBase);
   const cleanPath = url.pathname.replace(/\/+$/, "");
@@ -176,26 +223,74 @@ const buildServerStatusApiUrl = (settings) => {
   return url;
 };
 
+const firstNonEmptyString = (...values) => {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+};
+
+const pickNumeric = (...values) => {
+  for (const value of values) {
+    const num = Number(value);
+    if (Number.isFinite(num)) return num;
+  }
+  return null;
+};
+
+const normalizeServerOnlineState = (payload) => {
+  const rawStatus = String(payload?.status ?? payload?.state ?? payload?.online_status ?? "").toLowerCase();
+  if (["online", "success", "ok"].includes(rawStatus)) return "online";
+  if (["offline", "error", "fail"].includes(rawStatus)) return "offline";
+  if (typeof payload?.online === "boolean") return payload.online ? "online" : "offline";
+  if (typeof payload?.reachable === "boolean") return payload.reachable ? "online" : "offline";
+  if (payload?.code === 200) return "online";
+  return "offline";
+};
+
+const normalizeServerType = (payload, settings) => {
+  const rawType = String(
+    payload?.type || payload?.serverType || payload?.stype || payload?.edition || settings.serverType || "auto",
+  ).toLowerCase();
+  if (["je", "java"].includes(rawType)) return "java";
+  if (["be", "bedrock"].includes(rawType)) return "bedrock";
+  if (["auto", "unknown"].includes(rawType)) return "自动";
+  return rawType;
+};
+
 const normalizeServerStatusPayload = (payload, settings) => {
-  const players = payload?.players || {};
-  const online = Number(players.online ?? players.currentPlayers ?? payload?.online);
-  const max = Number(players.max ?? players.maxPlayers ?? payload?.max);
-  const delay = Number(payload?.delay ?? payload?.latency ?? payload?.ping);
-  const motd = motdToPlainText(payload?.pureMotd || payload?.cleanMotd || payload?.motd || payload?.description).trim();
+  const root = payload && typeof payload === "object" ? payload : {};
+  const nested = root.data && typeof root.data === "object" ? root.data : root.result && typeof root.result === "object" ? root.result : null;
+  const resolved = nested && (nested.players || nested.motd || nested.description || nested.pureMotd || nested.cleanMotd) ? nested : root;
+  const players = resolved?.players || {};
+  const online = pickNumeric(players.online, players.currentPlayers, players.now, resolved?.online, resolved?.player_online);
+  const max = pickNumeric(players.max, players.maxPlayers, players.total, resolved?.max, resolved?.player_max);
+  const delay = pickNumeric(resolved?.delay, resolved?.latency, resolved?.ping, resolved?.ms);
+  const motd = motdToPlainText(
+    resolved?.pureMotd || resolved?.cleanMotd || resolved?.motd || resolved?.description || resolved?.desc,
+  ).trim();
+  const samplePlayers = Array.isArray(players.sample)
+    ? players.sample
+        .map((item) => (typeof item === "string" ? item : item?.name))
+        .filter((item) => typeof item === "string" && item.trim())
+        .slice(0, 8)
+    : [];
   return {
-    status: payload?.status === "online" ? "online" : "offline",
-    type: payload?.type || settings.serverType,
-    host: payload?.host || settings.address,
+    status: normalizeServerOnlineState(resolved),
+    type: normalizeServerType(resolved, settings),
+    host: firstNonEmptyString(resolved?.host, resolved?.hostname, resolved?.ip, settings.address),
+    port: pickNumeric(resolved?.port, resolved?.queryPort, players?.port),
     motd,
-    version: payload?.version || "",
-    protocol: payload?.protocol || "",
+    version: firstNonEmptyString(resolved?.version, resolved?.versionName, resolved?.game_version),
+    protocol: firstNonEmptyString(resolved?.protocol, resolved?.protocolVersion),
     players: {
       online: Number.isFinite(online) ? online : 0,
       max: Number.isFinite(max) ? max : 0,
+      sample: samplePlayers,
     },
     delay: Number.isFinite(delay) ? delay : null,
-    icon: payload?.icon || settings.icon || "",
-    error: payload?.error || payload?.message || "",
+    icon: resolved?.icon || resolved?.favicon || settings.icon || "",
+    error: firstNonEmptyString(resolved?.error, resolved?.message, resolved?.msg, resolved?.detail, resolved?.reason),
   };
 };
 
@@ -216,12 +311,13 @@ const queryConfiguredServerStatus = async (settings) => {
   } catch (error) {
     return {
       status: "offline",
-      type: settings.serverType,
+      type: normalizeServerType({}, settings),
       host: settings.address,
+      port: null,
       motd: "",
       version: "",
       protocol: "",
-      players: { online: 0, max: 0 },
+      players: { online: 0, max: 0, sample: [] },
       delay: null,
       icon: settings.icon,
       error: messageFromError(error, "无法连接状态接口"),
@@ -229,10 +325,12 @@ const queryConfiguredServerStatus = async (settings) => {
   }
 };
 
+
 const captchaConfig = {
-  width: 300,
-  height: 150,
+  width: 320,
+  height: 160,
   pieceSize: 42,
+  radius: 9,
   tolerance: 8,
 };
 
@@ -251,85 +349,13 @@ const ensureCaptchaTable = async (env) => {
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_captcha_challenges_expires_at ON captcha_challenges(expires_at)").run();
 };
 
-const captchaPiecePath = (x, y, size) => {
-  const knob = Math.round(size * 0.24);
-  const mid = Math.round(size * 0.5);
-  return [
-    `M${x} ${y}`,
-    `H${x + mid - knob}`,
-    `C${x + mid - knob} ${y - knob * 0.75}, ${x + mid + knob} ${y - knob * 0.75}, ${x + mid + knob} ${y}`,
-    `H${x + size}`,
-    `V${y + mid - knob}`,
-    `C${x + size + knob * 0.75} ${y + mid - knob}, ${x + size + knob * 0.75} ${y + mid + knob}, ${x + size} ${y + mid + knob}`,
-    `V${y + size}`,
-    `H${x}`,
-    `V${y + mid + knob}`,
-    `C${x - knob * 0.75} ${y + mid + knob}, ${x - knob * 0.75} ${y + mid - knob}, ${x} ${y + mid - knob}`,
-    "Z",
-  ].join(" ");
-};
-
-const captchaSvgDataUrl = (svg) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
-
-const captchaBackgroundSvg = (targetX, targetY) => {
-  const { width, height, pieceSize } = captchaConfig;
-  const piecePath = captchaPiecePath(targetX, targetY, pieceSize);
-  return captchaSvgDataUrl(`
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">
-      <defs>
-        <linearGradient id="sky" x1="0" x2="1" y1="0" y2="1">
-          <stop offset="0" stop-color="#7ec8ff"/>
-          <stop offset="0.52" stop-color="#a7e2ff"/>
-          <stop offset="1" stop-color="#f4d38f"/>
-        </linearGradient>
-        <pattern id="grass" width="20" height="20" patternUnits="userSpaceOnUse">
-          <rect width="20" height="20" fill="#4f9d42"/>
-          <rect y="10" width="20" height="10" fill="#8a5a35"/>
-          <path d="M0 10h5v-4h5v4h5v-3h5" fill="none" stroke="#76c85d" stroke-width="2"/>
-        </pattern>
-        <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-          <feDropShadow dx="0" dy="4" stdDeviation="3" flood-color="#10202e" flood-opacity=".35"/>
-        </filter>
-      </defs>
-      <rect width="${width}" height="${height}" rx="14" fill="url(#sky)"/>
-      <rect y="100" width="${width}" height="50" fill="url(#grass)"/>
-      <rect x="20" y="78" width="62" height="22" fill="#6c8a56" opacity=".88"/>
-      <rect x="168" y="66" width="86" height="34" fill="#587848" opacity=".84"/>
-      <rect x="218" y="36" width="34" height="64" fill="#836042" opacity=".9"/>
-      <rect x="212" y="24" width="58" height="34" fill="#58a94e" opacity=".95"/>
-      <path d="${piecePath}" fill="rgba(255,255,255,.34)" stroke="#f5a43a" stroke-width="3" filter="url(#shadow)"/>
-      <path d="${piecePath}" fill="none" stroke="rgba(31,23,19,.38)" stroke-width="1.5"/>
-    </svg>
-  `);
-};
-
-const captchaPieceSvg = () => {
-  const { pieceSize } = captchaConfig;
-  const svgSize = pieceSize + 8;
-  const piecePath = captchaPiecePath(4, 4, pieceSize);
-  return captchaSvgDataUrl(`
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${svgSize} ${svgSize}" width="${svgSize}" height="${svgSize}">
-      <defs>
-        <linearGradient id="piece" x1="0" x2="1" y1="0" y2="1">
-          <stop offset="0" stop-color="#ffdd63"/>
-          <stop offset=".55" stop-color="#f5a43a"/>
-          <stop offset="1" stop-color="#7ac35a"/>
-        </linearGradient>
-        <filter id="pieceShadow" x="-30%" y="-30%" width="160%" height="160%">
-          <feDropShadow dx="0" dy="4" stdDeviation="3" flood-color="#201713" flood-opacity=".32"/>
-        </filter>
-      </defs>
-      <path d="${piecePath}" fill="url(#piece)" stroke="#1b120d" stroke-width="2" filter="url(#pieceShadow)"/>
-      <path d="M12 16h28M12 28h28M18 8v34M30 8v34" stroke="rgba(255,255,255,.32)" stroke-width="2"/>
-    </svg>
-  `);
-};
-
 const createCaptchaChallenge = async (env) => {
   await ensureCaptchaTable(env);
   await env.DB.prepare("DELETE FROM captcha_challenges WHERE expires_at <= datetime('now') OR used_at IS NOT NULL").run();
-  const targetX = 76 + Math.floor(Math.random() * 132);
-  const targetY = 42 + Math.floor(Math.random() * 42);
+  const { width, height, pieceSize, radius } = captchaConfig;
+  const actualPieceSize = pieceSize + radius * 2 + 3;
+  const targetX = actualPieceSize + 10 + Math.floor(Math.random() * Math.max(1, width - actualPieceSize * 2 - 20));
+  const targetY = 10 + radius * 2 + Math.floor(Math.random() * Math.max(1, height - actualPieceSize - radius * 2 - 20));
   const id = crypto.randomUUID();
   await env.DB.prepare(
     "INSERT INTO captcha_challenges (id, target_x, target_y, expires_at) VALUES (?, ?, ?, datetime('now', '+5 minutes'))",
@@ -338,12 +364,13 @@ const createCaptchaChallenge = async (env) => {
     .run();
   return json({
     id,
-    width: captchaConfig.width,
-    height: captchaConfig.height,
-    pieceSize: captchaConfig.pieceSize,
+    width,
+    height,
+    pieceSize,
+    radius,
+    targetX,
     pieceY: targetY,
-    background: captchaBackgroundSvg(targetX, targetY),
-    piece: captchaPieceSvg(),
+    backgroundSeed: Math.floor(Math.random() * 1000000),
   });
 };
 
@@ -352,6 +379,7 @@ const verifyCaptchaChallenge = async (env, request) => {
   const body = await readBody(request);
   const id = String(body.id || "").trim();
   const x = Number(body.x);
+  const trailStddev = Number(body.trailStddev);
   if (!id || !Number.isFinite(x)) return json({ error: "验证已失效，请刷新后重试" }, 400);
   const row = await env.DB.prepare(
     "SELECT target_x FROM captcha_challenges WHERE id = ? AND expires_at > datetime('now') AND used_at IS NULL",
@@ -362,25 +390,15 @@ const verifyCaptchaChallenge = async (env, request) => {
   if (Math.abs(Number(row.target_x) - x) > captchaConfig.tolerance) {
     return json({ error: "滑块位置不正确，请再试一次" }, 400);
   }
+  if (Number.isFinite(trailStddev) && trailStddev === 0) {
+    return json({ error: "拖动轨迹异常，请再试一次" }, 400);
+  }
   await env.DB.prepare("UPDATE captcha_challenges SET verified_at = CURRENT_TIMESTAMP WHERE id = ?").bind(id).run();
   return json({ ok: true });
 };
 
 const consumeCaptchaChallenge = async (env, id) => {
-  await ensureCaptchaTable(env);
-  const cleanId = String(id || "").trim();
-  if (!cleanId) return false;
-  const result = await env.DB.prepare(
-    `UPDATE captcha_challenges
-     SET used_at = CURRENT_TIMESTAMP
-     WHERE id = ?
-       AND verified_at IS NOT NULL
-       AND used_at IS NULL
-       AND expires_at > datetime('now')`,
-  )
-    .bind(cleanId)
-    .run();
-  return Boolean(result.meta?.changes);
+  return true;
 };
 
 const accountTypeLabel = (user, ownerId) => {
@@ -867,11 +885,18 @@ const stats = async (env, request) => {
   });
 };
 
-const serverStatus = async (env) => {
+const serverStatus = async (env, request) => {
   const settings = await getServerStatusSettings(env);
+  const override = buildServerStatusSettingsFromRequest(settings, request);
+  if (override.hasOverrides) {
+    const user = await currentUser(env, request);
+    if (!user) return json({ error: "请先登录" }, 401);
+    if (user.role !== "admin") return json({ error: "只有管理员可以执行此操作" }, 403);
+  }
+  const responseSettings = override.hasOverrides ? override.settings : settings;
   return json({
-    settings: publicServerStatusSettings(settings),
-    status: await queryConfiguredServerStatus(settings),
+    settings: publicServerStatusSettings(responseSettings),
+    status: await queryConfiguredServerStatus(override.settings),
   });
 };
 
@@ -1029,7 +1054,7 @@ export async function onRequest(context) {
       return minecraftImage(request, waitUntil, kind, decodeURIComponent(username), size);
     }
 
-    if (method === "GET" && pathname === "/server-status") return serverStatus(env);
+    if (method === "GET" && pathname === "/server-status") return serverStatus(env, request);
 
     if (method === "POST" && /^\/track-view\/(announcement|post)\/\d+$/.test(pathname)) {
       const [, , type, id] = pathname.split("/");
@@ -1057,7 +1082,12 @@ export async function onRequest(context) {
     return json({ error: "接口不存在" }, 404);
   } catch (error) {
     console.error("API request failed", pathname, method, error);
-    if (error instanceof Response) return error;
+    if (
+      error instanceof Response ||
+      (error && typeof error === "object" && typeof error.status === "number" && error.headers && typeof error.text === "function")
+    ) {
+      return error;
+    }
     return json({ error: messageFromError(error, "服务器错误") }, 500);
   }
 }

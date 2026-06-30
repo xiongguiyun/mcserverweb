@@ -20,21 +20,29 @@
           <input id="loginTotpCode" inputmode="numeric" maxlength="6" placeholder="双重验证码（已开启时填写）" />
           <button class="button primary" type="submit">进入服务器社区</button>
         </form>
-        <section class="slider-captcha" id="sliderCaptcha" aria-labelledby="sliderCaptchaTitle">
+        <section class="slider-captcha" id="sliderCaptcha" aria-labelledby="sliderCaptchaTitle" hidden>
           <div class="slider-captcha-head">
             <strong id="sliderCaptchaTitle">安全验证</strong>
-            <button type="button" id="captchaRefresh" aria-label="刷新验证">刷新</button>
+            <button class="captcha-refresh-text" type="button" id="captchaRefreshText">刷新</button>
           </div>
-          <div class="captcha-stage" id="captchaStage" aria-live="polite">
-            <img class="captcha-bg" id="captchaBg" alt="" />
-            <img class="captcha-piece" id="captchaPiece" alt="" />
-            <div class="captcha-mask" id="captchaMask">加载验证中</div>
-          </div>
-          <div class="captcha-track" id="captchaTrack">
-            <span class="captcha-track-text" id="captchaTrackText">按住滑块，拖到缺口处</span>
-            <button class="captcha-thumb" id="captchaThumb" type="button" aria-label="拖动完成验证">
-              <span aria-hidden="true">›</span>
-            </button>
+          <div class="vertifyWrap" id="captchaVertify">
+            <div class="canvasArea">
+              <canvas id="captchaCanvas" width="320" height="160"></canvas>
+              <canvas class="block" id="captchaBlock" width="320" height="160"></canvas>
+            </div>
+            <div class="sliderContainer" id="captchaSlider">
+              <div class="sliderMask" id="captchaSliderMask">
+                <button class="slider" id="captchaThumb" type="button" aria-label="拖动完成验证">
+                  <span class="sliderIcon" aria-hidden="true">→</span>
+                </button>
+              </div>
+              <div class="sliderText" id="captchaTrackText">向右滑动完成拼图</div>
+            </div>
+            <button class="refreshIcon" id="captchaRefresh" type="button" aria-label="刷新验证"></button>
+            <div class="loadingContainer" id="captchaLoading">
+              <div class="loadingIcon"></div>
+              <span id="captchaLoadingText">加载中...</span>
+            </div>
           </div>
         </section>
       </section>
