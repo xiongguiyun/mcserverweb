@@ -167,7 +167,6 @@ const ensureSiteActionDialog = () => {
   dialog.className = "site-modal-dialog";
   dialog.innerHTML = `
     <div class="site-modal-shell">
-      <button class="dialog-close site-modal-close" type="button" data-site-modal-cancel aria-label="关闭">×</button>
       <div class="site-modal-copy">
         <span class="site-modal-eyebrow" id="siteModalEyebrow">操作</span>
         <h2 id="siteModalTitle">请确认</h2>
@@ -902,7 +901,6 @@ const setupForumPost = () => {
     if ($("#forumPostSubmit")) $("#forumPostSubmit").textContent = "发布帖子";
     openPostDialog();
   });
-  $$("[data-close-post]").forEach((button) => button.addEventListener("click", closePostDialog));
   $("#forumPostForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!state.me) {
@@ -1333,8 +1331,6 @@ $("#toast")?.addEventListener("click", async (event) => {
   await navigator.clipboard?.writeText(copyText).catch(() => {});
 });
 
-$("#closeDialog")?.addEventListener("click", () => closeDialogAnimated($("#readerDialog")));
-$$("[data-close-preview]").forEach((button) => button.addEventListener("click", closePreviewDialog));
 setupDialogDismiss();
 setupLoginPage();
 setupEditor();

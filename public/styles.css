@@ -1400,13 +1400,6 @@ dialog.is-closing {
     0 26px 54px rgba(19, 12, 8, 0.22);
 }
 
-.site-modal-close {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  margin: 0;
-}
-
 .site-modal-copy {
   display: grid;
   gap: 8px;
@@ -1542,34 +1535,6 @@ dialog.is-closing::backdrop {
   to {
     opacity: 1;
   }
-}
-
-.dialog-close {
-  position: sticky;
-  top: 12px;
-  float: right;
-  width: 40px;
-  height: 40px;
-  margin: 12px;
-  border: 2px solid #2b1b12;
-  border-radius: 4px;
-  background: var(--accent);
-  font-size: 28px;
-  line-height: 1;
-  cursor: pointer;
-  transition:
-    transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
-    opacity 0.18s ease,
-    box-shadow 0.18s ease,
-    background-color 0.18s ease;
-}
-
-.auth-dialog .dialog-close,
-.compose-dialog .dialog-close {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  margin: 0;
 }
 
 #readerContent {
@@ -2112,8 +2077,7 @@ button,
 .button,
 .toolbar button,
 .toolbar-select,
-.admin-mobile-toggle,
-.dialog-close {
+.admin-mobile-toggle {
   transform-origin: center bottom;
 }
 
@@ -2121,7 +2085,6 @@ button,
 .toolbar button:active,
 .toolbar-select:active,
 .admin-mobile-toggle:active,
-.dialog-close:active,
 .admin-nav a:active {
   transform: translateY(3px) scale(0.97);
   filter: brightness(0.96);
@@ -2827,14 +2790,6 @@ dialog.is-closing::backdrop {
     max-height: calc(100dvh - 16px);
     padding: 16px 12px 12px;
     overflow-y: auto;
-  }
-
-  .compose-dialog .dialog-close {
-    top: 6px;
-    right: 6px;
-    width: 34px;
-    height: 34px;
-    font-size: 23px;
   }
 
   .compose-dialog h2 {
