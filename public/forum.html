@@ -78,7 +78,7 @@
                 </span>
                 <div class="forum-search-status" id="forumSearchStatus"></div>
               </div>
-              <button class="button primary" type="button" id="openPostComposer">+ 发布新帖</button>
+              <button class="button primary" type="button" id="openPostComposer">+ 发帖</button>
             </div>
           </div>
           <div class="list forum-list" id="postList"></div>
@@ -124,15 +124,15 @@
             <button type="button" id="bilibiliButton" title="插入 Bilibili 视频">Bilibili</button>
             <div class="toolbar-more">
               <button type="button" id="moreButton" aria-expanded="false" title="更多">更多</button>
-              <div class="toolbar-more-menu" id="moreMenu" hidden>
-                <button type="button" data-command="insertUnorderedList">无序列表</button>
-                <button type="button" data-command="insertOrderedList">有序列表</button>
-                <button type="button" id="colorButton">文本颜色</button>
-                <button type="button" id="quoteButton">引用</button>
-              </div>
             </div>
             <span class="toolbar-spacer" aria-hidden="true"></span>
             <button type="button" id="previewButton" class="toolbar-preview-button">预览</button>
+          </div>
+          <div class="toolbar-more-menu" id="moreMenu" hidden>
+            <button type="button" data-command="insertUnorderedList">无序列表</button>
+            <button type="button" data-command="insertOrderedList">有序列表</button>
+            <button type="button" id="colorButton">文本颜色</button>
+            <button type="button" id="quoteButton">引用</button>
           </div>
         </div>
         <div class="rich-editor" id="editor" contenteditable="true" role="textbox" aria-label="帖子正文"></div>
@@ -145,6 +145,7 @@
     </dialog>
 
     <dialog id="previewDialog" class="preview-dialog">
+      <button class="dialog-close" type="button" data-close-preview aria-label="关闭">×</button>
       <article id="previewContent"></article>
     </dialog>
 

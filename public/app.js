@@ -326,9 +326,12 @@ const updateToolbarMorePosition = () => {
   if (!container) return;
   menu.style.removeProperty("left");
   menu.style.removeProperty("top");
+  menu.style.removeProperty("bottom");
   const rect = button.getBoundingClientRect();
   const menuHeight = menu.offsetHeight || 0;
-  container.classList.toggle("is-open-upward", rect.bottom + menuHeight + 12 > window.innerHeight);
+  const openUpward = rect.bottom + menuHeight + 12 > window.innerHeight;
+  container.classList.toggle("is-open-upward", openUpward);
+  menu.classList.toggle("is-open-upward", openUpward);
 };
 
 const closeToolbarMore = () => {
@@ -337,7 +340,187 @@ const closeToolbarMore = () => {
   if (!button || !menu) return;
   button.setAttribute("aria-expanded", "false");
   menu.hidden = true;
+  menu.style.removeProperty("left");
+  menu.style.removeProperty("top");
+  menu.style.removeProperty("bottom");
   button.closest(".toolbar-more")?.classList.remove("is-open", "is-open-upward");
+  menu.classList.remove("is-open-upward");
+};
+
+const createTableMarkup = (rows, cols) => {
+  const safeRows = Math.max(1, Math.min(10, Number(rows) || 1));
+  const safeCols = Math.max(1, Math.min(10, Number(cols) || 1));
+  const bodyRows = Array.from({ length: safeRows }, () => `<tr>${Array.from({ length: safeCols }, () => "<td>内容</td>").join("")}</tr>`).join("");
+  return `<div class="inline-table-wrap" data-table-wrap="true"><table class="inline-table" data-resizable-table="true">${bodyRows}</table></div><p><br></p>`;
+};
+
+const normalizeEditorTables = (root = $("#editor")) => {
+  if (!root) return;
+  root.querySelectorAll("table.inline-table").forEach((table) => {
+    table.dataset.resizableTable = "true";
+    const parent = table.parentElement;
+    if (parent?.classList.contains("inline-table-wrap")) return;
+    const wrapper = document.createElement("div");
+    wrapper.className = "inline-table-wrap";
+    wrapper.dataset.tableWrap = "true";
+    if (table.style.width) wrapper.style.width = table.style.width;
+    if (table.style.height) wrapper.style.height = table.style.height;
+    table.style.removeProperty("width");
+    table.style.removeProperty("height");
+    table.parentNode?.insertBefore(wrapper, table);
+    wrapper.append(table);
+  });
+};
+
+const serializeEditorContent = (root = $("#editor")) => {
+  if (!root) return "";
+  const clone = root.cloneNode(true);
+  clone.querySelectorAll(".table-selector-popover, .table-resize-handle").forEach((node) => node.remove());
+  clone.querySelectorAll(".inline-table-wrap").forEach((wrapper) => {
+    const table = wrapper.querySelector("table");
+    if (!table) return;
+    if (wrapper.style.width) table.style.width = wrapper.style.width;
+    if (wrapper.style.height) table.style.height = wrapper.style.height;
+    wrapper.replaceWith(table);
+  });
+  clone.querySelectorAll("table.inline-table").forEach((table) => table.removeAttribute("data-resizable-table"));
+  return clone.innerHTML.trim();
+};
+
+const attachTableResizeHandles = (root = $("#editor")) => {
+  if (!root) return;
+  normalizeEditorTables(root);
+  root.querySelectorAll(".inline-table-wrap").forEach((wrapper) => {
+    if (wrapper.querySelector(".table-resize-handle")) return;
+    const handle = document.createElement("button");
+    handle.type = "button";
+    handle.className = "table-resize-handle";
+    handle.setAttribute("aria-label", "拖动调整表格大小");
+    wrapper.append(handle);
+  });
+};
+
+const showTableSelector = (trigger) => {
+  const shell = trigger?.closest(".editor-toolbar-shell");
+  if (!shell) return;
+  let panel = shell.querySelector(".table-selector-popover");
+  if (!panel) {
+    panel = document.createElement("div");
+    panel.className = "table-selector-popover";
+    panel.hidden = true;
+    panel.innerHTML = `
+      <div class="table-selector-size" id="tableSelectorSize">1 × 1</div>
+      <div class="table-selector-grid" id="tableSelectorGrid"></div>
+    `;
+    shell.append(panel);
+    const grid = panel.querySelector("#tableSelectorGrid");
+    for (let row = 1; row <= 10; row += 1) {
+      for (let col = 1; col <= 10; col += 1) {
+        const cell = document.createElement("button");
+        cell.type = "button";
+        cell.className = "table-selector-cell";
+        cell.dataset.row = String(row);
+        cell.dataset.col = String(col);
+        grid?.append(cell);
+      }
+    }
+  }
+
+  const sizeLabel = panel.querySelector("#tableSelectorSize");
+  const updateSelection = (rows, cols) => {
+    if (sizeLabel) sizeLabel.textContent = `${cols} × ${rows}`;
+    panel.querySelectorAll(".table-selector-cell").forEach((cell) => {
+      const active = Number(cell.dataset.row) <= rows && Number(cell.dataset.col) <= cols;
+      cell.classList.toggle("is-active", active);
+    });
+  };
+
+  updateSelection(1, 1);
+  panel.hidden = false;
+
+  const buttonRect = trigger.getBoundingClientRect();
+  const shellRect = shell.getBoundingClientRect();
+  panel.style.left = `${Math.max(0, buttonRect.left - shellRect.left)}px`;
+  panel.style.top = `${buttonRect.bottom - shellRect.top + 10}px`;
+
+  const closePanel = () => {
+    panel.hidden = true;
+    panel.removeEventListener("pointermove", onPointerMove);
+    panel.removeEventListener("click", onClick);
+    document.removeEventListener("click", onDocumentClick, true);
+  };
+
+  const onPointerMove = (event) => {
+    const cell = event.target.closest(".table-selector-cell");
+    if (!cell) return;
+    updateSelection(Number(cell.dataset.row), Number(cell.dataset.col));
+  };
+
+  const onClick = (event) => {
+    const cell = event.target.closest(".table-selector-cell");
+    if (!cell) return;
+    const rows = Number(cell.dataset.row);
+    const cols = Number(cell.dataset.col);
+    closePanel();
+    insertHtmlBlock(createTableMarkup(rows, cols));
+    normalizeEditorTables();
+    attachTableResizeHandles();
+  };
+
+  const onDocumentClick = (event) => {
+    if (panel.contains(event.target) || trigger.contains(event.target)) return;
+    closePanel();
+  };
+
+  panel.addEventListener("pointermove", onPointerMove);
+  panel.addEventListener("click", onClick);
+  document.addEventListener("click", onDocumentClick, true);
+};
+
+const bindEditorTableResize = () => {
+  const editor = $("#editor");
+  if (!editor || editor.dataset.tableResizeBound === "true") return;
+  editor.dataset.tableResizeBound = "true";
+
+  let activeResize = null;
+
+  editor.addEventListener("pointerdown", (event) => {
+    const handle = event.target.closest(".table-resize-handle");
+    if (!handle) return;
+    const wrapper = handle.closest(".inline-table-wrap");
+    const table = wrapper?.querySelector("table.inline-table");
+    if (!wrapper || !table) return;
+    event.preventDefault();
+    const rect = wrapper.getBoundingClientRect();
+    activeResize = {
+      wrapper,
+      table,
+      startX: event.clientX,
+      startY: event.clientY,
+      startWidth: rect.width,
+      startHeight: rect.height,
+    };
+    document.body.classList.add("is-resizing-table");
+  });
+
+  window.addEventListener("pointermove", (event) => {
+    if (!activeResize) return;
+    const width = Math.max(180, activeResize.startWidth + (event.clientX - activeResize.startX));
+    const height = Math.max(120, activeResize.startHeight + (event.clientY - activeResize.startY));
+    activeResize.wrapper.style.width = `${width}px`;
+    activeResize.wrapper.style.height = `${height}px`;
+    activeResize.table.style.width = "100%";
+    activeResize.table.style.height = "100%";
+  });
+
+  const stopResize = () => {
+    if (!activeResize) return;
+    activeResize = null;
+    document.body.classList.remove("is-resizing-table");
+  };
+
+  window.addEventListener("pointerup", stopResize);
+  window.addEventListener("pointercancel", stopResize);
 };
 
 const renderAuth = () => {
@@ -585,6 +768,8 @@ const bindContentButtons = () => {
       state.editingPostId = post.id;
       $("#forumTitle").value = post.title;
       $("#editor").innerHTML = post.content_html;
+      normalizeEditorTables();
+      attachTableResizeHandles();
       $("#forumPostSubmit").textContent = "保存修改";
       openPostDialog();
     });
@@ -631,6 +816,9 @@ const insertHtmlBlock = (html) => command("insertHTML", html);
 
 const setupEditor = () => {
   if (!$("#editor")) return;
+  bindEditorTableResize();
+  normalizeEditorTables();
+  attachTableResizeHandles();
   $$("[data-command]").forEach((button) => button.addEventListener("click", () => command(button.dataset.command)));
   $("#fontSizeSelect")?.addEventListener("change", (event) => {
     if (event.target.value) command("fontSize", event.target.value);
@@ -662,9 +850,10 @@ const setupEditor = () => {
     });
     if (url) insertHtmlBlock(`<p><img src="${escapeHtml(url)}" alt="" class="inline-image" /></p>`);
   });
-  $("#tableButton")?.addEventListener("click", () =>
-    insertHtmlBlock(`<table class="inline-table"><tr><th>列 1</th><th>列 2</th></tr><tr><td>内容</td><td>内容</td></tr></table><p><br></p>`),
-  );
+  $("#tableButton")?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    showTableSelector(event.currentTarget);
+  });
   $("#spoilerButton")?.addEventListener("click", () => insertHtmlBlock(`<span class="spoiler-inline">隐藏内容</span>`));
   $("#hrButton")?.addEventListener("click", () => insertHtmlBlock(`<hr class="inline-rule" />`));
   $("#detailsButton")?.addEventListener("click", () => insertHtmlBlock(`<details class="inline-details"><summary>点击展开</summary><p>折叠内容</p></details><p><br></p>`));
@@ -700,12 +889,23 @@ const setupEditor = () => {
     event.stopPropagation();
     const button = $("#moreButton");
     const menu = $("#moreMenu");
-    if (!button || !menu) return;
+    const shell = button?.closest(".editor-toolbar-shell");
+    if (!button || !menu || !shell) return;
     const isOpen = button.getAttribute("aria-expanded") === "true";
     button.setAttribute("aria-expanded", String(!isOpen));
     menu.hidden = isOpen;
     button.closest(".toolbar-more")?.classList.toggle("is-open", !isOpen);
-    if (!isOpen) updateToolbarMorePosition();
+    if (!isOpen) {
+      updateToolbarMorePosition();
+      const buttonRect = button.getBoundingClientRect();
+      const shellRect = shell.getBoundingClientRect();
+      menu.style.left = `${Math.max(0, buttonRect.right - shellRect.left - menu.offsetWidth)}px`;
+      if (menu.classList.contains("is-open-upward")) {
+        menu.style.bottom = `${shellRect.bottom - buttonRect.top + 10}px`;
+      } else {
+        menu.style.top = `${buttonRect.bottom - shellRect.top + 10}px`;
+      }
+    }
   });
   $("#moreMenu")?.addEventListener("click", (event) => event.stopPropagation());
   document.addEventListener("click", closeToolbarMore);
@@ -718,7 +918,7 @@ const setupEditor = () => {
     const title = $("#forumTitle")?.value.trim() || $("#title")?.value.trim() || "预览";
     previewContent.innerHTML = `
       <h1>${escapeHtml(title)}</h1>
-      <div class="reader-body">${editor.innerHTML.trim() || "<p>暂无内容</p>"}</div>
+      <div class="reader-body">${serializeEditorContent(editor) || "<p>暂无内容</p>"}</div>
     `;
     openPreviewDialog();
   }));
@@ -898,6 +1098,7 @@ const setupForumPost = () => {
     state.editingPostId = null;
     $("#forumPostForm")?.reset();
     if ($("#editor")) $("#editor").innerHTML = "";
+    normalizeEditorTables();
     if ($("#forumPostSubmit")) $("#forumPostSubmit").textContent = "发布帖子";
     openPostDialog();
   });
@@ -908,7 +1109,7 @@ const setupForumPost = () => {
       return;
     }
     const title = $("#forumTitle").value.trim();
-    const contentHtml = $("#editor").innerHTML.trim();
+    const contentHtml = serializeEditorContent($("#editor"));
     const endpoint = state.editingPostId ? `/posts/${state.editingPostId}` : "/posts";
     await api(endpoint, { method: state.editingPostId ? "PUT" : "POST", body: JSON.stringify({ title, contentHtml }) });
     state.editingPostId = null;
@@ -922,6 +1123,7 @@ const resetEditor = () => {
   $("#editingId").value = "";
   $("#publishForm")?.reset();
   if ($("#editor")) $("#editor").innerHTML = "";
+  normalizeEditorTables();
   $("#contentType")?.removeAttribute("disabled");
 };
 
@@ -931,7 +1133,7 @@ const setupPublish = () => {
     const type = $("#contentType").value;
     const id = $("#editingId").value;
     const title = $("#title").value.trim();
-    const contentHtml = $("#editor").innerHTML.trim();
+    const contentHtml = serializeEditorContent($("#editor"));
     const endpoint = type === "announcement" ? "/announcements" : "/posts";
     await api(id ? `${endpoint}/${id}` : endpoint, { method: id ? "PUT" : "POST", body: JSON.stringify({ title, contentHtml }) });
     resetEditor();
@@ -1006,6 +1208,8 @@ const renderManagement = () => {
       $("#contentType").setAttribute("disabled", "disabled");
       $("#title").value = item.title;
       $("#editor").innerHTML = item.content_html;
+      normalizeEditorTables();
+      attachTableResizeHandles();
       $("#publishForm")?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
   });
@@ -1331,6 +1535,7 @@ $("#toast")?.addEventListener("click", async (event) => {
   await navigator.clipboard?.writeText(copyText).catch(() => {});
 });
 
+$$("[data-close-preview]").forEach((button) => button.addEventListener("click", closePreviewDialog));
 setupDialogDismiss();
 setupLoginPage();
 setupEditor();
