@@ -9,8 +9,6 @@ const state = {
   admins: [],
   profile: null,
   trash: { announcements: [], posts: [] },
-  serverStatus: null,
-  serverStatusSettings: null,
   editingPostId: null,
   forumSearch: "",
   forumSearchOpen: false,
@@ -19,7 +17,7 @@ const state = {
 const page = document.body.dataset.page;
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
-const serverAddress = () => state.site?.serverStatus?.address || state.serverStatusSettings?.address || "play.blockhaven.cn";
+const serverAddress = () => "play.blockhaven.cn";
 let maintenanceRequestId = 0;
 const isMobileViewport = () => window.matchMedia?.("(max-width: 620px)")?.matches;
 const isCoarsePointer = () => window.matchMedia?.("(pointer: coarse)")?.matches;
@@ -447,132 +445,6 @@ const renderMaintenanceGate = () => {
     : `<p>网站正在维护中，暂时仅管理员可登录。</p><a class="button primary" href="/login.html">管理员登录</a>`;
 };
 
-const serverStatusTemplate = (settings = {}, status = {}, options = {}) => {
-  const isOnline = status?.status === "online";
-  const isLoading = status?.status === "loading";
-  const isDisabled = status?.status === "disabled" || settings.enabled === false;
-  const address = settings.address || status.host || serverAddress();
-  const title = settings.title || "服务器状态";
-  const motd = stripMinecraftFormatting(status.motd || (isLoading ? "正在查询服务器状态..." : isDisabled ? "状态展示已关闭" : "该服务器暂时没有返回 MOTD"));
-  const version = status.version || "未知版本";
-  const protocol = status.protocol || "未返回";
-  const delayValue = Number(status.delay);
-  const delay = Number.isFinite(delayValue) ? `${Math.round(delayValue)}ms` : "--";
-  const onlinePlayers = Number(status.players?.online || 0);
-  const maxPlayers = Number(status.players?.max || 0);
-  const playerText = maxPlayers ? `${onlinePlayers} / ${maxPlayers}` : isOnline ? String(onlinePlayers) : "--";
-  const samplePlayers = Array.isArray(status.players?.sample) ? status.players.sample.filter(Boolean).slice(0, 5) : [];
-  const typeText = status.type || (settings.serverType === "je" ? "java" : settings.serverType === "be" ? "bedrock" : "自动");
-  const statusLabel = isLoading ? "查询中" : isOnline ? "在线" : isDisabled ? "已关闭" : "离线";
-  const statusClass = isLoading ? "is-loading" : isOnline ? "is-online" : "is-offline";
-  const icon = status.icon || settings.icon || "/assets/unbound-skin.png";
-  const footer = settings.footer || "API by motd.minebbs.com";
-  const summary = isOnline
-    ? `当前连接正常，${maxPlayers ? `在线 ${playerText}` : "可正常访问"}`
-    : isLoading
-      ? "正在获取最新探针结果"
-      : isDisabled
-        ? "管理员已关闭状态展示"
-        : stripMinecraftFormatting(status.error || "探针未返回可用数据");
-  const embedAttr = options.embed ? ' data-server-status-embed="true"' : "";
-
-  return `
-    <article class="mc-status-card ${statusClass}"${embedAttr}>
-      <div class="mc-status-top">
-        <div class="mc-status-icon-shell">
-          <img class="mc-status-icon" src="${escapeHtml(icon)}" alt="" loading="lazy" />
-          <span class="mc-status-dot" aria-hidden="true"></span>
-        </div>
-        <div class="mc-status-heading">
-          <div class="mc-status-title-row">
-            <h3>${escapeHtml(title)}</h3>
-            <span class="mc-status-badge">${escapeHtml(statusLabel)}</span>
-          </div>
-          <button class="mc-status-address" type="button" data-copy-server-address="${escapeHtml(address)}">
-            <span aria-hidden="true">⌁</span>
-            <strong>${escapeHtml(address)}</strong>
-            <em>点击复制</em>
-          </button>
-        </div>
-      </div>
-      <p class="mc-status-summary">${escapeHtml(summary)}</p>
-      <div class="mc-status-motd">${escapeHtml(motd)}</div>
-      <dl class="mc-status-metrics">
-        <div>
-          <dt>核心类型</dt>
-          <dd>${escapeHtml(typeText)}</dd>
-        </div>
-        <div>
-          <dt>版本</dt>
-          <dd>${escapeHtml(version)}</dd>
-        </div>
-        <div>
-          <dt>延迟</dt>
-          <dd class="mc-status-good">${escapeHtml(delay)}</dd>
-        </div>
-        <div>
-          <dt>在线人数</dt>
-          <dd>${escapeHtml(playerText)}</dd>
-        </div>
-        <div>
-          <dt>协议号</dt>
-          <dd>${escapeHtml(protocol)}</dd>
-        </div>
-        <div>
-          <dt>采样玩家</dt>
-          <dd>${escapeHtml(samplePlayers.length ? samplePlayers.join(", ") : isOnline ? "暂无" : "--")}</dd>
-        </div>
-      </dl>
-      <p class="mc-status-footer">${escapeHtml(footer)}</p>
-    </article>
-  `;
-};
-
-const bindServerStatusCardActions = (root = document) => {
-  root.querySelectorAll?.("[data-copy-server-address]").forEach((button) => {
-    if (button.dataset.boundCopy === "true") return;
-    button.dataset.boundCopy = "true";
-    button.addEventListener("click", async () => {
-      const address = button.dataset.copyServerAddress || serverAddress();
-      await navigator.clipboard?.writeText(address).catch(() => {});
-      showToast("服务器地址已复制");
-    });
-  });
-};
-
-const renderServerStatus = () => {
-  const host = $("#homeServerStatus");
-  if (!host) return;
-  const settings = state.serverStatusSettings || state.site?.serverStatus || {};
-  if (settings.enabled === false) {
-    host.hidden = true;
-    return;
-  }
-  host.hidden = false;
-  host.innerHTML = serverStatusTemplate(settings, state.serverStatus || { status: "loading" });
-  bindServerStatusCardActions(host);
-};
-
-const loadServerStatus = async () => {
-  if (page !== "home" && page !== "admin") return;
-  try {
-    const result = await api("/server-status");
-    state.serverStatusSettings = result.settings;
-    state.serverStatus = result.status;
-  } catch (error) {
-    state.serverStatus = { status: "offline", error: error.message, players: { online: 0, max: 0 } };
-  }
-  renderServerStatus();
-};
-
-const reloadServerStatusFromForm = async () => {
-  if (page !== "admin") return;
-  const settings = readServerStatusForm();
-  const result = await api(`/server-status${serverStatusQuery(settings)}`);
-  state.serverStatus = result.status;
-  return result;
-};
-
 const cardTemplate = (item, type) => {
   const excerpt = item.excerpt || textFromHtml(item.content_html).slice(0, 110);
   const author = item.author || "管理员";
@@ -955,11 +827,6 @@ const setupEditor = () => {
     event.stopPropagation();
     closeToolbarMore();
     openTablePicker(event.currentTarget);
-  });
-  $("#serverStatusButton")?.addEventListener("click", async () => {
-    const settings = state.serverStatusSettings || state.site?.serverStatus || {};
-    const status = state.serverStatus || { status: "loading", players: { online: 0, max: 0 } };
-    insertHtmlBlock(`${serverStatusTemplate(settings, status, { embed: true })}<p><br></p>`);
   });
   $("#spoilerButton")?.addEventListener("click", () => insertHtmlBlock(`<span class="spoiler-inline">隐藏内容</span>`));
   $("#hrButton")?.addEventListener("click", () => insertHtmlBlock(`<hr class="inline-rule" />`));
@@ -1465,108 +1332,6 @@ const setupMaintenanceToggle = () => {
   });
 };
 
-const readServerStatusForm = () => ({
-  enabled: Boolean($("#serverStatusEnabled")?.checked),
-  title: $("#serverStatusTitle")?.value.trim() || "服务器状态",
-  address: $("#serverStatusAddress")?.value.trim() || serverAddress(),
-  apiBase: $("#serverStatusApiBase")?.value.trim() || "https://motd.minebbs.com/api/status",
-  serverType: $("#serverStatusType")?.value || "auto",
-  srv: Boolean($("#serverStatusSrv")?.checked),
-  icon: $("#serverStatusIcon")?.value.trim() || "",
-  footer: $("#serverStatusFooter")?.value.trim() || "API by motd.minebbs.com",
-});
-
-const serverStatusQuery = (settings = {}) => {
-  const params = new URLSearchParams();
-  const add = (key, value) => {
-    if (value === undefined || value === null) return;
-    const text = String(value).trim();
-    if (!text) return;
-    params.set(key, text);
-  };
-  const addBool = (key, value) => {
-    params.set(key, value ? "true" : "false");
-  };
-  addBool("enabled", settings.enabled !== false);
-  add("title", settings.title);
-  add("address", settings.address);
-  add("apiBase", settings.apiBase);
-  add("serverType", settings.serverType);
-  addBool("srv", settings.srv !== false);
-  add("icon", settings.icon);
-  add("footer", settings.footer);
-  const query = params.toString();
-  return query ? `?${query}` : "";
-};
-
-const fillServerStatusForm = (settings = {}) => {
-  if (!$("#serverStatusForm")) return;
-  $("#serverStatusEnabled").checked = settings.enabled !== false;
-  $("#serverStatusTitle").value = settings.title || "服务器状态";
-  $("#serverStatusAddress").value = settings.address || serverAddress();
-  $("#serverStatusApiBase").value = settings.apiBase || "https://motd.minebbs.com/api/status";
-  $("#serverStatusType").value = settings.serverType || "auto";
-  $("#serverStatusSrv").checked = settings.srv !== false;
-  $("#serverStatusIcon").value = settings.icon || "";
-  $("#serverStatusFooter").value = settings.footer || "API by motd.minebbs.com";
-};
-
-const renderAdminServerStatusPreview = () => {
-  const preview = $("#serverStatusPreview");
-  if (!preview) return;
-  const settings = $("#serverStatusForm") ? readServerStatusForm() : state.serverStatusSettings || {};
-  preview.innerHTML = serverStatusTemplate(settings, state.serverStatus || { status: "loading", players: { online: 0, max: 0 } });
-  bindServerStatusCardActions(preview);
-};
-
-const loadAdminServerStatusSettings = async () => {
-  if (!$("#serverStatusForm")) return;
-  try {
-    const result = await api("/admin/settings/server-status");
-    state.serverStatusSettings = result.settings;
-    fillServerStatusForm(result.settings);
-    await loadServerStatus();
-  } catch (error) {
-    showToast(error.message);
-  }
-  renderAdminServerStatusPreview();
-};
-
-const setupServerStatusAdmin = () => {
-  const form = $("#serverStatusForm");
-  if (!form) return;
-  form.addEventListener("input", renderAdminServerStatusPreview);
-  form.addEventListener("change", renderAdminServerStatusPreview);
-  form.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const settings = readServerStatusForm();
-    const result = await api("/admin/settings/server-status", { method: "PUT", body: JSON.stringify(settings) });
-    state.serverStatusSettings = result.settings;
-    state.site.serverStatus = publicServerStatusSettingsFromAdmin(result.settings);
-    await loadServerStatus();
-    renderAdminServerStatusPreview();
-    showToast("服务器状态配置已保存");
-  });
-  $("#serverStatusReload")?.addEventListener("click", async () => {
-    try {
-      await reloadServerStatusFromForm();
-      renderAdminServerStatusPreview();
-      showToast("已重新查询服务器状态");
-    } catch (error) {
-      showToast(error.message);
-    }
-  });
-};
-
-const publicServerStatusSettingsFromAdmin = (settings = {}) => ({
-  enabled: settings.enabled,
-  title: settings.title,
-  address: settings.address,
-  serverType: settings.serverType,
-  srv: settings.srv,
-  footer: settings.footer,
-});
-
 const setupAdminNavigation = () => {
   const links = $$(".admin-nav a");
   if (!links.length) return;
@@ -1695,8 +1460,6 @@ const loadPublicData = async () => {
   await loadBaseState();
   if (page === "home") {
     state.announcements = (await api("/announcements").catch(() => ({ items: [] }))).items;
-    renderServerStatus();
-    loadServerStatus().catch((error) => showToast(error.message));
   }
   if (page === "forum") state.posts = (await api("/posts").catch(() => ({ items: [] }))).items;
   if (page === "profile") {
@@ -1722,7 +1485,6 @@ const loadAdminData = async () => {
   renderStats();
   renderManagement();
   renderAdmins();
-  await loadAdminServerStatusSettings();
 };
 
 const refreshPageData = async () => (page === "admin" ? loadAdminData() : loadPublicData());
@@ -1734,7 +1496,6 @@ const renderAll = () => {
   renderLists();
   renderForumProfileCard();
   renderProfilePage();
-  renderServerStatus();
   if (page === "admin") renderAdminGate();
 };
 
@@ -1751,7 +1512,6 @@ setupForumPost();
 setupPublish();
 setupAdminUsers();
 setupMaintenanceToggle();
-setupServerStatusAdmin();
 setupAdminNavigation();
 setupAdminMobileDrawer();
 setupHomeActions();
