@@ -313,12 +313,14 @@ const filterForumPosts = (posts) => {
 
 const updateForumSearchStatus = () => {
   const status = $("#forumSearchStatus");
+  const actions = $(".forum-toolbar-actions");
   if (!status) return;
   const query = state.forumSearch.trim();
   const total = state.posts.length;
   const matched = filterForumPosts(state.posts).length;
   status.hidden = !query;
   status.textContent = query ? `已筛选 ${matched}/${total} 条帖子` : "";
+  actions?.classList.toggle("has-search-query", Boolean(query));
 };
 
 const totpPanelTemplate = (profile) => {
@@ -344,7 +346,8 @@ const renderTotpSetupPanel = (setupPanel, result) => {
   const qrResult = { ...result, uri: totpQrUri(result) };
   setupPanel.hidden = false;
   setupPanel.innerHTML = `
-    <p>${mobileLayout ? "扫描二维码添加验证器，也可以手动输入下面的密钥。" : "在电脑上扫码添加，也可以切换成手动输入密钥。"}</p>
+    <p>${mobileLayout ? "可以直接跳转验证器，也可以扫描二维码或手动输入密钥。" : "在电脑上扫码添加，也可以切换成手动输入密钥。"}</p>
+    ${mobileLayout ? `<a class="button ghost small mobile-authenticator-link" href="${escapeHtml(result.uri)}">打开验证器</a>` : ""}
     <div class="totp-visual-card" id="totpVisualCard">
       <div class="totp-qr-shell" id="totpQrShell" aria-label="2FA 二维码">${safeRenderQrSvg(qrResult)}</div>
     </div>
@@ -579,6 +582,7 @@ const renderProfilePage = () => {
 const setupForumPost = () => {
   const searchToggle = $("#forumSearchToggle");
   const searchPanel = $("#forumSearchPanel");
+  const searchActions = $(".forum-toolbar-actions");
   const searchInput = $("#forumSearchInput");
   const searchClear = $("#forumSearchClear");
   const searchTip = $(".forum-search-tip");
@@ -609,6 +613,7 @@ const setupForumPost = () => {
       searchPanel.classList.toggle("is-open", open);
       searchPanel.setAttribute("aria-hidden", String(!open));
     }
+    searchActions?.classList.toggle("is-search-open", open);
     if (searchToggle) searchToggle.setAttribute("aria-expanded", String(open));
     if (open) {
       window.setTimeout(() => searchInput?.focus(), prefersReducedMotion() ? 0 : 40);
@@ -639,7 +644,7 @@ const setupForumPost = () => {
     state.forumSearch = "";
     if (searchInput) searchInput.value = "";
     renderLists();
-    syncSearch(true);
+    syncSearch(false);
   });
   searchTip?.addEventListener("mouseenter", () => setTipOpen(true));
   searchTip?.addEventListener("mouseleave", () => setTipOpen(false));
