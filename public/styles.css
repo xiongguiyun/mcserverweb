@@ -2870,7 +2870,7 @@ dialog.is-closing::backdrop {
 }
 
 .profile-page-card .skin-stage.large {
-  width: min(100%, 300px);
+  width: min(100%, 230px);
 }
 
 .skin-stage img,
@@ -2880,6 +2880,12 @@ dialog.is-closing::backdrop {
   object-fit: contain;
   object-position: center bottom;
   transform: none;
+}
+
+.profile-page-card .skin-stage.large img {
+  width: auto;
+  max-width: 82%;
+  max-height: 92%;
 }
 
 @media (max-width: 620px) {
@@ -2907,6 +2913,6 @@ dialog.is-closing::backdrop {
   }
 
   .profile-page-card .skin-stage.large {
-    width: min(100%, 250px);
+    width: min(100%, 200px);
   }
 }

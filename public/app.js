@@ -93,6 +93,10 @@ const avatarUrl = (name, size = 32) => minecraftImageUrl("avatar", name, size);
 const activeSkinSrc = (user, size = 210) => (user?.username ? skinUrl(user.username, size) : "/assets/unbound-skin.png");
 const activeAvatarSrc = (user, size = 32) => (user?.username ? avatarUrl(user.username, size) : "/assets/unbound-skin.png");
 const profileHref = (username) => `/profile.html?user=${encodeURIComponent(username)}`;
+const totpQrUri = (result) => {
+  const issuer = encodeURIComponent("LiouYang");
+  return `otpauth://totp/${issuer}?secret=${encodeURIComponent(result.secret || "")}&issuer=${issuer}`;
+};
 const currentProfileQuery = () => new URL(window.location.href).searchParams.get("user") || state.me?.username || "";
 const prefersReducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
 const dialogCloseDelay = () => (prefersReducedMotion() ? 0 : 240);
@@ -104,7 +108,6 @@ const renderTotpQrFallback = (result) => `
       <span class="totp-secret-label">&#25163;&#21160;&#23494;&#38053;</span>
       <code>${escapeHtml(result.secret)}</code>
     </div>
-    <a class="button ghost small" href="${escapeHtml(result.uri)}">&#25171;&#24320;&#39564;&#35777;&#22120;</a>
   </div>
 `;
 
@@ -338,46 +341,33 @@ const totpPanelTemplate = (profile) => {
 
 const renderTotpSetupPanel = (setupPanel, result) => {
   const mobileLayout = shouldUseMobileTotpLayout();
+  const qrResult = { ...result, uri: totpQrUri(result) };
   setupPanel.hidden = false;
   setupPanel.innerHTML = `
-    <p>${mobileLayout ? "在手机上可以直接打开验证器，也可以手动输入下面的密钥。" : "在电脑上可以直接扫码添加，也可以切换成手动输入密钥。"}</p>
-    ${
-      mobileLayout
-        ? `
-          <a class="button ghost small" href="${escapeHtml(result.uri)}">打开验证器</a>
-          <div class="totp-secret-card">
-            <span class="totp-secret-label">手动密钥</span>
-            <code>${escapeHtml(result.secret)}</code>
-          </div>
-        `
-        : `
-          <div class="totp-visual-card" id="totpVisualCard">
-            <div class="totp-qr-shell" id="totpQrShell" aria-label="2FA 二维码">${safeRenderQrSvg(result)}</div>
-          </div>
-          <button class="totp-text-toggle" type="button" id="totpSecretToggle">切换成密钥</button>
-          <div class="totp-secret-card" id="totpSecretCard" hidden>
-            <span class="totp-secret-label">手动密钥</span>
-            <code>${escapeHtml(result.secret)}</code>
-          </div>
-        `
-    }
+    <p>${mobileLayout ? "扫描二维码添加验证器，也可以手动输入下面的密钥。" : "在电脑上扫码添加，也可以切换成手动输入密钥。"}</p>
+    <div class="totp-visual-card" id="totpVisualCard">
+      <div class="totp-qr-shell" id="totpQrShell" aria-label="2FA 二维码">${safeRenderQrSvg(qrResult)}</div>
+    </div>
+    <button class="totp-text-toggle" type="button" id="totpSecretToggle">切换成密钥</button>
+    <div class="totp-secret-card" id="totpSecretCard" hidden>
+      <span class="totp-secret-label">手动密钥</span>
+      <code>${escapeHtml(result.secret)}</code>
+    </div>
     <div class="security-form">
       <input id="totpConfirmCode" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6 位验证码" />
       <button class="button primary" type="button" id="confirmTotpButton">确认启用</button>
     </div>
   `;
 
-  if (!mobileLayout) {
-    $("#totpSecretToggle")?.addEventListener("click", () => {
-      const visualCard = $("#totpVisualCard");
-      const secretCard = $("#totpSecretCard");
-      const showingSecret = !secretCard?.hidden;
-      if (secretCard) secretCard.hidden = showingSecret;
-      if (visualCard) visualCard.hidden = !showingSecret;
-      const toggle = $("#totpSecretToggle");
-      if (toggle) toggle.textContent = showingSecret ? "切换成密钥" : "切换成二维码";
-    });
-  }
+  $("#totpSecretToggle")?.addEventListener("click", () => {
+    const visualCard = $("#totpVisualCard");
+    const secretCard = $("#totpSecretCard");
+    const showingSecret = !secretCard?.hidden;
+    if (secretCard) secretCard.hidden = showingSecret;
+    if (visualCard) visualCard.hidden = !showingSecret;
+    const toggle = $("#totpSecretToggle");
+    if (toggle) toggle.textContent = showingSecret ? "切换成密钥" : "切换成二维码";
+  });
 
   $("#totpConfirmCode")?.focus();
   $("#confirmTotpButton")?.addEventListener("click", async () => {
@@ -564,7 +554,7 @@ const renderProfilePage = () => {
   }
   panel.innerHTML = `
     <div class="profile-page-card">
-      <div class="skin-stage large"><img src="${activeSkinSrc(profile, 240)}" alt="" loading="lazy" /></div>
+      <div class="skin-stage large"><img src="${activeSkinSrc(profile, 210)}" alt="" loading="lazy" /></div>
       <div class="profile-name ${profile.online ? "online" : ""}">
         <strong>${escapeHtml(profile.username)}</strong>
         <span>${escapeHtml(profile.accountType)} / 注册于 ${formatDate(profile.created_at)}</span>
