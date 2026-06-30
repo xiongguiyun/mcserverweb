@@ -294,7 +294,8 @@ const updateForumSearchStatus = () => {
   const query = state.forumSearch.trim();
   const total = state.posts.length;
   const matched = filterForumPosts(state.posts).length;
-  status.textContent = query ? `已筛选 ${matched}/${total} 条帖子` : `共 ${total} 条帖子`;
+  status.hidden = !query;
+  status.textContent = query ? `已筛选 ${matched}/${total} 条帖子` : "";
 };
 
 const totpPanelTemplate = (profile) => {
@@ -481,11 +482,6 @@ const setupEditor = () => {
     button.setAttribute("aria-expanded", String(!isOpen));
     if (menu) menu.hidden = isOpen;
     button.closest(".toolbar-more")?.classList.toggle("is-open", !isOpen);
-    if (menu && !isOpen) {
-      const rect = button.getBoundingClientRect();
-      menu.style.left = `${Math.min(rect.left, window.innerWidth - 170)}px`;
-      menu.style.top = `${rect.bottom + 8}px`;
-    }
   });
   $$(".toolbar-preview-button").forEach((button) => button.addEventListener("click", () => {
     const editor = $("#editor");
@@ -494,7 +490,6 @@ const setupEditor = () => {
     const title = $("#forumTitle")?.value.trim() || $("#title")?.value.trim() || "预览";
     previewContent.innerHTML = `
       <h1>${escapeHtml(title)}</h1>
-      <div class="meta">预览模式 路 仅查看当前编辑内容，不会直接保存</div>
       <div class="reader-body">${editor.innerHTML.trim() || "<p>暂无内容</p>"}</div>
     `;
     openPreviewDialog();
@@ -604,7 +599,7 @@ const setupForumPost = () => {
     state.forumSearch = "";
     if (searchInput) searchInput.value = "";
     renderLists();
-    syncSearch(false);
+    syncSearch(true);
   });
   syncSearch(false);
 

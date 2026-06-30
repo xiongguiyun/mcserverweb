@@ -2037,8 +2037,13 @@ button,
 }
 
 .toolbar-more-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  left: auto;
   z-index: 50;
-  min-width: 150px;
+  width: 150px;
+  max-width: calc(100vw - 16px);
   background: #fff7e8;
   border-color: #b9813e;
   border-radius: 6px;
@@ -2065,6 +2070,7 @@ button,
 }
 
 .forum-toolbar-actions {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 10px;
@@ -2101,15 +2107,20 @@ button,
 }
 
 .forum-search-panel {
+  position: absolute;
+  top: 50%;
+  right: calc(100% - 42px);
+  z-index: 8;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 10px;
   align-items: center;
-  margin: 0 0 18px auto;
+  margin: 0;
   padding: 14px;
-  width: min(100%, 520px);
-  transform-origin: right center;
-  transform: translateX(18px) scaleX(0.18);
+  width: min(520px, calc(100vw - 36px));
+  overflow: hidden;
+  transform: translateY(-50%);
+  clip-path: inset(0 0 0 calc(100% - 42px));
   opacity: 0;
   pointer-events: none;
   background: #fff4dd;
@@ -2117,12 +2128,12 @@ button,
   border-radius: 6px;
   box-shadow: 0 6px 0 rgba(106, 69, 35, 0.14);
   transition:
-    transform 0.22s ease,
+    clip-path 0.22s ease,
     opacity 0.18s ease;
 }
 
 .forum-search-panel.is-open {
-  transform: translateX(0) scaleX(1);
+  clip-path: none;
   opacity: 1;
   pointer-events: auto;
 }
@@ -2312,10 +2323,10 @@ dialog {
 
   .server-address-copy {
     display: grid;
-    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+    grid-template-columns: 1fr;
     align-items: center;
-    gap: 10px;
-    text-align: left;
+    gap: 6px;
+    text-align: center;
   }
 
   .server-address-copy dt,
@@ -2325,7 +2336,7 @@ dialog {
 
   .server-address-copy dd {
     font-size: 14px;
-    text-align: right;
+    text-align: center;
   }
 
   .forum-toolbar {
@@ -2636,6 +2647,17 @@ dialog.is-closing::backdrop {
 @media (max-width: 620px) {
   .forum-toolbar-actions {
     justify-content: center;
+  }
+
+  .forum-search-panel {
+    left: 0;
+    right: auto;
+    width: min(330px, calc(100vw - 28px));
+    clip-path: inset(0 calc(100% - 42px) 0 0);
+  }
+
+  .forum-search-panel.is-open {
+    clip-path: none;
   }
 
   #openPostComposer {
