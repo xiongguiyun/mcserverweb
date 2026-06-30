@@ -318,20 +318,46 @@ const showPromptDialog = (message, options = {}) =>
     ...options,
   });
 
+const floatingHostFor = (anchor) => anchor?.closest("dialog") || document.body;
+
 const updateToolbarMorePosition = () => {
   const menu = $("#moreMenu");
   const button = $("#moreButton");
   if (!menu || !button || menu.hidden) return;
   const container = button.closest(".toolbar-more");
   if (!container) return;
-  menu.style.removeProperty("left");
-  menu.style.removeProperty("top");
-  menu.style.removeProperty("bottom");
+  const host = floatingHostFor(button);
+  const isBodyHost = host === document.body;
+  if (menu.parentElement !== host) {
+    menu._toolbarMoreHost = container;
+    host.append(menu);
+  }
   const rect = button.getBoundingClientRect();
+  const hostRect = isBodyHost ? { left: 0, top: 0 } : host.getBoundingClientRect();
+  const menuWidth = menu.offsetWidth || 0;
   const menuHeight = menu.offsetHeight || 0;
-  const openUpward = rect.bottom + menuHeight + 12 > window.innerHeight;
-  container.classList.toggle("is-open-upward", openUpward);
-  menu.classList.toggle("is-open-upward", openUpward);
+  const margin = 8;
+  const scrollLeft = isBodyHost ? 0 : host.scrollLeft;
+  const scrollTop = isBodyHost ? 0 : host.scrollTop;
+  const maxWidth = isBodyHost ? window.innerWidth : host.clientWidth;
+  const maxHeight = isBodyHost ? window.innerHeight : host.clientHeight;
+  let left = rect.right - hostRect.left + scrollLeft - menuWidth;
+  let top = rect.bottom - hostRect.top + scrollTop + 10;
+  let isUpward = false;
+
+  left = Math.max(margin, Math.min(left, maxWidth + scrollLeft - menuWidth - margin));
+  if (top + menuHeight > maxHeight + scrollTop - margin) {
+    isUpward = true;
+    top = rect.top - hostRect.top + scrollTop - menuHeight - 10;
+  }
+  top = Math.max(scrollTop + margin, top);
+
+  menu.style.position = isBodyHost ? "fixed" : "absolute";
+  menu.style.left = `${Math.round(left)}px`;
+  menu.style.top = `${Math.round(top)}px`;
+  menu.style.right = "auto";
+  menu.style.bottom = "auto";
+  container.classList.toggle("is-open-upward", isUpward);
 };
 
 const closeToolbarMore = () => {
@@ -340,187 +366,15 @@ const closeToolbarMore = () => {
   if (!button || !menu) return;
   button.setAttribute("aria-expanded", "false");
   menu.hidden = true;
+  menu.style.removeProperty("position");
   menu.style.removeProperty("left");
   menu.style.removeProperty("top");
+  menu.style.removeProperty("right");
   menu.style.removeProperty("bottom");
-  button.closest(".toolbar-more")?.classList.remove("is-open", "is-open-upward");
-  menu.classList.remove("is-open-upward");
-};
-
-const createTableMarkup = (rows, cols) => {
-  const safeRows = Math.max(1, Math.min(10, Number(rows) || 1));
-  const safeCols = Math.max(1, Math.min(10, Number(cols) || 1));
-  const bodyRows = Array.from({ length: safeRows }, () => `<tr>${Array.from({ length: safeCols }, () => "<td>内容</td>").join("")}</tr>`).join("");
-  return `<div class="inline-table-wrap" data-table-wrap="true"><table class="inline-table" data-resizable-table="true">${bodyRows}</table></div><p><br></p>`;
-};
-
-const normalizeEditorTables = (root = $("#editor")) => {
-  if (!root) return;
-  root.querySelectorAll("table.inline-table").forEach((table) => {
-    table.dataset.resizableTable = "true";
-    const parent = table.parentElement;
-    if (parent?.classList.contains("inline-table-wrap")) return;
-    const wrapper = document.createElement("div");
-    wrapper.className = "inline-table-wrap";
-    wrapper.dataset.tableWrap = "true";
-    if (table.style.width) wrapper.style.width = table.style.width;
-    if (table.style.height) wrapper.style.height = table.style.height;
-    table.style.removeProperty("width");
-    table.style.removeProperty("height");
-    table.parentNode?.insertBefore(wrapper, table);
-    wrapper.append(table);
-  });
-};
-
-const serializeEditorContent = (root = $("#editor")) => {
-  if (!root) return "";
-  const clone = root.cloneNode(true);
-  clone.querySelectorAll(".table-selector-popover, .table-resize-handle").forEach((node) => node.remove());
-  clone.querySelectorAll(".inline-table-wrap").forEach((wrapper) => {
-    const table = wrapper.querySelector("table");
-    if (!table) return;
-    if (wrapper.style.width) table.style.width = wrapper.style.width;
-    if (wrapper.style.height) table.style.height = wrapper.style.height;
-    wrapper.replaceWith(table);
-  });
-  clone.querySelectorAll("table.inline-table").forEach((table) => table.removeAttribute("data-resizable-table"));
-  return clone.innerHTML.trim();
-};
-
-const attachTableResizeHandles = (root = $("#editor")) => {
-  if (!root) return;
-  normalizeEditorTables(root);
-  root.querySelectorAll(".inline-table-wrap").forEach((wrapper) => {
-    if (wrapper.querySelector(".table-resize-handle")) return;
-    const handle = document.createElement("button");
-    handle.type = "button";
-    handle.className = "table-resize-handle";
-    handle.setAttribute("aria-label", "拖动调整表格大小");
-    wrapper.append(handle);
-  });
-};
-
-const showTableSelector = (trigger) => {
-  const shell = trigger?.closest(".editor-toolbar-shell");
-  if (!shell) return;
-  let panel = shell.querySelector(".table-selector-popover");
-  if (!panel) {
-    panel = document.createElement("div");
-    panel.className = "table-selector-popover";
-    panel.hidden = true;
-    panel.innerHTML = `
-      <div class="table-selector-size" id="tableSelectorSize">1 × 1</div>
-      <div class="table-selector-grid" id="tableSelectorGrid"></div>
-    `;
-    shell.append(panel);
-    const grid = panel.querySelector("#tableSelectorGrid");
-    for (let row = 1; row <= 10; row += 1) {
-      for (let col = 1; col <= 10; col += 1) {
-        const cell = document.createElement("button");
-        cell.type = "button";
-        cell.className = "table-selector-cell";
-        cell.dataset.row = String(row);
-        cell.dataset.col = String(col);
-        grid?.append(cell);
-      }
-    }
+  if (menu._toolbarMoreHost && menu.parentElement !== menu._toolbarMoreHost) {
+    menu._toolbarMoreHost.append(menu);
   }
-
-  const sizeLabel = panel.querySelector("#tableSelectorSize");
-  const updateSelection = (rows, cols) => {
-    if (sizeLabel) sizeLabel.textContent = `${cols} × ${rows}`;
-    panel.querySelectorAll(".table-selector-cell").forEach((cell) => {
-      const active = Number(cell.dataset.row) <= rows && Number(cell.dataset.col) <= cols;
-      cell.classList.toggle("is-active", active);
-    });
-  };
-
-  updateSelection(1, 1);
-  panel.hidden = false;
-
-  const buttonRect = trigger.getBoundingClientRect();
-  const shellRect = shell.getBoundingClientRect();
-  panel.style.left = `${Math.max(0, buttonRect.left - shellRect.left)}px`;
-  panel.style.top = `${buttonRect.bottom - shellRect.top + 10}px`;
-
-  const closePanel = () => {
-    panel.hidden = true;
-    panel.removeEventListener("pointermove", onPointerMove);
-    panel.removeEventListener("click", onClick);
-    document.removeEventListener("click", onDocumentClick, true);
-  };
-
-  const onPointerMove = (event) => {
-    const cell = event.target.closest(".table-selector-cell");
-    if (!cell) return;
-    updateSelection(Number(cell.dataset.row), Number(cell.dataset.col));
-  };
-
-  const onClick = (event) => {
-    const cell = event.target.closest(".table-selector-cell");
-    if (!cell) return;
-    const rows = Number(cell.dataset.row);
-    const cols = Number(cell.dataset.col);
-    closePanel();
-    insertHtmlBlock(createTableMarkup(rows, cols));
-    normalizeEditorTables();
-    attachTableResizeHandles();
-  };
-
-  const onDocumentClick = (event) => {
-    if (panel.contains(event.target) || trigger.contains(event.target)) return;
-    closePanel();
-  };
-
-  panel.addEventListener("pointermove", onPointerMove);
-  panel.addEventListener("click", onClick);
-  document.addEventListener("click", onDocumentClick, true);
-};
-
-const bindEditorTableResize = () => {
-  const editor = $("#editor");
-  if (!editor || editor.dataset.tableResizeBound === "true") return;
-  editor.dataset.tableResizeBound = "true";
-
-  let activeResize = null;
-
-  editor.addEventListener("pointerdown", (event) => {
-    const handle = event.target.closest(".table-resize-handle");
-    if (!handle) return;
-    const wrapper = handle.closest(".inline-table-wrap");
-    const table = wrapper?.querySelector("table.inline-table");
-    if (!wrapper || !table) return;
-    event.preventDefault();
-    const rect = wrapper.getBoundingClientRect();
-    activeResize = {
-      wrapper,
-      table,
-      startX: event.clientX,
-      startY: event.clientY,
-      startWidth: rect.width,
-      startHeight: rect.height,
-    };
-    document.body.classList.add("is-resizing-table");
-  });
-
-  window.addEventListener("pointermove", (event) => {
-    if (!activeResize) return;
-    const width = Math.max(180, activeResize.startWidth + (event.clientX - activeResize.startX));
-    const height = Math.max(120, activeResize.startHeight + (event.clientY - activeResize.startY));
-    activeResize.wrapper.style.width = `${width}px`;
-    activeResize.wrapper.style.height = `${height}px`;
-    activeResize.table.style.width = "100%";
-    activeResize.table.style.height = "100%";
-  });
-
-  const stopResize = () => {
-    if (!activeResize) return;
-    activeResize = null;
-    document.body.classList.remove("is-resizing-table");
-  };
-
-  window.addEventListener("pointerup", stopResize);
-  window.addEventListener("pointercancel", stopResize);
+  button.closest(".toolbar-more")?.classList.remove("is-open", "is-open-upward");
 };
 
 const renderAuth = () => {
@@ -768,8 +622,6 @@ const bindContentButtons = () => {
       state.editingPostId = post.id;
       $("#forumTitle").value = post.title;
       $("#editor").innerHTML = post.content_html;
-      normalizeEditorTables();
-      attachTableResizeHandles();
       $("#forumPostSubmit").textContent = "保存修改";
       openPostDialog();
     });
@@ -814,11 +666,129 @@ const command = (name, value = null) => {
 
 const insertHtmlBlock = (html) => command("insertHTML", html);
 
+const createTableHtml = (rows, cols) => {
+  const safeRows = Math.max(1, Math.min(10, Number(rows) || 1));
+  const safeCols = Math.max(1, Math.min(10, Number(cols) || 1));
+  const cells = Array.from({ length: safeCols }, () => "<td><br></td>").join("");
+  const body = Array.from({ length: safeRows }, () => `<tr>${cells}</tr>`).join("");
+  const width = Math.max(100, safeCols * 88);
+  return `<table class="inline-table" data-table-rows="${safeRows}" data-table-cols="${safeCols}" style="width: ${width}px; table-layout: fixed;">${body}</table><p><br></p>`;
+};
+
+let tablePicker = null;
+let tablePickerSelection = { rows: 1, cols: 1 };
+let tablePickerAnchor = null;
+let tablePickerHost = null;
+
+const setTablePickerSelection = (rows, cols) => {
+  tablePickerSelection = { rows, cols };
+  if (!tablePicker) return;
+  const label = tablePicker.querySelector("[data-table-picker-label]");
+  if (label) label.textContent = `${rows} × ${cols}`;
+  tablePicker.querySelectorAll(".table-picker-cell").forEach((cell) => {
+    const cellRows = Number(cell.dataset.row);
+    const cellCols = Number(cell.dataset.col);
+    cell.classList.toggle("is-active", cellRows <= rows && cellCols <= cols);
+  });
+};
+
+const positionTablePicker = () => {
+  if (!tablePicker || tablePicker.hidden || !tablePickerAnchor) return;
+  const rect = tablePickerAnchor.getBoundingClientRect();
+  const host = tablePickerHost || document.body;
+  const isBodyHost = host === document.body;
+  const hostRect = isBodyHost ? { left: 0, top: 0 } : host.getBoundingClientRect();
+  const margin = 8;
+  const pickerRect = tablePicker.getBoundingClientRect();
+  const scrollLeft = isBodyHost ? 0 : host.scrollLeft;
+  const scrollTop = isBodyHost ? 0 : host.scrollTop;
+  const maxWidth = isBodyHost ? window.innerWidth : host.clientWidth;
+  const maxHeight = isBodyHost ? window.innerHeight : host.clientHeight;
+  let left = rect.left - hostRect.left + scrollLeft;
+  let top = rect.bottom - hostRect.top + scrollTop + 10;
+  if (left + pickerRect.width > maxWidth + scrollLeft - margin) {
+    left = maxWidth + scrollLeft - pickerRect.width - margin;
+  }
+  if (left < scrollLeft + margin) left = scrollLeft + margin;
+  if (top + pickerRect.height > maxHeight + scrollTop - margin) {
+    top = rect.top - hostRect.top + scrollTop - pickerRect.height - 10;
+  }
+  if (top < scrollTop + margin) top = scrollTop + margin;
+  tablePicker.style.position = isBodyHost ? "fixed" : "absolute";
+  tablePicker.style.left = `${Math.round(left)}px`;
+  tablePicker.style.top = `${Math.round(top)}px`;
+};
+
+const closeTablePicker = () => {
+  if (!tablePicker) return;
+  tablePicker.hidden = true;
+  tablePicker.classList.remove("is-open");
+  tablePickerAnchor = null;
+  tablePickerHost = null;
+};
+
+const openTablePicker = (anchor) => {
+  if (!anchor) return;
+  if (!tablePicker) {
+    tablePicker = document.createElement("div");
+    tablePicker.className = "table-picker";
+    tablePicker.hidden = true;
+    tablePicker.innerHTML = `
+      <div class="table-picker-head">
+        <strong data-table-picker-label>1 × 1</strong>
+        <span>拖动鼠标选择行和列</span>
+      </div>
+      <div class="table-picker-grid" role="grid" aria-label="表格尺寸选择器"></div>
+      <div class="table-picker-foot">点击即可插入表格</div>
+    `;
+    const grid = tablePicker.querySelector(".table-picker-grid");
+    for (let row = 1; row <= 10; row += 1) {
+      for (let col = 1; col <= 10; col += 1) {
+        const cell = document.createElement("button");
+        cell.type = "button";
+        cell.className = "table-picker-cell";
+        cell.dataset.row = String(row);
+        cell.dataset.col = String(col);
+        cell.setAttribute("aria-label", `${row} × ${col}`);
+        cell.addEventListener("pointerenter", () => setTablePickerSelection(row, col));
+        cell.addEventListener("click", () => {
+          insertHtmlBlock(createTableHtml(row, col));
+          closeTablePicker();
+        });
+        grid?.append(cell);
+      }
+    }
+    tablePicker.addEventListener("pointerleave", () => setTablePickerSelection(tablePickerSelection.rows, tablePickerSelection.cols));
+    document.body.append(tablePicker);
+    window.addEventListener("resize", positionTablePicker);
+    window.addEventListener("scroll", positionTablePicker, { passive: true });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") closeTablePicker();
+    });
+    document.addEventListener("click", (event) => {
+      if (!tablePicker || tablePicker.hidden) return;
+      const target = event.target;
+      if (tablePicker.contains(target) || tablePickerAnchor?.contains(target)) return;
+      closeTablePicker();
+    });
+  }
+
+  if (tablePicker.hidden) {
+    tablePickerAnchor = anchor;
+    tablePickerHost = floatingHostFor(anchor);
+    if (tablePicker.parentElement !== tablePickerHost) tablePickerHost.append(tablePicker);
+    tablePicker.hidden = false;
+    tablePicker.classList.add("is-open");
+    setTablePickerSelection(1, 1);
+    window.requestAnimationFrame(() => positionTablePicker());
+    return;
+  }
+
+  closeTablePicker();
+};
+
 const setupEditor = () => {
   if (!$("#editor")) return;
-  bindEditorTableResize();
-  normalizeEditorTables();
-  attachTableResizeHandles();
   $$("[data-command]").forEach((button) => button.addEventListener("click", () => command(button.dataset.command)));
   $("#fontSizeSelect")?.addEventListener("change", (event) => {
     if (event.target.value) command("fontSize", event.target.value);
@@ -852,7 +822,8 @@ const setupEditor = () => {
   });
   $("#tableButton")?.addEventListener("click", (event) => {
     event.stopPropagation();
-    showTableSelector(event.currentTarget);
+    closeToolbarMore();
+    openTablePicker(event.currentTarget);
   });
   $("#spoilerButton")?.addEventListener("click", () => insertHtmlBlock(`<span class="spoiler-inline">隐藏内容</span>`));
   $("#hrButton")?.addEventListener("click", () => insertHtmlBlock(`<hr class="inline-rule" />`));
@@ -889,23 +860,17 @@ const setupEditor = () => {
     event.stopPropagation();
     const button = $("#moreButton");
     const menu = $("#moreMenu");
-    const shell = button?.closest(".editor-toolbar-shell");
-    if (!button || !menu || !shell) return;
+    if (!button || !menu) return;
     const isOpen = button.getAttribute("aria-expanded") === "true";
+    if (isOpen) {
+      closeToolbarMore();
+      closeTablePicker();
+      return;
+    }
     button.setAttribute("aria-expanded", String(!isOpen));
     menu.hidden = isOpen;
     button.closest(".toolbar-more")?.classList.toggle("is-open", !isOpen);
-    if (!isOpen) {
-      updateToolbarMorePosition();
-      const buttonRect = button.getBoundingClientRect();
-      const shellRect = shell.getBoundingClientRect();
-      menu.style.left = `${Math.max(0, buttonRect.right - shellRect.left - menu.offsetWidth)}px`;
-      if (menu.classList.contains("is-open-upward")) {
-        menu.style.bottom = `${shellRect.bottom - buttonRect.top + 10}px`;
-      } else {
-        menu.style.top = `${buttonRect.bottom - shellRect.top + 10}px`;
-      }
-    }
+    window.requestAnimationFrame(() => updateToolbarMorePosition());
   });
   $("#moreMenu")?.addEventListener("click", (event) => event.stopPropagation());
   document.addEventListener("click", closeToolbarMore);
@@ -918,7 +883,7 @@ const setupEditor = () => {
     const title = $("#forumTitle")?.value.trim() || $("#title")?.value.trim() || "预览";
     previewContent.innerHTML = `
       <h1>${escapeHtml(title)}</h1>
-      <div class="reader-body">${serializeEditorContent(editor) || "<p>暂无内容</p>"}</div>
+      <div class="reader-body">${editor.innerHTML.trim() || "<p>暂无内容</p>"}</div>
     `;
     openPreviewDialog();
   }));
@@ -1098,7 +1063,6 @@ const setupForumPost = () => {
     state.editingPostId = null;
     $("#forumPostForm")?.reset();
     if ($("#editor")) $("#editor").innerHTML = "";
-    normalizeEditorTables();
     if ($("#forumPostSubmit")) $("#forumPostSubmit").textContent = "发布帖子";
     openPostDialog();
   });
@@ -1109,7 +1073,7 @@ const setupForumPost = () => {
       return;
     }
     const title = $("#forumTitle").value.trim();
-    const contentHtml = serializeEditorContent($("#editor"));
+    const contentHtml = $("#editor").innerHTML.trim();
     const endpoint = state.editingPostId ? `/posts/${state.editingPostId}` : "/posts";
     await api(endpoint, { method: state.editingPostId ? "PUT" : "POST", body: JSON.stringify({ title, contentHtml }) });
     state.editingPostId = null;
@@ -1123,7 +1087,6 @@ const resetEditor = () => {
   $("#editingId").value = "";
   $("#publishForm")?.reset();
   if ($("#editor")) $("#editor").innerHTML = "";
-  normalizeEditorTables();
   $("#contentType")?.removeAttribute("disabled");
 };
 
@@ -1133,7 +1096,7 @@ const setupPublish = () => {
     const type = $("#contentType").value;
     const id = $("#editingId").value;
     const title = $("#title").value.trim();
-    const contentHtml = serializeEditorContent($("#editor"));
+    const contentHtml = $("#editor").innerHTML.trim();
     const endpoint = type === "announcement" ? "/announcements" : "/posts";
     await api(id ? `${endpoint}/${id}` : endpoint, { method: id ? "PUT" : "POST", body: JSON.stringify({ title, contentHtml }) });
     resetEditor();
@@ -1208,8 +1171,6 @@ const renderManagement = () => {
       $("#contentType").setAttribute("disabled", "disabled");
       $("#title").value = item.title;
       $("#editor").innerHTML = item.content_html;
-      normalizeEditorTables();
-      attachTableResizeHandles();
       $("#publishForm")?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
   });
@@ -1422,6 +1383,9 @@ const setupAdminMobileDrawer = () => {
 
 const setupDialogDismiss = () => {
   $$("dialog").forEach((dialog) => {
+    dialog.querySelectorAll("[data-dialog-close]").forEach((button) =>
+      button.addEventListener("click", () => closeDialogAnimated(dialog)),
+    );
     dialog.addEventListener("cancel", (event) => {
       event.preventDefault();
       closeDialogAnimated(dialog);
@@ -1535,7 +1499,6 @@ $("#toast")?.addEventListener("click", async (event) => {
   await navigator.clipboard?.writeText(copyText).catch(() => {});
 });
 
-$$("[data-close-preview]").forEach((button) => button.addEventListener("click", closePreviewDialog));
 setupDialogDismiss();
 setupLoginPage();
 setupEditor();
