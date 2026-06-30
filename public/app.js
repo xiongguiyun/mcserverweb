@@ -40,7 +40,7 @@ const api = async (path, options = {}) => {
     payload = { error: isHtmlFallback ? staticPreviewNotice : raw.trim() };
   }
   if (!response.ok) {
-    const message = payload.error || `璇锋眰澶辫触 (${response.status})`;
+    const message = payload.error || `请求失败 (${response.status})`;
     showToast(message, { copyText: message === staticPreviewNotice ? "" : message });
     const error = new Error(message);
     error.payload = payload;
@@ -166,7 +166,7 @@ const renderAuth = () => {
       <img class="user-avatar" src="${activeAvatarSrc(state.me, 32)}" alt="" />
       <span class="user-chip">${escapeHtml(state.me.username)}</span>
     </a>
-    <button class="button small ghost" id="logoutButton" type="button">閫€鍑?/button>
+    <button class="button small ghost" id="logoutButton" type="button">退出</button>
   `;
   $("#logoutButton")?.addEventListener("click", async () => {
     await api("/logout", { method: "POST" });
@@ -210,9 +210,9 @@ const renderMaintenanceGate = () => {
     ? `
       <div class="maintenance-user">
         <img class="user-avatar large" src="${activeAvatarSrc(state.me, 48)}" alt="" />
-        <div><strong>${escapeHtml(state.me.username)}</strong><p>浣犲凡鐧诲綍锛屼絾缃戠珯褰撳墠缁存姢涓紝璇风◢鍚庡啀鏉ャ€?/p></div>
+        <div><strong>${escapeHtml(state.me.username)}</strong><p>你已登录，但网站当前维护中，请稍后再来。</p></div>
       </div>`
-    : `<p>缃戠珯姝ｅ湪缁存姢涓紝鏆傛椂浠呯鐞嗗憳鍙櫥褰曘€?/p><a class="button primary" href="/login.html">绠＄悊鍛樼櫥褰?/a>`;
+    : `<p>网站正在维护中，暂时仅管理员可登录。</p><a class="button primary" href="/login.html">管理员登录</a>`;
 };
 
 const cardTemplate = (item, type) => {
@@ -228,17 +228,17 @@ const cardTemplate = (item, type) => {
       ${skin}
       <h3>${escapeHtml(item.title)}</h3>
       <div class="meta">
-        ${type === "announcement" ? "鍏憡" : "鐜╁璁哄潧"} 路
-        <a class="author-link" href="${profileHref(author)}">${escapeHtml(author)}</a> 路
+        ${type === "announcement" ? "公告" : "玩家论坛"} /
+        <a class="author-link" href="${profileHref(author)}">${escapeHtml(author)}</a> /
         ${formatDate(item.created_at)}
       </div>
       <p>${escapeHtml(excerpt || "暂无摘要。")}</p>
       <div class="card-actions">
-        <button class="button ghost read-button" type="button" data-type="${type}" data-id="${item.id}">闃呰</button>
+        <button class="button ghost read-button" type="button" data-type="${type}" data-id="${item.id}">阅读</button>
         ${
           canManagePost
-            ? `<button class="button ghost" type="button" data-edit-post="${item.id}">缂栬緫</button>
-               <button class="button danger" type="button" data-delete-post="${item.id}">鍒犻櫎</button>`
+            ? `<button class="button ghost" type="button" data-edit-post="${item.id}">编辑</button>
+               <button class="button danger" type="button" data-delete-post="${item.id}">删除</button>`
             : ""
         }
       </div>
@@ -251,14 +251,14 @@ const renderLists = () => {
   if (announcementList) {
     announcementList.innerHTML = state.announcements.length
       ? state.announcements.map((item) => cardTemplate(item, "announcement")).join("")
-      : `<div class="empty">杩樻病鏈夊叕鍛娿€?/div>`;
+      : `<div class="empty">还没有公告。</div>`;
   }
   const postList = $("#postList");
   if (postList) {
     const filteredPosts = filterForumPosts(state.posts);
     postList.innerHTML = filteredPosts.length
       ? filteredPosts.map((item) => cardTemplate(item, "post")).join("")
-      : `<div class="empty">杩樻病鏈夊笘瀛愩€?/div>`;
+      : `<div class="empty">还没有帖子。</div>`;
   }
   updateForumSearchStatus();
   bindContentButtons();
@@ -301,13 +301,13 @@ const totpPanelTemplate = (profile) => {
   if (!profile?.isSelf || profile.role !== "admin") return "";
   return `
     <section class="account-security" id="accountSecurity">
-      <h3>鍙岄噸楠岃瘉</h3>
+      <h3>双重验证</h3>
       <p>${profile.totp_enabled ? "当前已开启，登录后台时需要填写 6 位验证码。" : "开启后，登录后台时需要额外填写 Authenticator 验证码。"}</p>
       <div class="security-form">
         ${
           profile.totp_enabled
-            ? `<button class="button danger" type="button" id="disableTotpButton">鍏抽棴 2FA</button>`
-            : `<button class="button primary" type="button" id="beginTotpButton">寮€鍚?2FA</button>`
+            ? `<button class="button danger" type="button" id="disableTotpButton">关闭 2FA</button>`
+            : `<button class="button primary" type="button" id="beginTotpButton">开启 2FA</button>`
         }
       </div>
       <div class="totp-panel" id="totpSetupPanel" hidden></div>
@@ -323,26 +323,26 @@ const renderTotpSetupPanel = (setupPanel, result) => {
     ${
       mobileLayout
         ? `
-          <a class="button ghost small" href="${escapeHtml(result.uri)}">鎵撳紑楠岃瘉鍣?/a>
+          <a class="button ghost small" href="${escapeHtml(result.uri)}">打开验证器</a>
           <div class="totp-secret-card">
-            <span class="totp-secret-label">鎵嬪姩瀵嗛挜</span>
+            <span class="totp-secret-label">手动密钥</span>
             <code>${escapeHtml(result.secret)}</code>
           </div>
         `
         : `
           <div class="totp-visual-card" id="totpVisualCard">
-            <div class="totp-qr-shell" id="totpQrShell" aria-label="2FA 浜岀淮鐮?>${safeRenderQrSvg(result)}</div>
+            <div class="totp-qr-shell" id="totpQrShell" aria-label="2FA 二维码">${safeRenderQrSvg(result)}</div>
           </div>
-          <button class="totp-text-toggle" type="button" id="totpSecretToggle">鍒囨崲鎴愬瘑閽?/button>
+          <button class="totp-text-toggle" type="button" id="totpSecretToggle">切换成密钥</button>
           <div class="totp-secret-card" id="totpSecretCard" hidden>
-            <span class="totp-secret-label">鎵嬪姩瀵嗛挜</span>
+            <span class="totp-secret-label">手动密钥</span>
             <code>${escapeHtml(result.secret)}</code>
           </div>
         `
     }
     <div class="security-form">
-      <input id="totpConfirmCode" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6 浣嶉獙璇佺爜" />
-      <button class="button primary" type="button" id="confirmTotpButton">纭鍚敤</button>
+      <input id="totpConfirmCode" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6 位验证码" />
+      <button class="button primary" type="button" id="confirmTotpButton">确认启用</button>
     </div>
   `;
 
@@ -376,27 +376,10 @@ const bindTotpSecurity = () => {
     const result = await api("/me/totp/begin", { method: "POST" });
     if (!setupPanel) return;
     renderTotpSetupPanel(setupPanel, result);
-    return;
-    setupPanel.innerHTML = `
-      <p>鍦?Authenticator 閲屾墜鍔ㄨ緭鍏ヤ笅闈㈢殑瀵嗛挜锛岀劧鍚庡～鍐欑敓鎴愮殑 6 浣嶉獙璇佺爜纭鍚敤銆?/p>
-      <code>${escapeHtml(result.secret)}</code>
-      <a class="button ghost small" href="${escapeHtml(result.uri)}">鎵撳紑楠岃瘉鍣ㄩ摼鎺?/a>
-      <div class="security-form">
-        <input id="totpConfirmCode" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6 浣嶉獙璇佺爜" />
-        <button class="button primary" type="button" id="confirmTotpButton">纭鍚敤</button>
-      </div>
-    `;
-    $("#totpConfirmCode")?.focus();
-    $("#confirmTotpButton")?.addEventListener("click", async () => {
-      const code = $("#totpConfirmCode")?.value.trim() || "";
-      await api("/me/totp/confirm", { method: "POST", body: JSON.stringify({ code }) });
-      await refreshPageData();
-      showToast("2FA 已开启");
-    });
   });
 
   disableButton?.addEventListener("click", async () => {
-    if (!window.confirm("纭畾鍏抽棴 2FA 鍚楋紵")) return;
+    if (!window.confirm("确定关闭 2FA 吗？")) return;
     await api("/me/totp", { method: "DELETE" });
     await refreshPageData();
     showToast("2FA 已关闭");
@@ -414,7 +397,7 @@ const bindContentButtons = () => {
       state.editingPostId = post.id;
       $("#forumTitle").value = post.title;
       $("#editor").innerHTML = post.content_html;
-      $("#forumPostSubmit").textContent = "淇濆瓨淇敼";
+      $("#forumPostSubmit").textContent = "保存修改";
       openPostDialog();
     });
   });
@@ -423,7 +406,7 @@ const bindContentButtons = () => {
       if (!window.confirm("删除后会进入回收站，7 天后彻底删除。确定继续吗？")) return;
       await api(`/posts/${button.dataset.deletePost}`, { method: "DELETE" });
       await loadPublicData();
-      showToast("甯栧瓙宸茬Щ鍏ュ洖鏀剁珯");
+      showToast("帖子已移入回收站");
     });
   });
 };
@@ -437,7 +420,7 @@ const openReader = (type, id) => {
   const author = item.author || "管理员";
   $("#readerContent").innerHTML = `
     <h1>${escapeHtml(item.title)}</h1>
-    <div class="meta"><a class="author-link" href="${profileHref(author)}">${escapeHtml(author)}</a> 路 ${formatDate(item.created_at)} 路 ${item.views || 0} 娆℃祻瑙?/div>
+    <div class="meta"><a class="author-link" href="${profileHref(author)}">${escapeHtml(author)}</a> / ${formatDate(item.created_at)} / ${item.views || 0} 次浏览</div>
     <div class="reader-body">${item.content_html}</div>
   `;
   openDialog($("#readerDialog"));
@@ -464,23 +447,23 @@ const setupEditor = () => {
     event.target.value = "";
   });
   $("#linkButton")?.addEventListener("click", () => {
-    const url = window.prompt("杈撳叆閾炬帴鍦板潃");
+    const url = window.prompt("输入链接地址");
     if (url) command("createLink", url);
   });
   $("#imageButton")?.addEventListener("click", () => {
-    const url = window.prompt("杈撳叆鍥剧墖閾炬帴");
+    const url = window.prompt("输入图片链接");
     if (url) insertHtmlBlock(`<p><img src="${escapeHtml(url)}" alt="" class="inline-image" /></p>`);
   });
   $("#tableButton")?.addEventListener("click", () =>
-    insertHtmlBlock(`<table class="inline-table"><tr><th>鍒?1</th><th>鍒?2</th></tr><tr><td>鍐呭</td><td>鍐呭</td></tr></table><p><br></p>`),
+    insertHtmlBlock(`<table class="inline-table"><tr><th>列 1</th><th>列 2</th></tr><tr><td>内容</td><td>内容</td></tr></table><p><br></p>`),
   );
-  $("#spoilerButton")?.addEventListener("click", () => insertHtmlBlock(`<span class="spoiler-inline">闅愯棌鍐呭</span>`));
+  $("#spoilerButton")?.addEventListener("click", () => insertHtmlBlock(`<span class="spoiler-inline">隐藏内容</span>`));
   $("#hrButton")?.addEventListener("click", () => insertHtmlBlock(`<hr class="inline-rule" />`));
-  $("#detailsButton")?.addEventListener("click", () => insertHtmlBlock(`<details class="inline-details"><summary>鐐瑰嚮灞曞紑</summary><p>鎶樺彔鍐呭</p></details><p><br></p>`));
+  $("#detailsButton")?.addEventListener("click", () => insertHtmlBlock(`<details class="inline-details"><summary>点击展开</summary><p>折叠内容</p></details><p><br></p>`));
   $("#codeButton")?.addEventListener("click", () => insertHtmlBlock(`<pre class="inline-code"><code>// code</code></pre><p><br></p>`));
-  $("#quoteButton")?.addEventListener("click", () => insertHtmlBlock(`<blockquote>寮曠敤鍐呭</blockquote><p><br></p>`));
+  $("#quoteButton")?.addEventListener("click", () => insertHtmlBlock(`<blockquote>引用内容</blockquote><p><br></p>`));
   $("#colorButton")?.addEventListener("click", () => {
-    const color = window.prompt("杈撳叆鏂囨湰棰滆壊锛屼緥濡?#ff6600");
+    const color = window.prompt("输入文本颜色，例如 #ff6600");
     if (color) command("foreColor", color);
   });
   $("#bilibiliButton")?.addEventListener("click", () => {
@@ -488,7 +471,7 @@ const setupEditor = () => {
     const bv = input?.match(/BV[a-zA-Z0-9]{8,12}/)?.[0];
     const av = input?.match(/(?:av|aid=)(\d+)/i)?.[1];
     const src = bv ? `https://player.bilibili.com/player.html?bvid=${encodeURIComponent(bv)}` : av ? `https://player.bilibili.com/player.html?aid=${encodeURIComponent(av)}` : null;
-    if (!src) return showToast("娌℃湁璇嗗埆鍒版湁鏁堢殑 Bilibili 瑙嗛 ID");
+    if (!src) return showToast("没有识别到有效的 Bilibili 视频 ID");
     insertHtmlBlock(`<p><iframe src="${src}" allowfullscreen loading="lazy"></iframe></p><p><br></p>`);
   });
   $("#moreButton")?.addEventListener("click", () => {
@@ -508,11 +491,11 @@ const setupEditor = () => {
     const editor = $("#editor");
     const previewContent = $("#previewContent");
     if (!editor || !previewContent) return;
-    const title = $("#forumTitle")?.value.trim() || $("#title")?.value.trim() || "棰勮";
+    const title = $("#forumTitle")?.value.trim() || $("#title")?.value.trim() || "预览";
     previewContent.innerHTML = `
       <h1>${escapeHtml(title)}</h1>
-      <div class="meta">棰勮妯″紡 路 浠呮煡鐪嬪綋鍓嶇紪杈戝唴瀹癸紝涓嶄細鐩存帴淇濆瓨</div>
-      <div class="reader-body">${editor.innerHTML.trim() || "<p>鏆傛棤鍐呭</p>"}</div>
+      <div class="meta">预览模式 路 仅查看当前编辑内容，不会直接保存</div>
+      <div class="reader-body">${editor.innerHTML.trim() || "<p>暂无内容</p>"}</div>
     `;
     openPreviewDialog();
   }));
@@ -524,16 +507,16 @@ const renderForumProfileCard = () => {
   if (!state.me) {
     card.classList.remove("is-logged-in");
     card.innerHTML = `
-      <h2>鐜╁璧勬枡</h2>
+      <h2>玩家资料</h2>
       <div class="skin-stage"><img src="/assets/unbound-skin.png" alt="" loading="lazy" /></div>
-      <p>璁哄潧褰撳墠鍙厑璁哥鐞嗗憳璐﹀彿鐧诲綍涓庡彂甯栫鐞嗐€?/p>
-      <a class="button primary" href="/login.html">绠＄悊鍛樼櫥褰?/a>
+      <p>论坛当前只允许管理员账号登录与发布管理。</p>
+      <a class="button primary" href="/login.html">管理员登录</a>
     `;
     return;
   }
   card.classList.add("is-logged-in");
   card.innerHTML = `
-    <h2>鐜╁璧勬枡</h2>
+    <h2>玩家资料</h2>
     <a class="profile-card-link" href="${profileHref(state.me.username)}">
       <div class="skin-stage"><img src="${activeSkinSrc(state.me, 210)}" alt="" loading="lazy" /></div>
       <div class="profile-name ${state.me.last_seen_at ? "online" : ""}">
@@ -542,8 +525,8 @@ const renderForumProfileCard = () => {
       </div>
     </a>
     <div class="profile-actions">
-      <a class="button ghost" href="${profileHref(state.me.username)}">鏌ョ湅璧勬枡椤?/a>
-      ${isAdmin() ? `<a class="button primary" href="/admin.html">鍚庡彴绠＄悊</a>` : ""}
+      <a class="button ghost" href="${profileHref(state.me.username)}">查看资料页</a>
+      ${isAdmin() ? `<a class="button primary" href="/admin.html">后台管理</a>` : ""}
     </div>
   `;
 };
@@ -554,7 +537,7 @@ const renderProfilePage = () => {
   if (!panel || !posts) return;
   const profile = state.profile;
   if (!profile) {
-    panel.innerHTML = `<div class="empty">娌℃湁鎵惧埌杩欎釜鐜╁銆?/div>`;
+    panel.innerHTML = `<div class="empty">没有找到这个玩家。</div>`;
     posts.innerHTML = "";
     return;
   }
@@ -563,19 +546,19 @@ const renderProfilePage = () => {
       <div class="skin-stage large"><img src="${activeSkinSrc(profile, 240)}" alt="" loading="lazy" /></div>
       <div class="profile-name ${profile.online ? "online" : ""}">
         <strong>${escapeHtml(profile.username)}</strong>
-        <span>${escapeHtml(profile.accountType)} 路 娉ㄥ唽浜?${formatDate(profile.created_at)}</span>
+        <span>${escapeHtml(profile.accountType)} / 注册于 ${formatDate(profile.created_at)}</span>
       </div>
       <div class="profile-summary">
-        <div><strong>${profile.postCount}</strong><span>鏈€杩戝笘瀛?/span></div>
-        <div><strong>${escapeHtml(profile.accountType)}</strong><span>璐﹀彿绫诲瀷</span></div>
+        <div><strong>${profile.postCount}</strong><span>最近帖子</span></div>
+        <div><strong>${escapeHtml(profile.accountType)}</strong><span>账号类型</span></div>
       </div>
       ${totpPanelTemplate(profile)}
     </div>
   `;
   posts.innerHTML = `
-    <div class="section-title compact"><h2>${escapeHtml(profile.username)} 鐨勫笘瀛?/h2><p>灞曠ず鏈€杩?20 绡囩帺瀹跺唴瀹广€?/p></div>
+    <div class="section-title compact"><h2>${escapeHtml(profile.username)} 的帖子</h2><p>展示最近 20 篇玩家内容。</p></div>
     <div class="list forum-list">${
-      profile.posts.length ? profile.posts.map((item) => cardTemplate({ ...item, author: profile.username }, "post")).join("") : `<div class="empty">杩欎釜鐜╁鏆傛椂杩樻病鏈夊彂甯栥€?/div>`
+      profile.posts.length ? profile.posts.map((item) => cardTemplate({ ...item, author: profile.username }, "post")).join("") : `<div class="empty">这个玩家暂时还没有发布。</div>`
     }</div>
   `;
   bindTotpSecurity();
@@ -633,7 +616,7 @@ const setupForumPost = () => {
     state.editingPostId = null;
     $("#forumPostForm")?.reset();
     if ($("#editor")) $("#editor").innerHTML = "";
-    if ($("#forumPostSubmit")) $("#forumPostSubmit").textContent = "鍙戝竷甯栧瓙";
+    if ($("#forumPostSubmit")) $("#forumPostSubmit").textContent = "发布帖子";
     openPostDialog();
   });
   $$("[data-close-post]").forEach((button) => button.addEventListener("click", closePostDialog));
@@ -691,8 +674,8 @@ const renderStats = () => {
   if (!$("#statsGrid") || !state.stats) return;
   $("#statsGrid").innerHTML = [
     statCard("总浏览", state.stats.totalViews),
-    statCard("鍏憡娴忚", state.stats.announcementViews),
-    statCard("璁哄潧娴忚", state.stats.postViews),
+    statCard("公告浏览", state.stats.announcementViews),
+    statCard("论坛浏览", state.stats.postViews),
     statCard("管理员账号", state.stats.userCount),
   ].join("");
   $("#trashDock")?.remove();
@@ -718,15 +701,15 @@ const adminRows = (items, type) =>
         .map(
           (item) => `
             <div class="table-row">
-              <div><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.author || "管理员")} 路 ${formatDate(item.created_at)} 路 ${item.views || 0} 次浏览</span></div>
+              <div><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.author || "管理员")} / ${formatDate(item.created_at)} / ${item.views || 0} 次浏览</span></div>
               <div class="row-actions">
-                <button class="button small ghost" type="button" data-edit="${type}" data-id="${item.id}">缂栬緫</button>
-                <button class="button small danger" type="button" data-delete="${type}" data-id="${item.id}">鍒犻櫎</button>
+                <button class="button small ghost" type="button" data-edit="${type}" data-id="${item.id}">编辑</button>
+                <button class="button small danger" type="button" data-delete="${type}" data-id="${item.id}">删除</button>
               </div>
             </div>`,
         )
         .join("")
-    : `<div class="empty">鏆傛棤鍐呭銆?/div>`;
+    : `<div class="empty">暂无内容。</div>`;
 
 const renderManagement = () => {
   if ($("#manageAnnouncements")) $("#manageAnnouncements").innerHTML = adminRows(state.announcements, "announcement");
@@ -751,7 +734,7 @@ const renderManagement = () => {
       const type = button.dataset.delete;
       await api(`/${type === "announcement" ? "announcements" : "posts"}/${button.dataset.id}`, { method: "DELETE" });
       await loadAdminData();
-      showToast("鍐呭宸茬Щ鍏ュ瀮鍦炬《");
+      showToast("内容已移入垃圾桶");
     });
   });
 };
@@ -770,15 +753,15 @@ const renderTrash = async () => {
         .map(
           (item) => `
             <div class="table-row">
-              <div><strong>${escapeHtml(item.title)}</strong><span>${item.type === "announcement" ? "鍏憡" : "甯栧瓙"} 路 ${formatDate(item.deleted_at)}</span></div>
+              <div><strong>${escapeHtml(item.title)}</strong><span>${item.type === "announcement" ? "公告" : "帖子"} / ${formatDate(item.deleted_at)}</span></div>
               <div class="row-actions">
-                <button class="button small ghost" type="button" data-restore="${item.type}" data-id="${item.id}">鎭㈠</button>
-                <button class="button small danger" type="button" data-purge="${item.type}" data-id="${item.id}">褰诲簳鍒犻櫎</button>
+                <button class="button small ghost" type="button" data-restore="${item.type}" data-id="${item.id}">恢复</button>
+                <button class="button small danger" type="button" data-purge="${item.type}" data-id="${item.id}">彻底删除</button>
               </div>
             </div>`,
         )
         .join("")
-    : `<div class="empty">鍨冨溇妗朵负绌恒€?/div>`;
+    : `<div class="empty">垃圾桶为空。</div>`;
   $$("[data-restore]").forEach((button) =>
     button.addEventListener("click", async () => {
       await api(`/${button.dataset.restore === "announcement" ? "announcements" : "posts"}/${button.dataset.id}/restore`, { method: "POST" });
@@ -805,27 +788,27 @@ const renderAdmins = () => {
                 ${
                   isOwner() && !user.is_owner
                     ? `
-                      <button class="button small ghost" type="button" data-reset-admin="${user.id}" data-name="${escapeHtml(user.username)}">閲嶇疆瀵嗙爜</button>
-                      <button class="button small danger" type="button" data-remove-admin="${user.id}">鍒犻櫎</button>
+                      <button class="button small ghost" type="button" data-reset-admin="${user.id}" data-name="${escapeHtml(user.username)}">重置密码</button>
+                      <button class="button small danger" type="button" data-remove-admin="${user.id}">删除</button>
                     `
-                    : `<button class="button small ghost" type="button" disabled>${user.is_owner ? "鏈嶄富璐﹀彿" : "浠呮湇涓诲彲鎿嶄綔"}</button>`
+                    : `<button class="button small ghost" type="button" disabled>${user.is_owner ? "服主账号" : "仅服主可操作"}</button>`
                 }
               </div>
             </div>`,
         )
         .join("")
-    : `<div class="empty">鏆傛棤绠＄悊鍛樸€?/div>`;
+    : `<div class="empty">暂无管理员。</div>`;
   $$("[data-remove-admin]").forEach((button) => {
     button.addEventListener("click", async () => {
       if (!window.confirm("确定删除这个管理员账号吗？")) return;
       await api(`/admin/users/${button.dataset.removeAdmin}`, { method: "DELETE" });
       await loadAdminData();
-      showToast("绠＄悊鍛樺凡鍒犻櫎");
+      showToast("管理员已删除");
     });
   });
   $$("[data-reset-admin]").forEach((button) => {
     button.addEventListener("click", async () => {
-      const password = window.prompt(`涓?${button.dataset.name} 璁剧疆鏂板瘑鐮侊紙鑷冲皯 6 浣嶏級`);
+      const password = window.prompt(`为 ${button.dataset.name} 设置新密码（至少 6 位）`);
       if (!password) return;
       await api(`/admin/users/${button.dataset.resetAdmin}/password`, {
         method: "PUT",
@@ -845,7 +828,7 @@ const setupAdminUsers = () => {
     });
     event.target.reset();
     await loadAdminData();
-    showToast("宸插垱寤虹鐞嗗憳璐﹀彿");
+    showToast("已创建管理员账号");
   });
 };
 
