@@ -3784,3 +3784,39 @@ dialog.is-closing::backdrop {
     clip-path: none;
   }
 }
+
+/* Keep the search tip bubble free to float outside the search drawer. */
+.forum-search-panel,
+.forum-search-panel.is-open {
+  overflow: visible;
+}
+
+.forum-search-tip {
+  position: relative;
+  z-index: 40;
+}
+
+.forum-search-tip-bubble {
+  z-index: 60;
+}
+
+@media (max-width: 620px) {
+  .forum-search-tip-bubble {
+    right: auto;
+    left: 50%;
+    width: min(260px, calc(100vw - 28px));
+    transform: translate(-50%, -4px);
+  }
+
+  .forum-search-tip:hover .forum-search-tip-bubble,
+  .forum-search-tip:focus-visible .forum-search-tip-bubble,
+  .forum-search-tip.is-open .forum-search-tip-bubble {
+    transform: translate(-50%, 0);
+  }
+
+  .forum-search-tip-bubble::before {
+    right: auto;
+    left: 50%;
+    transform: translateX(-50%) rotate(45deg);
+  }
+}
