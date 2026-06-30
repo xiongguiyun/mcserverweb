@@ -97,6 +97,11 @@ const totpQrUri = (result) => {
   const issuer = encodeURIComponent("LiouYang");
   return `otpauth://totp/${issuer}?secret=${encodeURIComponent(result.secret || "")}&issuer=${issuer}`;
 };
+const totpAccountInitials = () =>
+  String(state.me?.username || "LiouYang")
+    .trim()
+    .slice(0, 2)
+    .toUpperCase();
 const currentProfileQuery = () => new URL(window.location.href).searchParams.get("user") || state.me?.username || "";
 const prefersReducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
 const dialogCloseDelay = () => (prefersReducedMotion() ? 0 : 240);
@@ -244,7 +249,7 @@ const cardTemplate = (item, type) => {
   const canManagePost = type === "post" && isAdmin();
   const skin =
     type === "post"
-      ? `<a class="skin-link" href="${profileHref(author)}"><img class="skin-figure" src="${skinUrl(author, 170)}" alt="" loading="lazy" /></a>`
+      ? `<a class="skin-link" href="${profileHref(author)}"><img class="skin-figure" src="${skinUrl(author, 210)}" alt="" loading="lazy" /></a>`
       : "";
   return `
     <article class="post-card ${type === "post" ? "forum-card" : ""}">
@@ -349,6 +354,14 @@ const renderTotpSetupPanel = (setupPanel, result) => {
     <p>${mobileLayout ? "可以直接跳转验证器，也可以扫描二维码或手动输入密钥。" : "在电脑上扫码添加，也可以切换成手动输入密钥。"}</p>
     ${mobileLayout ? `<a class="button ghost small mobile-authenticator-link" href="${escapeHtml(result.uri)}">打开验证器</a>` : ""}
     <div class="totp-visual-card" id="totpVisualCard">
+      <div class="totp-account-preview" aria-label="验证器账户预览">
+        <span class="totp-account-accent" aria-hidden="true"></span>
+        <span class="totp-account-avatar">${escapeHtml(totpAccountInitials())}</span>
+        <span class="totp-account-copy">
+          <strong>Liou_Yang Server</strong>
+          <span>${escapeHtml(state.me?.username || "Liou_Yang")}</span>
+        </span>
+      </div>
       <div class="totp-qr-shell" id="totpQrShell" aria-label="2FA 二维码">${safeRenderQrSvg(qrResult)}</div>
     </div>
     <button class="totp-text-toggle" type="button" id="totpSecretToggle">切换成密钥</button>
