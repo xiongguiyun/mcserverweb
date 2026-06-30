@@ -9,6 +9,19 @@ const state = {
   admins: [],
   profile: null,
   trash: { announcements: [], posts: [] },
+  serverStatus: null,
+  serverStatusSettings: null,
+  captcha: {
+    id: "",
+    verified: false,
+    dragging: false,
+    dragStartX: 0,
+    thumbStartX: 0,
+    currentX: 0,
+    maxX: 0,
+    scale: 1,
+    challenge: null,
+  },
   editingPostId: null,
   forumSearch: "",
   forumSearchOpen: false,
@@ -17,7 +30,7 @@ const state = {
 const page = document.body.dataset.page;
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
-const serverAddress = "play.blockhaven.cn";
+const serverAddress = () => state.site?.serverStatus?.address || state.serverStatusSettings?.address || "play.blockhaven.cn";
 let maintenanceRequestId = 0;
 const isMobileViewport = () => window.matchMedia?.("(max-width: 620px)")?.matches;
 const isCoarsePointer = () => window.matchMedia?.("(pointer: coarse)")?.matches;
@@ -69,6 +82,8 @@ const escapeHtml = (value) =>
     '"': "&quot;",
     "'": "&#039;",
   })[char]);
+
+const stripMinecraftFormatting = (value) => String(value || "").replace(/§[0-9a-fk-or]/gi, "");
 
 const textFromHtml = (html) => {
   const div = document.createElement("div");
@@ -443,6 +458,100 @@ const renderMaintenanceGate = () => {
     : `<p>网站正在维护中，暂时仅管理员可登录。</p><a class="button primary" href="/login.html">管理员登录</a>`;
 };
 
+const serverStatusTemplate = (settings = {}, status = {}, options = {}) => {
+  const isOnline = status?.status === "online";
+  const isLoading = status?.status === "loading";
+  const isDisabled = status?.status === "disabled" || settings.enabled === false;
+  const address = settings.address || status.host || serverAddress();
+  const title = settings.title || "服务器状态";
+  const motd = stripMinecraftFormatting(status.motd || (isLoading ? "正在查询服务器状态..." : isDisabled ? "状态展示已关闭" : "暂时没有获取到 MOTD"));
+  const version = status.version || "未知";
+  const delay = Number.isFinite(Number(status.delay)) ? `${Math.round(Number(status.delay))}ms` : "--";
+  const onlinePlayers = Number(status.players?.online || 0);
+  const maxPlayers = Number(status.players?.max || 0);
+  const playerText = maxPlayers ? `${onlinePlayers} / ${maxPlayers}` : isOnline ? String(onlinePlayers) : "--";
+  const statusLabel = isLoading ? "查询中" : isOnline ? "在线" : isDisabled ? "已关闭" : "离线";
+  const statusClass = isLoading ? "is-loading" : isOnline ? "is-online" : "is-offline";
+  const icon = status.icon || settings.icon || "/assets/unbound-skin.png";
+  const footer = settings.footer || "API by mcmotdapi";
+  const embedAttr = options.embed ? ' data-server-status-embed="true"' : "";
+
+  return `
+    <article class="mc-status-card ${statusClass}"${embedAttr}>
+      <div class="mc-status-top">
+        <div class="mc-status-icon-shell">
+          <img class="mc-status-icon" src="${escapeHtml(icon)}" alt="" loading="lazy" />
+          <span class="mc-status-dot" aria-hidden="true"></span>
+        </div>
+        <div class="mc-status-heading">
+          <div class="mc-status-title-row">
+            <h3>${escapeHtml(title)}</h3>
+            <span class="mc-status-badge">${escapeHtml(statusLabel)}</span>
+          </div>
+          <button class="mc-status-address" type="button" data-copy-server-address="${escapeHtml(address)}">
+            <span aria-hidden="true">⌁</span>
+            <strong>${escapeHtml(address)}</strong>
+            <em>点击复制</em>
+          </button>
+        </div>
+      </div>
+      <div class="mc-status-motd">${escapeHtml(motd)}</div>
+      <dl class="mc-status-metrics">
+        <div>
+          <dt>版本</dt>
+          <dd>${escapeHtml(version)}</dd>
+        </div>
+        <div>
+          <dt>延迟</dt>
+          <dd class="mc-status-good">${escapeHtml(delay)}</dd>
+        </div>
+        <div>
+          <dt>在线人数</dt>
+          <dd>${escapeHtml(playerText)}</dd>
+        </div>
+      </dl>
+      <p class="mc-status-footer">${escapeHtml(footer)}</p>
+    </article>
+  `;
+};
+
+const bindServerStatusCardActions = (root = document) => {
+  root.querySelectorAll?.("[data-copy-server-address]").forEach((button) => {
+    if (button.dataset.boundCopy === "true") return;
+    button.dataset.boundCopy = "true";
+    button.addEventListener("click", async () => {
+      const address = button.dataset.copyServerAddress || serverAddress();
+      await navigator.clipboard?.writeText(address).catch(() => {});
+      showToast("服务器地址已复制");
+    });
+  });
+};
+
+const renderServerStatus = () => {
+  const host = $("#homeServerStatus");
+  if (!host) return;
+  const settings = state.serverStatusSettings || state.site?.serverStatus || {};
+  if (settings.enabled === false) {
+    host.hidden = true;
+    return;
+  }
+  host.hidden = false;
+  host.innerHTML = serverStatusTemplate(settings, state.serverStatus || { status: "loading" });
+  bindServerStatusCardActions(host);
+};
+
+const loadServerStatus = async () => {
+  if (page !== "home" && page !== "admin") return;
+  try {
+    const result = await api("/server-status");
+    state.serverStatusSettings = result.settings;
+    state.serverStatus = result.status;
+  } catch (error) {
+    state.serverStatus = { status: "offline", error: error.message, players: { online: 0, max: 0 } };
+  }
+  renderServerStatus();
+};
+
 const cardTemplate = (item, type) => {
   const excerpt = item.excerpt || textFromHtml(item.content_html).slice(0, 110);
   const author = item.author || "管理员";
@@ -654,6 +763,7 @@ const openReader = (type, id) => {
     <div class="meta"><a class="author-link" href="${profileHref(author)}">${escapeHtml(author)}</a> / ${formatDate(item.created_at)} / ${item.views || 0} 次浏览</div>
     <div class="reader-body">${item.content_html}</div>
   `;
+  bindServerStatusCardActions($("#readerContent"));
   openDialog($("#readerDialog"));
 };
 
@@ -825,11 +935,16 @@ const setupEditor = () => {
     closeToolbarMore();
     openTablePicker(event.currentTarget);
   });
+  $("#serverStatusButton")?.addEventListener("click", async () => {
+    const settings = state.serverStatusSettings || state.site?.serverStatus || {};
+    const status = state.serverStatus || { status: "loading", players: { online: 0, max: 0 } };
+    insertHtmlBlock(`${serverStatusTemplate(settings, status, { embed: true })}<p><br></p>`);
+  });
   $("#spoilerButton")?.addEventListener("click", () => insertHtmlBlock(`<span class="spoiler-inline">隐藏内容</span>`));
   $("#hrButton")?.addEventListener("click", () => insertHtmlBlock(`<hr class="inline-rule" />`));
   $("#detailsButton")?.addEventListener("click", () => insertHtmlBlock(`<details class="inline-details"><summary>点击展开</summary><p>折叠内容</p></details><p><br></p>`));
   $("#codeButton")?.addEventListener("click", () => insertHtmlBlock(`<pre class="inline-code"><code>// code</code></pre><p><br></p>`));
-  $("#quoteButton")?.addEventListener("click", () => insertHtmlBlock(`<blockquote>引用内容</blockquote><p><br></p>`));
+  $("#quoteButton")?.addEventListener("click", () => insertHtmlBlock(`<blockquote class="inline-quote">引用内容</blockquote><p><br></p>`));
   $("#colorButton")?.addEventListener("click", async () => {
     const color = await showPromptDialog("输入文本颜色，例如 #ff6600 或 rgb(255, 102, 0)。", {
       title: "文本颜色",
@@ -885,6 +1000,7 @@ const setupEditor = () => {
       <h1>${escapeHtml(title)}</h1>
       <div class="reader-body">${editor.innerHTML.trim() || "<p>暂无内容</p>"}</div>
     `;
+    bindServerStatusCardActions(previewContent);
     openPreviewDialog();
   }));
 };
@@ -1328,6 +1444,81 @@ const setupMaintenanceToggle = () => {
   });
 };
 
+const readServerStatusForm = () => ({
+  enabled: Boolean($("#serverStatusEnabled")?.checked),
+  title: $("#serverStatusTitle")?.value.trim() || "服务器状态",
+  address: $("#serverStatusAddress")?.value.trim() || serverAddress(),
+  apiBase: $("#serverStatusApiBase")?.value.trim() || "https://motd.minebbs.com/api/status",
+  serverType: $("#serverStatusType")?.value || "auto",
+  srv: Boolean($("#serverStatusSrv")?.checked),
+  icon: $("#serverStatusIcon")?.value.trim() || "",
+  footer: $("#serverStatusFooter")?.value.trim() || "API by motd.minebbs.com",
+});
+
+const fillServerStatusForm = (settings = {}) => {
+  if (!$("#serverStatusForm")) return;
+  $("#serverStatusEnabled").checked = settings.enabled !== false;
+  $("#serverStatusTitle").value = settings.title || "服务器状态";
+  $("#serverStatusAddress").value = settings.address || serverAddress();
+  $("#serverStatusApiBase").value = settings.apiBase || "https://motd.minebbs.com/api/status";
+  $("#serverStatusType").value = settings.serverType || "auto";
+  $("#serverStatusSrv").checked = settings.srv !== false;
+  $("#serverStatusIcon").value = settings.icon || "";
+  $("#serverStatusFooter").value = settings.footer || "API by motd.minebbs.com";
+};
+
+const renderAdminServerStatusPreview = () => {
+  const preview = $("#serverStatusPreview");
+  if (!preview) return;
+  const settings = $("#serverStatusForm") ? readServerStatusForm() : state.serverStatusSettings || {};
+  preview.innerHTML = serverStatusTemplate(settings, state.serverStatus || { status: "loading", players: { online: 0, max: 0 } });
+  bindServerStatusCardActions(preview);
+};
+
+const loadAdminServerStatusSettings = async () => {
+  if (!$("#serverStatusForm")) return;
+  try {
+    const result = await api("/admin/settings/server-status");
+    state.serverStatusSettings = result.settings;
+    fillServerStatusForm(result.settings);
+    await loadServerStatus();
+  } catch (error) {
+    showToast(error.message);
+  }
+  renderAdminServerStatusPreview();
+};
+
+const setupServerStatusAdmin = () => {
+  const form = $("#serverStatusForm");
+  if (!form) return;
+  form.addEventListener("input", renderAdminServerStatusPreview);
+  form.addEventListener("change", renderAdminServerStatusPreview);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const settings = readServerStatusForm();
+    const result = await api("/admin/settings/server-status", { method: "PUT", body: JSON.stringify(settings) });
+    state.serverStatusSettings = result.settings;
+    state.site.serverStatus = publicServerStatusSettingsFromAdmin(result.settings);
+    await loadServerStatus();
+    renderAdminServerStatusPreview();
+    showToast("服务器状态配置已保存");
+  });
+  $("#serverStatusReload")?.addEventListener("click", async () => {
+    await loadServerStatus();
+    renderAdminServerStatusPreview();
+    showToast("已重新查询服务器状态");
+  });
+};
+
+const publicServerStatusSettingsFromAdmin = (settings = {}) => ({
+  enabled: settings.enabled,
+  title: settings.title,
+  address: settings.address,
+  serverType: settings.serverType,
+  srv: settings.srv,
+  footer: settings.footer,
+});
+
 const setupAdminNavigation = () => {
   const links = $$(".admin-nav a");
   if (!links.length) return;
@@ -1399,7 +1590,7 @@ const setupDialogDismiss = () => {
 
 const setupHomeActions = () => {
   $("#copyServerAddress")?.addEventListener("click", async () => {
-    await navigator.clipboard.writeText(serverAddress);
+    await navigator.clipboard.writeText(serverAddress());
     showToast("服务器地址已复制");
   });
 };
@@ -1424,11 +1615,132 @@ const setupHeroTyping = () => {
   window.setTimeout(tick, 220);
 };
 
+const setCaptchaOffset = (x) => {
+  const captcha = state.captcha;
+  const value = Math.max(0, Math.min(captcha.maxX || 0, Number(x) || 0));
+  captcha.currentX = value;
+  const thumb = $("#captchaThumb");
+  const piece = $("#captchaPiece");
+  const track = $("#captchaTrack");
+  const pieceSize = Number(captcha.challenge?.pieceSize || 42) + 8;
+  const pieceY = Number(captcha.challenge?.targetY || 0) * (captcha.scale || 1);
+  if (thumb) thumb.style.transform = `translateX(${Math.round(value)}px)`;
+  if (piece) {
+    piece.style.width = `${Math.round(pieceSize * (captcha.scale || 1))}px`;
+    piece.style.transform = `translate(${Math.round(value)}px, ${Math.round(pieceY)}px)`;
+  }
+  if (track) track.style.setProperty("--captcha-progress", `${Math.round(value + 28)}px`);
+};
+
+const setCaptchaMessage = (message, mode = "") => {
+  const text = $("#captchaTrackText");
+  const mask = $("#captchaMask");
+  const track = $("#captchaTrack");
+  if (text) text.textContent = message;
+  if (mask) {
+    mask.textContent = message;
+    mask.hidden = mode !== "loading" && mode !== "error";
+  }
+  if (track) {
+    track.classList.toggle("is-verified", mode === "success");
+    track.classList.toggle("is-error", mode === "error");
+  }
+};
+
+const resetCaptchaDrag = () => {
+  state.captcha.dragging = false;
+  setCaptchaOffset(0);
+};
+
+const loadCaptcha = async () => {
+  if (page !== "login" || !$("#sliderCaptcha")) return;
+  state.captcha.verified = false;
+  state.captcha.id = "";
+  state.captcha.challenge = null;
+  resetCaptchaDrag();
+  setCaptchaMessage("加载验证中", "loading");
+  try {
+    const challenge = await api("/captcha");
+    state.captcha.id = challenge.id;
+    state.captcha.challenge = { ...challenge, targetY: Number(challenge.pieceY || 0) };
+    $("#captchaBg").src = challenge.background;
+    $("#captchaPiece").src = challenge.piece;
+    const stage = $("#captchaStage");
+    const track = $("#captchaTrack");
+    const thumb = $("#captchaThumb");
+    state.captcha.scale = (stage?.clientWidth || challenge.width || 300) / Number(challenge.width || 300);
+    state.captcha.maxX = Math.max(0, (track?.clientWidth || 0) - (thumb?.offsetWidth || 0));
+    $("#captchaMask").hidden = true;
+    setCaptchaOffset(0);
+    setCaptchaMessage("按住滑块，拖到缺口处");
+  } catch (error) {
+    setCaptchaMessage(error.message, "error");
+  }
+};
+
+const verifyCaptcha = async () => {
+  if (!state.captcha.id || state.captcha.verified) return;
+  try {
+    await api("/captcha/verify", {
+      method: "POST",
+      body: JSON.stringify({ id: state.captcha.id, x: Math.round(state.captcha.currentX / (state.captcha.scale || 1)) }),
+    });
+    state.captcha.verified = true;
+    setCaptchaMessage("验证通过", "success");
+  } catch (error) {
+    state.captcha.verified = false;
+    resetCaptchaDrag();
+    setCaptchaMessage(error.message, "error");
+    window.setTimeout(loadCaptcha, 780);
+  }
+};
+
+const setupSliderCaptcha = () => {
+  if (page !== "login" || !$("#sliderCaptcha")) return;
+  const thumb = $("#captchaThumb");
+  const track = $("#captchaTrack");
+  const startDrag = (event) => {
+    if (state.captcha.verified || !state.captcha.id) return;
+    state.captcha.dragging = true;
+    state.captcha.dragStartX = event.clientX;
+    state.captcha.thumbStartX = state.captcha.currentX;
+    thumb?.setPointerCapture?.(event.pointerId);
+    track?.classList.remove("is-error");
+    event.preventDefault();
+  };
+  const moveDrag = (event) => {
+    if (!state.captcha.dragging) return;
+    setCaptchaOffset(state.captcha.thumbStartX + event.clientX - state.captcha.dragStartX);
+  };
+  const endDrag = async (event) => {
+    if (!state.captcha.dragging) return;
+    state.captcha.dragging = false;
+    thumb?.releasePointerCapture?.(event.pointerId);
+    await verifyCaptcha();
+  };
+  thumb?.addEventListener("pointerdown", startDrag);
+  thumb?.addEventListener("pointermove", moveDrag);
+  thumb?.addEventListener("pointerup", endDrag);
+  thumb?.addEventListener("pointercancel", endDrag);
+  $("#captchaRefresh")?.addEventListener("click", loadCaptcha);
+  window.addEventListener("resize", () => {
+    const stage = $("#captchaStage");
+    state.captcha.scale = (stage?.clientWidth || state.captcha.challenge?.width || 300) / Number(state.captcha.challenge?.width || 300);
+    state.captcha.maxX = Math.max(0, (track?.clientWidth || 0) - (thumb?.offsetWidth || 0));
+    setCaptchaOffset(state.captcha.verified ? state.captcha.currentX : 0);
+  });
+  loadCaptcha();
+};
+
 const setupLoginPage = () => {
   if (page !== "login") return;
   const loginForm = $("#loginForm");
   loginForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (!state.captcha.verified) {
+      showToast("请先完成滑块验证");
+      return;
+    }
     try {
       const result = await api("/account", {
         method: "POST",
@@ -1436,11 +1748,14 @@ const setupLoginPage = () => {
           username: $("#loginUsername").value.trim(),
           password: $("#loginPassword").value,
           totpCode: $("#loginTotpCode")?.value.trim(),
+          captchaId: state.captcha.id,
         }),
       });
       state.me = result.user;
       window.location.href = result.user?.role === "admin" ? "/admin.html" : "/forum.html";
     } catch (error) {
+      state.captcha.verified = false;
+      loadCaptcha();
       if (error.payload?.needsTotp) $("#loginTotpCode")?.focus();
     }
   });
@@ -1454,7 +1769,11 @@ const loadBaseState = async () => {
 
 const loadPublicData = async () => {
   await loadBaseState();
-  if (page === "home") state.announcements = (await api("/announcements").catch(() => ({ items: [] }))).items;
+  if (page === "home") {
+    state.announcements = (await api("/announcements").catch(() => ({ items: [] }))).items;
+    renderServerStatus();
+    loadServerStatus().catch((error) => showToast(error.message));
+  }
   if (page === "forum") state.posts = (await api("/posts").catch(() => ({ items: [] }))).items;
   if (page === "profile") {
     const username = currentProfileQuery();
@@ -1479,6 +1798,7 @@ const loadAdminData = async () => {
   renderStats();
   renderManagement();
   renderAdmins();
+  await loadAdminServerStatusSettings();
 };
 
 const refreshPageData = async () => (page === "admin" ? loadAdminData() : loadPublicData());
@@ -1490,6 +1810,7 @@ const renderAll = () => {
   renderLists();
   renderForumProfileCard();
   renderProfilePage();
+  renderServerStatus();
   if (page === "admin") renderAdminGate();
 };
 
@@ -1500,12 +1821,14 @@ $("#toast")?.addEventListener("click", async (event) => {
 });
 
 setupDialogDismiss();
+setupSliderCaptcha();
 setupLoginPage();
 setupEditor();
 setupForumPost();
 setupPublish();
 setupAdminUsers();
 setupMaintenanceToggle();
+setupServerStatusAdmin();
 setupAdminNavigation();
 setupAdminMobileDrawer();
 setupHomeActions();

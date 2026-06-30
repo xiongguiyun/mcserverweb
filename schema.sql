@@ -49,8 +49,19 @@ CREATE TABLE IF NOT EXISTS site_settings (
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS captcha_challenges (
+  id TEXT PRIMARY KEY,
+  target_x INTEGER NOT NULL,
+  target_y INTEGER NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  expires_at TEXT NOT NULL,
+  verified_at TEXT,
+  used_at TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_announcements_created_at ON announcements(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_posts_created_at ON posts(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_posts_deleted_at ON posts(deleted_at);
 CREATE INDEX IF NOT EXISTS idx_announcements_deleted_at ON announcements(deleted_at);
+CREATE INDEX IF NOT EXISTS idx_captcha_challenges_expires_at ON captcha_challenges(expires_at);

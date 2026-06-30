@@ -88,6 +88,24 @@ const excerptFromHtml = (html) =>
     .trim()
     .slice(0, 120);
 
+const motdToPlainText = (motd) => {
+  if (!motd) return "";
+  if (typeof motd === "string") return motd.replace(/§[0-9a-fk-or]/gi, "");
+  if (typeof motd !== "object") return "";
+  let output = "";
+  const visit = (node) => {
+    if (!node) return;
+    if (typeof node === "string") {
+      output += node;
+      return;
+    }
+    if (typeof node.text === "string") output += node.text;
+    if (Array.isArray(node.extra)) node.extra.forEach(visit);
+  };
+  visit(motd);
+  return output.replace(/§[0-9a-fk-or]/gi, "");
+};
+
 const readBody = async (request) => {
   try {
     return await request.json();
@@ -97,6 +115,273 @@ const readBody = async (request) => {
 };
 
 const ownerUser = async (env) => env.DB.prepare("SELECT id, username FROM users WHERE role = 'admin' ORDER BY id ASC LIMIT 1").first();
+
+const defaultServerStatusSettings = {
+  enabled: true,
+  title: "服务器状态",
+  address: "play.blockhaven.cn",
+  apiBase: "https://motd.minebbs.com/api/status",
+  serverType: "auto",
+  srv: true,
+  icon: "",
+  footer: "API by motd.minebbs.com",
+};
+
+const readSiteSettingsMap = async (env) => {
+  try {
+    const { results } = await env.DB.prepare("SELECT key, value FROM site_settings").all();
+    return Object.fromEntries((results || []).map((row) => [row.key, row.value]));
+  } catch (error) {
+    if (/no such table/i.test(messageFromError(error))) return {};
+    throw error;
+  }
+};
+
+const normalizeServerStatusSettings = (map = {}) => {
+  const rawType = String(map.server_status_type || defaultServerStatusSettings.serverType).toLowerCase();
+  const serverType = ["auto", "je", "be"].includes(rawType) ? rawType : "auto";
+  return {
+    enabled: map.server_status_enabled !== "off",
+    title: String(map.server_status_title || defaultServerStatusSettings.title).trim().slice(0, 30) || defaultServerStatusSettings.title,
+    address: String(map.server_status_address || defaultServerStatusSettings.address).trim().slice(0, 120) || defaultServerStatusSettings.address,
+    apiBase: String(map.server_status_api_base || defaultServerStatusSettings.apiBase).trim().slice(0, 220) || defaultServerStatusSettings.apiBase,
+    serverType,
+    srv: map.server_status_srv !== "off",
+    icon: String(map.server_status_icon || defaultServerStatusSettings.icon).trim().slice(0, 500),
+    footer: String(map.server_status_footer || defaultServerStatusSettings.footer).trim().slice(0, 60) || defaultServerStatusSettings.footer,
+  };
+};
+
+const getServerStatusSettings = async (env) => normalizeServerStatusSettings(await readSiteSettingsMap(env));
+
+const publicServerStatusSettings = (settings) => ({
+  enabled: settings.enabled,
+  title: settings.title,
+  address: settings.address,
+  serverType: settings.serverType,
+  srv: settings.srv,
+  footer: settings.footer,
+});
+
+const buildServerStatusApiUrl = (settings) => {
+  const url = new URL(settings.apiBase || defaultServerStatusSettings.apiBase);
+  const cleanPath = url.pathname.replace(/\/+$/, "");
+  if (!/(^|\/)api\/status$/i.test(cleanPath) && !/(^|\/)status$/i.test(cleanPath)) {
+    url.pathname = `${cleanPath}/api/status`.replace(/\/{2,}/g, "/");
+  }
+  url.searchParams.set("host", settings.address);
+  url.searchParams.set("stype", settings.serverType);
+  url.searchParams.set("srv", settings.srv ? "true" : "false");
+  if (settings.icon) url.searchParams.set("icon", settings.icon);
+  return url;
+};
+
+const normalizeServerStatusPayload = (payload, settings) => {
+  const players = payload?.players || {};
+  const online = Number(players.online ?? players.currentPlayers ?? payload?.online);
+  const max = Number(players.max ?? players.maxPlayers ?? payload?.max);
+  const delay = Number(payload?.delay ?? payload?.latency ?? payload?.ping);
+  const motd = motdToPlainText(payload?.pureMotd || payload?.cleanMotd || payload?.motd || payload?.description).trim();
+  return {
+    status: payload?.status === "online" ? "online" : "offline",
+    type: payload?.type || settings.serverType,
+    host: payload?.host || settings.address,
+    motd,
+    version: payload?.version || "",
+    protocol: payload?.protocol || "",
+    players: {
+      online: Number.isFinite(online) ? online : 0,
+      max: Number.isFinite(max) ? max : 0,
+    },
+    delay: Number.isFinite(delay) ? delay : null,
+    icon: payload?.icon || settings.icon || "",
+    error: payload?.error || payload?.message || "",
+  };
+};
+
+const queryConfiguredServerStatus = async (settings) => {
+  if (!settings.enabled) return { status: "disabled" };
+  try {
+    const response = await fetch(buildServerStatusApiUrl(settings), {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "liouyang-server-site",
+        "X-Internal-Request": "true",
+      },
+      cf: { cacheTtl: 25, cacheEverything: true },
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || payload.message || `状态接口请求失败 (${response.status})`);
+    return normalizeServerStatusPayload(payload, settings);
+  } catch (error) {
+    return {
+      status: "offline",
+      type: settings.serverType,
+      host: settings.address,
+      motd: "",
+      version: "",
+      protocol: "",
+      players: { online: 0, max: 0 },
+      delay: null,
+      icon: settings.icon,
+      error: messageFromError(error, "无法连接状态接口"),
+    };
+  }
+};
+
+const captchaConfig = {
+  width: 300,
+  height: 150,
+  pieceSize: 42,
+  tolerance: 8,
+};
+
+const ensureCaptchaTable = async (env) => {
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS captcha_challenges (
+      id TEXT PRIMARY KEY,
+      target_x INTEGER NOT NULL,
+      target_y INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      expires_at TEXT NOT NULL,
+      verified_at TEXT,
+      used_at TEXT
+    )`,
+  ).run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_captcha_challenges_expires_at ON captcha_challenges(expires_at)").run();
+};
+
+const captchaPiecePath = (x, y, size) => {
+  const knob = Math.round(size * 0.24);
+  const mid = Math.round(size * 0.5);
+  return [
+    `M${x} ${y}`,
+    `H${x + mid - knob}`,
+    `C${x + mid - knob} ${y - knob * 0.75}, ${x + mid + knob} ${y - knob * 0.75}, ${x + mid + knob} ${y}`,
+    `H${x + size}`,
+    `V${y + mid - knob}`,
+    `C${x + size + knob * 0.75} ${y + mid - knob}, ${x + size + knob * 0.75} ${y + mid + knob}, ${x + size} ${y + mid + knob}`,
+    `V${y + size}`,
+    `H${x}`,
+    `V${y + mid + knob}`,
+    `C${x - knob * 0.75} ${y + mid + knob}, ${x - knob * 0.75} ${y + mid - knob}, ${x} ${y + mid - knob}`,
+    "Z",
+  ].join(" ");
+};
+
+const captchaSvgDataUrl = (svg) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+
+const captchaBackgroundSvg = (targetX, targetY) => {
+  const { width, height, pieceSize } = captchaConfig;
+  const piecePath = captchaPiecePath(targetX, targetY, pieceSize);
+  return captchaSvgDataUrl(`
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">
+      <defs>
+        <linearGradient id="sky" x1="0" x2="1" y1="0" y2="1">
+          <stop offset="0" stop-color="#7ec8ff"/>
+          <stop offset="0.52" stop-color="#a7e2ff"/>
+          <stop offset="1" stop-color="#f4d38f"/>
+        </linearGradient>
+        <pattern id="grass" width="20" height="20" patternUnits="userSpaceOnUse">
+          <rect width="20" height="20" fill="#4f9d42"/>
+          <rect y="10" width="20" height="10" fill="#8a5a35"/>
+          <path d="M0 10h5v-4h5v4h5v-3h5" fill="none" stroke="#76c85d" stroke-width="2"/>
+        </pattern>
+        <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+          <feDropShadow dx="0" dy="4" stdDeviation="3" flood-color="#10202e" flood-opacity=".35"/>
+        </filter>
+      </defs>
+      <rect width="${width}" height="${height}" rx="14" fill="url(#sky)"/>
+      <rect y="100" width="${width}" height="50" fill="url(#grass)"/>
+      <rect x="20" y="78" width="62" height="22" fill="#6c8a56" opacity=".88"/>
+      <rect x="168" y="66" width="86" height="34" fill="#587848" opacity=".84"/>
+      <rect x="218" y="36" width="34" height="64" fill="#836042" opacity=".9"/>
+      <rect x="212" y="24" width="58" height="34" fill="#58a94e" opacity=".95"/>
+      <path d="${piecePath}" fill="rgba(255,255,255,.34)" stroke="#f5a43a" stroke-width="3" filter="url(#shadow)"/>
+      <path d="${piecePath}" fill="none" stroke="rgba(31,23,19,.38)" stroke-width="1.5"/>
+    </svg>
+  `);
+};
+
+const captchaPieceSvg = () => {
+  const { pieceSize } = captchaConfig;
+  const svgSize = pieceSize + 8;
+  const piecePath = captchaPiecePath(4, 4, pieceSize);
+  return captchaSvgDataUrl(`
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${svgSize} ${svgSize}" width="${svgSize}" height="${svgSize}">
+      <defs>
+        <linearGradient id="piece" x1="0" x2="1" y1="0" y2="1">
+          <stop offset="0" stop-color="#ffdd63"/>
+          <stop offset=".55" stop-color="#f5a43a"/>
+          <stop offset="1" stop-color="#7ac35a"/>
+        </linearGradient>
+        <filter id="pieceShadow" x="-30%" y="-30%" width="160%" height="160%">
+          <feDropShadow dx="0" dy="4" stdDeviation="3" flood-color="#201713" flood-opacity=".32"/>
+        </filter>
+      </defs>
+      <path d="${piecePath}" fill="url(#piece)" stroke="#1b120d" stroke-width="2" filter="url(#pieceShadow)"/>
+      <path d="M12 16h28M12 28h28M18 8v34M30 8v34" stroke="rgba(255,255,255,.32)" stroke-width="2"/>
+    </svg>
+  `);
+};
+
+const createCaptchaChallenge = async (env) => {
+  await ensureCaptchaTable(env);
+  await env.DB.prepare("DELETE FROM captcha_challenges WHERE expires_at <= datetime('now') OR used_at IS NOT NULL").run();
+  const targetX = 76 + Math.floor(Math.random() * 132);
+  const targetY = 42 + Math.floor(Math.random() * 42);
+  const id = crypto.randomUUID();
+  await env.DB.prepare(
+    "INSERT INTO captcha_challenges (id, target_x, target_y, expires_at) VALUES (?, ?, ?, datetime('now', '+5 minutes'))",
+  )
+    .bind(id, targetX, targetY)
+    .run();
+  return json({
+    id,
+    width: captchaConfig.width,
+    height: captchaConfig.height,
+    pieceSize: captchaConfig.pieceSize,
+    pieceY: targetY,
+    background: captchaBackgroundSvg(targetX, targetY),
+    piece: captchaPieceSvg(),
+  });
+};
+
+const verifyCaptchaChallenge = async (env, request) => {
+  await ensureCaptchaTable(env);
+  const body = await readBody(request);
+  const id = String(body.id || "").trim();
+  const x = Number(body.x);
+  if (!id || !Number.isFinite(x)) return json({ error: "验证已失效，请刷新后重试" }, 400);
+  const row = await env.DB.prepare(
+    "SELECT target_x FROM captcha_challenges WHERE id = ? AND expires_at > datetime('now') AND used_at IS NULL",
+  )
+    .bind(id)
+    .first();
+  if (!row) return json({ error: "验证已失效，请刷新后重试" }, 400);
+  if (Math.abs(Number(row.target_x) - x) > captchaConfig.tolerance) {
+    return json({ error: "滑块位置不正确，请再试一次" }, 400);
+  }
+  await env.DB.prepare("UPDATE captcha_challenges SET verified_at = CURRENT_TIMESTAMP WHERE id = ?").bind(id).run();
+  return json({ ok: true });
+};
+
+const consumeCaptchaChallenge = async (env, id) => {
+  await ensureCaptchaTable(env);
+  const cleanId = String(id || "").trim();
+  if (!cleanId) return false;
+  const result = await env.DB.prepare(
+    `UPDATE captcha_challenges
+     SET used_at = CURRENT_TIMESTAMP
+     WHERE id = ?
+       AND verified_at IS NOT NULL
+       AND used_at IS NULL
+       AND expires_at > datetime('now')`,
+  )
+    .bind(cleanId)
+    .run();
+  return Boolean(result.meta?.changes);
+};
 
 const accountTypeLabel = (user, ownerId) => {
   if (!user) return "成员";
@@ -120,14 +405,8 @@ const publicUser = (user, ownerId) =>
     : null;
 
 const getSiteSettings = async (env) => {
-  try {
-    const { results } = await env.DB.prepare("SELECT key, value FROM site_settings").all();
-    const map = Object.fromEntries((results || []).map((row) => [row.key, row.value]));
-    return { maintenanceMode: map.maintenance_mode === "on" };
-  } catch (error) {
-    if (/no such table/i.test(messageFromError(error))) return { maintenanceMode: false };
-    throw error;
-  }
+  const map = await readSiteSettingsMap(env);
+  return { maintenanceMode: map.maintenance_mode === "on", serverStatus: publicServerStatusSettings(normalizeServerStatusSettings(map)) };
 };
 
 const setSiteSetting = async (env, key, value) => {
@@ -204,7 +483,7 @@ const me = async (env, request) => {
   const user = await currentUser(env, request);
   const owner = await ownerUser(env);
   const site = await getSiteSettings(env);
-  return json({ user: publicUser(user, owner?.id), site: { maintenanceMode: site.maintenanceMode } });
+  return json({ user: publicUser(user, owner?.id), site: { maintenanceMode: site.maintenanceMode, serverStatus: site.serverStatus } });
 };
 
 const listAnnouncements = async (env, { trash = false } = {}) => {
@@ -280,6 +559,9 @@ const login = async (env, request) => {
   const username = String(body.username || "").trim();
   const password = String(body.password || "");
   const totpCode = String(body.totpCode || "").trim();
+  if (!(await consumeCaptchaChallenge(env, body.captchaId))) {
+    return json({ error: "请先完成滑块验证" }, 400);
+  }
   const user = await env.DB.prepare(
     "SELECT id, username, password_hash, role, totp_secret, totp_enabled, created_at, last_seen_at FROM users WHERE username = ?",
   )
@@ -313,6 +595,9 @@ const register = async (env, request) => {
   const body = await readBody(request);
   const username = String(body.username || "").trim();
   const password = String(body.password || "");
+  if (!(await consumeCaptchaChallenge(env, body.captchaId))) {
+    return json({ error: "请先完成滑块验证" }, 400);
+  }
   if (!/^[\w\u4e00-\u9fa5-]{3,20}$/.test(username)) return json({ error: "用户名需要 3 到 20 位" }, 400);
   if (password.length < 6) return json({ error: "密码至少 6 位" }, 400);
   try {
@@ -341,6 +626,9 @@ const account = async (env, request) => {
   const username = String(body.username || "").trim();
   const password = String(body.password || "");
   const totpCode = String(body.totpCode || "").trim();
+  if (!(await consumeCaptchaChallenge(env, body.captchaId))) {
+    return json({ error: "请先完成滑块验证" }, 400);
+  }
   if (!/^[\w\u4e00-\u9fa5-]{3,20}$/.test(username)) return json({ error: "用户名需要 3 到 20 位" }, 400);
   if (password.length < 6) return json({ error: "密码至少 6 位" }, 400);
 
@@ -579,6 +867,55 @@ const stats = async (env, request) => {
   });
 };
 
+const serverStatus = async (env) => {
+  const settings = await getServerStatusSettings(env);
+  return json({
+    settings: publicServerStatusSettings(settings),
+    status: await queryConfiguredServerStatus(settings),
+  });
+};
+
+const adminServerStatusSettings = async (env, request) => {
+  await requireAdmin(env, request);
+  const settings = await getServerStatusSettings(env);
+  return json({ settings });
+};
+
+const updateServerStatusSettings = async (env, request) => {
+  await requireAdmin(env, request);
+  const body = await readBody(request);
+  const next = normalizeServerStatusSettings({
+    server_status_enabled: body.enabled === false ? "off" : "on",
+    server_status_title: body.title,
+    server_status_address: body.address,
+    server_status_api_base: body.apiBase,
+    server_status_type: body.serverType,
+    server_status_srv: body.srv === false ? "off" : "on",
+    server_status_icon: body.icon,
+    server_status_footer: body.footer,
+  });
+  try {
+    const url = new URL(next.apiBase);
+    if (!/^https?:$/.test(url.protocol)) throw new Error("invalid protocol");
+  } catch {
+    return json({ error: "状态 API 地址格式不正确" }, 400);
+  }
+  if (!/^[a-z0-9\u4e00-\u9fa5_.:-]+$/i.test(next.address)) {
+    return json({ error: "服务器地址只能包含域名、IP、端口或下划线" }, 400);
+  }
+  await Promise.all([
+    setSiteSetting(env, "server_status_enabled", next.enabled ? "on" : "off"),
+    setSiteSetting(env, "server_status_title", next.title),
+    setSiteSetting(env, "server_status_address", next.address),
+    setSiteSetting(env, "server_status_api_base", next.apiBase),
+    setSiteSetting(env, "server_status_type", next.serverType),
+    setSiteSetting(env, "server_status_srv", next.srv ? "on" : "off"),
+    setSiteSetting(env, "server_status_icon", next.icon),
+    setSiteSetting(env, "server_status_footer", next.footer),
+  ]);
+  return json({ ok: true, settings: next });
+};
+
 const listAdmins = async (env, request) => {
   await requireAdmin(env, request);
   const owner = await ownerUser(env);
@@ -658,6 +995,8 @@ export async function onRequest(context) {
   const method = request.method;
 
   try {
+    if (method === "GET" && pathname === "/captcha") return createCaptchaChallenge(env);
+    if (method === "POST" && pathname === "/captcha/verify") return verifyCaptchaChallenge(env, request);
     if (method === "GET" && pathname === "/me") return me(env, request);
     if (method === "POST" && pathname === "/account") return account(env, request);
     if (method === "POST" && pathname === "/login") return login(env, request);
@@ -690,12 +1029,16 @@ export async function onRequest(context) {
       return minecraftImage(request, waitUntil, kind, decodeURIComponent(username), size);
     }
 
+    if (method === "GET" && pathname === "/server-status") return serverStatus(env);
+
     if (method === "POST" && /^\/track-view\/(announcement|post)\/\d+$/.test(pathname)) {
       const [, , type, id] = pathname.split("/");
       return trackView(env, type, id);
     }
 
     if (method === "GET" && pathname === "/admin/stats") return stats(env, request);
+    if (method === "GET" && pathname === "/admin/settings/server-status") return adminServerStatusSettings(env, request);
+    if (method === "PUT" && pathname === "/admin/settings/server-status") return updateServerStatusSettings(env, request);
     if (method === "GET" && pathname === "/admin/users") return listAdmins(env, request);
     if (method === "POST" && pathname === "/admin/users") return createAdminAccount(env, request);
     if (method === "PUT" && /^\/admin\/users\/\d+\/password$/.test(pathname)) {

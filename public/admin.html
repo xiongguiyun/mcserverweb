@@ -35,6 +35,7 @@
           <nav class="admin-nav" aria-label="后台功能">
             <a href="#adminOverview" class="active">概览</a>
             <a href="#adminMaintenance">维护模式</a>
+            <a href="#adminServerStatus">服务器状态</a>
             <a href="#adminEditor">内容发布</a>
             <a href="#adminAnnouncements">公告管理</a>
             <a href="#adminPosts">论坛管理</a>
@@ -51,6 +52,7 @@
           <nav class="admin-nav admin-nav-drawer" aria-label="后台功能移动菜单">
             <a href="#adminOverview" class="active">概览</a>
             <a href="#adminMaintenance">维护模式</a>
+            <a href="#adminServerStatus">服务器状态</a>
             <a href="#adminEditor">内容发布</a>
             <a href="#adminAnnouncements">公告管理</a>
             <a href="#adminPosts">论坛管理</a>
@@ -80,6 +82,58 @@
               </label>
               <p id="maintenanceStatusText">当前网站正常开放。</p>
             </div>
+          </section>
+
+          <section class="admin-panel" id="adminServerStatus">
+            <div class="section-title compact">
+              <h2>服务器状态</h2>
+              <p>配置主页、公告和帖子里展示的 Minecraft 服务器状态卡片。</p>
+            </div>
+            <form class="editor-card server-status-admin-card" id="serverStatusForm">
+              <div class="admin-form-grid">
+                <label class="maintenance-toggle server-status-enabled">
+                  <input type="checkbox" id="serverStatusEnabled" />
+                  <span>启用状态展示</span>
+                </label>
+                <div class="form-row">
+                  <label for="serverStatusTitle">卡片标题</label>
+                  <input id="serverStatusTitle" maxlength="30" placeholder="服务器状态" />
+                </div>
+                <div class="form-row">
+                  <label for="serverStatusAddress">服务器地址</label>
+                  <input id="serverStatusAddress" maxlength="120" required placeholder="play.example.com" />
+                </div>
+                <div class="form-row">
+                  <label for="serverStatusApiBase">mcmotdapi 地址</label>
+                  <input id="serverStatusApiBase" maxlength="220" required placeholder="https://motd.minebbs.com/api/status" />
+                </div>
+                <div class="form-row">
+                  <label for="serverStatusType">服务器类型</label>
+                  <select id="serverStatusType">
+                    <option value="auto">自动识别</option>
+                    <option value="je">Java</option>
+                    <option value="be">Bedrock</option>
+                  </select>
+                </div>
+                <label class="maintenance-toggle server-status-srv">
+                  <input type="checkbox" id="serverStatusSrv" />
+                  <span>查询 SRV 记录</span>
+                </label>
+                <div class="form-row">
+                  <label for="serverStatusIcon">图标地址</label>
+                  <input id="serverStatusIcon" maxlength="500" placeholder="留空时使用接口返回图标" />
+                </div>
+                <div class="form-row">
+                  <label for="serverStatusFooter">底部来源文案</label>
+                  <input id="serverStatusFooter" maxlength="60" placeholder="API by motd.minebbs.com" />
+                </div>
+              </div>
+              <div class="server-status-preview" id="serverStatusPreview"></div>
+              <div class="toolbar footer-tools compact">
+                <button class="button primary" type="submit">保存状态配置</button>
+                <button class="button ghost" type="button" id="serverStatusReload">重新查询</button>
+              </div>
+            </form>
           </section>
 
           <section class="admin-panel" id="adminEditor">
@@ -125,6 +179,7 @@
                 <button type="button" id="linkButton" title="添加链接">链接</button>
                 <button type="button" id="imageButton" title="插入图片">图片</button>
                 <button type="button" id="tableButton" title="插入表格">表格</button>
+                <button type="button" id="serverStatusButton" title="插入服务器状态">状态</button>
                 <button type="button" id="spoilerButton" title="内联遮挡">遮挡</button>
                 <button type="button" id="hrButton" title="插入水平线">分隔</button>
                 <button type="button" id="detailsButton" title="折叠">折叠</button>

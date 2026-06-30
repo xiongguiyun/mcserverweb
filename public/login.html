@@ -20,11 +20,22 @@
           <input id="loginTotpCode" inputmode="numeric" maxlength="6" placeholder="双重验证码（已开启时填写）" />
           <button class="button primary" type="submit">进入服务器社区</button>
         </form>
-        <section class="waf-panel" aria-labelledby="wafTitle">
-          <div class="waf-head">
-            <strong id="wafTitle">安全验证</strong>
+        <section class="slider-captcha" id="sliderCaptcha" aria-labelledby="sliderCaptchaTitle">
+          <div class="slider-captcha-head">
+            <strong id="sliderCaptchaTitle">安全验证</strong>
+            <button type="button" id="captchaRefresh" aria-label="刷新验证">刷新</button>
           </div>
-          <p class="waf-note">登录和注册的人机验证已改为由雷池 WAF 在入口统一处理，页面内不再单独加载验证码组件。</p>
+          <div class="captcha-stage" id="captchaStage" aria-live="polite">
+            <img class="captcha-bg" id="captchaBg" alt="" />
+            <img class="captcha-piece" id="captchaPiece" alt="" />
+            <div class="captcha-mask" id="captchaMask">加载验证中</div>
+          </div>
+          <div class="captcha-track" id="captchaTrack">
+            <span class="captcha-track-text" id="captchaTrackText">按住滑块，拖到缺口处</span>
+            <button class="captcha-thumb" id="captchaThumb" type="button" aria-label="拖动完成验证">
+              <span aria-hidden="true">›</span>
+            </button>
+          </div>
         </section>
       </section>
     </main>
