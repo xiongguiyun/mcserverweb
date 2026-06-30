@@ -22,81 +22,6 @@ const getCookie = (request, name) => {
     ?.slice(name.length + 1);
 };
 
-const getClientIp = (request) => {
-  const headers = request.headers;
-  return (
-    headers.get("CF-Connecting-IP") ||
-    headers.get("X-Real-IP") ||
-    headers
-      .get("X-Forwarded-For")
-      ?.split(",")
-      .map((part) => part.trim())
-      .find(Boolean) ||
-    ""
-  );
-};
-
-const getVaptchaConfig = (env) => ({
-  vid: String(env.VAPTCHA_VID || "").trim(),
-  vkey: String(env.VAPTCHA_VKEY || "").trim(),
-});
-
-const isVaptchaVerifyPassed = (result) => {
-  const data = result?.data || {};
-  const explicitResult = data.result ?? data.success ?? result?.result ?? result?.success;
-  if (explicitResult !== undefined) {
-    return explicitResult === true || explicitResult === 1 || explicitResult === "true" || explicitResult === "1";
-  }
-  return (
-    result?.code === 0 ||
-    result?.code === 200 ||
-    result?.code === "0" ||
-    result?.code === "200"
-  );
-};
-
-const getVaptchaVerifyMessage = (result) =>
-  result?.msg ||
-  result?.message ||
-  result?.data?.msg ||
-  result?.data?.message ||
-  result?.error ||
-  "人机验证失败，请重新验证";
-
-const verifyVaptchaChallenge = async (env, request, body) => {
-  const token = String(body.vaptcha_token || body.vaptchaToken || "").trim();
-  const knock = String(body.vaptcha_knock || body.vaptchaKnock || "").trim();
-  const dfu = String(body.vaptcha_dfu || body.vaptchaDfu || "").trim();
-  const { vid, vkey } = getVaptchaConfig(env);
-  if (!vid || !vkey) {
-    throw new Response(JSON.stringify({ error: "VAPTCHA 未完成服务端配置" }), { status: 500 });
-  }
-  if (!token || !knock) {
-    throw new Response(JSON.stringify({ error: "请先完成人机验证" }), { status: 400 });
-  }
-
-  const response = await fetch(VAPTCHA_VERIFY_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      vid,
-      vkey,
-      token,
-      knock,
-      dfu,
-      ip: getClientIp(request),
-    }),
-  });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok || !isVaptchaVerifyPassed(result)) {
-    throw new Response(JSON.stringify({ error: getVaptchaVerifyMessage(result) }), {
-      status: response.ok ? 403 : response.status,
-      headers: { "Content-Type": "application/json; charset=utf-8" },
-    });
-  }
-  return { ok: true };
-};
-
 const bytesToBase32 = (bytes) => {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
   let bits = "";
@@ -725,12 +650,6 @@ const updateMaintenance = async (env, request) => {
   const enabled = Boolean(body.enabled);
   await setSiteSetting(env, "maintenance_mode", enabled ? "on" : "off");
   return json({ ok: true, maintenanceMode: enabled });
-};
-
-const vaptchaConfig = async (env) => {
-  const { vid } = getVaptchaConfig(env);
-  if (!vid) return json({ error: "VAPTCHA 未完成配置" }, 500);
-  return json({ vid });
 };
 
 export async function onRequest(context) {

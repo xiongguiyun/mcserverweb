@@ -21,6 +21,19 @@
 - 帖子 7 天后自动彻底删除
 - 管理员可启用 Authenticator 双重验证
 
+## 雷池人机验证
+
+登录与注册不再在页面内加载第三方验证码组件，统一交给雷池 WAF 在入口层做人机验证。
+
+建议在雷池站点策略里重点保护这些路径：
+
+- `/login`、`/login.html`
+- `/api/account`
+- `/api/login`
+- `/api/register`
+
+因此 Cloudflare Pages 环境里不需要再配置旧的 `VAPTCHA_VID`、`VAPTCHA_VKEY` 等验证码变量；前端只提交账号、密码和可选的 Authenticator 双重验证码。
+
 ## 服主与管理员
 
 ### 服主

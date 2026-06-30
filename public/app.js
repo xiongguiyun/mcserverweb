@@ -22,7 +22,7 @@ let maintenanceRequestId = 0;
 const isMobileViewport = () => window.matchMedia?.("(max-width: 620px)")?.matches;
 const isCoarsePointer = () => window.matchMedia?.("(pointer: coarse)")?.matches;
 const shouldUseMobileTotpLayout = () => isMobileViewport() || isCoarsePointer();
-const staticPreviewNotice = "褰撳墠鏄潤鎬侀瑙堟ā寮忥紝鎺ュ彛鍐呭鏆傛椂涓嶅彲鐢ㄣ€?;
+const staticPreviewNotice = "当前是静态预览模式，接口内容暂时不可用。";
 
 const api = async (path, options = {}) => {
   const response = await fetch(`/api${path}`, {
@@ -176,7 +176,7 @@ const renderAuth = () => {
       return;
     }
     renderAll();
-    showToast("宸查€€鍑虹櫥褰?);
+    showToast("已退出登录");
   });
 };
 
@@ -192,7 +192,7 @@ const renderMaintenanceBanner = () => {
     banner.className = "maintenance-banner";
     document.body.prepend(banner);
   }
-  banner.textContent = "缃戠珯姝ｅ湪缁存姢涓紝褰撳墠绠＄悊鍛樺彲缁х画璁块棶銆?;
+  banner.textContent = "网站正在维护中，当前管理员可继续访问。";
 };
 
 const renderMaintenanceGate = () => {
@@ -217,7 +217,7 @@ const renderMaintenanceGate = () => {
 
 const cardTemplate = (item, type) => {
   const excerpt = item.excerpt || textFromHtml(item.content_html).slice(0, 110);
-  const author = item.author || "绠＄悊鍛?;
+  const author = item.author || "管理员";
   const canManagePost = type === "post" && isAdmin();
   const skin =
     type === "post"
@@ -232,7 +232,7 @@ const cardTemplate = (item, type) => {
         <a class="author-link" href="${profileHref(author)}">${escapeHtml(author)}</a> 路
         ${formatDate(item.created_at)}
       </div>
-      <p>${escapeHtml(excerpt || "鏆傛棤鎽樿銆?)}</p>
+      <p>${escapeHtml(excerpt || "暂无摘要。")}</p>
       <div class="card-actions">
         <button class="button ghost read-button" type="button" data-type="${type}" data-id="${item.id}">闃呰</button>
         ${
@@ -294,7 +294,7 @@ const updateForumSearchStatus = () => {
   const query = state.forumSearch.trim();
   const total = state.posts.length;
   const matched = filterForumPosts(state.posts).length;
-  status.textContent = query ? `宸茬瓫閫?${matched}/${total} 鏉″笘瀛恅 : `鍏?${total} 鏉″笘瀛恅;
+  status.textContent = query ? `已筛选 ${matched}/${total} 条帖子` : `共 ${total} 条帖子`;
 };
 
 const totpPanelTemplate = (profile) => {
@@ -302,7 +302,7 @@ const totpPanelTemplate = (profile) => {
   return `
     <section class="account-security" id="accountSecurity">
       <h3>鍙岄噸楠岃瘉</h3>
-      <p>${profile.totp_enabled ? "褰撳墠宸插紑鍚紝鐧诲綍鏃堕渶瑕佸～鍐?6 浣嶉獙璇佺爜銆? : "寮€鍚悗锛岀櫥褰曞悗鍙版椂闇€瑕侀澶栧～鍐?Authenticator 楠岃瘉鐮併€?}</p>
+      <p>${profile.totp_enabled ? "当前已开启，登录后台时需要填写 6 位验证码。" : "开启后，登录后台时需要额外填写 Authenticator 验证码。"}</p>
       <div class="security-form">
         ${
           profile.totp_enabled
@@ -319,7 +319,7 @@ const renderTotpSetupPanel = (setupPanel, result) => {
   const mobileLayout = shouldUseMobileTotpLayout();
   setupPanel.hidden = false;
   setupPanel.innerHTML = `
-    <p>${mobileLayout ? "鍦ㄦ墜鏈轰笂鍙互鐩存帴鎵撳紑楠岃瘉鍣紝涔熷彲浠ユ墜鍔ㄨ緭鍏ヤ笅闈㈢殑瀵嗛挜銆? : "鍦ㄧ數鑴戜笂鍙互鐩存帴鎵爜娣诲姞锛屼篃鍙互鍒囨崲鎴愭墜鍔ㄨ緭鍏ュ瘑閽ャ€?}</p>
+    <p>${mobileLayout ? "在手机上可以直接打开验证器，也可以手动输入下面的密钥。" : "在电脑上可以直接扫码添加，也可以切换成手动输入密钥。"}</p>
     ${
       mobileLayout
         ? `
@@ -354,7 +354,7 @@ const renderTotpSetupPanel = (setupPanel, result) => {
       if (secretCard) secretCard.hidden = showingSecret;
       if (visualCard) visualCard.hidden = !showingSecret;
       const toggle = $("#totpSecretToggle");
-      if (toggle) toggle.textContent = showingSecret ? "鍒囨崲鎴愬瘑閽? : "鍒囨崲鎴愪簩缁寸爜";
+      if (toggle) toggle.textContent = showingSecret ? "切换成密钥" : "切换成二维码";
     });
   }
 
@@ -363,7 +363,7 @@ const renderTotpSetupPanel = (setupPanel, result) => {
     const code = $("#totpConfirmCode")?.value.trim() || "";
     await api("/me/totp/confirm", { method: "POST", body: JSON.stringify({ code }) });
     await refreshPageData();
-    showToast("2FA 宸插紑鍚?);
+    showToast("2FA 已开启");
   });
 };
 
@@ -391,7 +391,7 @@ const bindTotpSecurity = () => {
       const code = $("#totpConfirmCode")?.value.trim() || "";
       await api("/me/totp/confirm", { method: "POST", body: JSON.stringify({ code }) });
       await refreshPageData();
-      showToast("2FA 宸插紑鍚?);
+      showToast("2FA 已开启");
     });
   });
 
@@ -399,7 +399,7 @@ const bindTotpSecurity = () => {
     if (!window.confirm("纭畾鍏抽棴 2FA 鍚楋紵")) return;
     await api("/me/totp", { method: "DELETE" });
     await refreshPageData();
-    showToast("2FA 宸插叧闂?);
+    showToast("2FA 已关闭");
   });
 };
 
@@ -420,7 +420,7 @@ const bindContentButtons = () => {
   });
   $$("[data-delete-post]").forEach((button) => {
     button.addEventListener("click", async () => {
-      if (!window.confirm("鍒犻櫎鍚庝細杩涘叆鍥炴敹绔欙紝7 澶╁悗褰诲簳鍒犻櫎銆傜‘瀹氱户缁悧锛?)) return;
+      if (!window.confirm("删除后会进入回收站，7 天后彻底删除。确定继续吗？")) return;
       await api(`/posts/${button.dataset.deletePost}`, { method: "DELETE" });
       await loadPublicData();
       showToast("甯栧瓙宸茬Щ鍏ュ洖鏀剁珯");
@@ -434,7 +434,7 @@ const openReader = (type, id) => {
   if (!item || !$("#readerContent")) return;
   api(`/track-view/${type}/${id}`, { method: "POST" }).catch(() => {});
   item.views = Number(item.views || 0) + 1;
-  const author = item.author || "绠＄悊鍛?;
+  const author = item.author || "管理员";
   $("#readerContent").innerHTML = `
     <h1>${escapeHtml(item.title)}</h1>
     <div class="meta"><a class="author-link" href="${profileHref(author)}">${escapeHtml(author)}</a> 路 ${formatDate(item.created_at)} 路 ${item.views || 0} 娆℃祻瑙?/div>
@@ -484,7 +484,7 @@ const setupEditor = () => {
     if (color) command("foreColor", color);
   });
   $("#bilibiliButton")?.addEventListener("click", () => {
-    const input = window.prompt("绮樿创 Bilibili 閾炬帴銆丅V 鍙锋垨 av 鍙?);
+    const input = window.prompt("粘贴 Bilibili 链接、BV 号或 av 号");
     const bv = input?.match(/BV[a-zA-Z0-9]{8,12}/)?.[0];
     const av = input?.match(/(?:av|aid=)(\d+)/i)?.[1];
     const src = bv ? `https://player.bilibili.com/player.html?bvid=${encodeURIComponent(bv)}` : av ? `https://player.bilibili.com/player.html?aid=${encodeURIComponent(av)}` : null;
@@ -538,7 +538,7 @@ const renderForumProfileCard = () => {
       <div class="skin-stage"><img src="${activeSkinSrc(state.me, 210)}" alt="" loading="lazy" /></div>
       <div class="profile-name ${state.me.last_seen_at ? "online" : ""}">
         <strong>${escapeHtml(state.me.username)}</strong>
-        <span>${escapeHtml(state.me.account_type || "绠＄悊鍛?)}</span>
+        <span>${escapeHtml(state.me.account_type || "管理员")}</span>
       </div>
     </a>
     <div class="profile-actions">
@@ -650,7 +650,7 @@ const setupForumPost = () => {
     state.editingPostId = null;
     closePostDialog();
     await loadPublicData();
-    showToast("甯栧瓙宸蹭繚瀛?);
+    showToast("帖子已保存");
   });
 };
 
@@ -672,7 +672,7 @@ const setupPublish = () => {
     await api(id ? `${endpoint}/${id}` : endpoint, { method: id ? "PUT" : "POST", body: JSON.stringify({ title, contentHtml }) });
     resetEditor();
     await loadAdminData();
-    showToast(id ? "鍐呭宸叉洿鏂? : "鍐呭宸插彂甯?);
+    showToast(id ? "内容已更新" : "内容已发布");
   });
   $("#cancelEditButton")?.addEventListener("click", resetEditor);
 };
@@ -690,10 +690,10 @@ const statCard = (label, value) => `<article class="stat-card"><span>${label}</s
 const renderStats = () => {
   if (!$("#statsGrid") || !state.stats) return;
   $("#statsGrid").innerHTML = [
-    statCard("鎬绘祻瑙?, state.stats.totalViews),
+    statCard("总浏览", state.stats.totalViews),
     statCard("鍏憡娴忚", state.stats.announcementViews),
     statCard("璁哄潧娴忚", state.stats.postViews),
-    statCard("绠＄悊鍛樿处鍙?, state.stats.userCount),
+    statCard("管理员账号", state.stats.userCount),
   ].join("");
   $("#trashDock")?.remove();
   if (state.stats.trashCount > 0) {
@@ -701,7 +701,7 @@ const renderStats = () => {
     dock.id = "trashDock";
     dock.className = "trash-dock button danger";
     dock.type = "button";
-    dock.textContent = `鍨冨溇妗?${state.stats.trashCount}`;
+    dock.textContent = `垃圾桶 ${state.stats.trashCount}`;
     dock.addEventListener("click", () => {
       location.hash = "#adminTrash";
       renderTrash();
@@ -709,7 +709,7 @@ const renderStats = () => {
     document.body.append(dock);
   }
   if ($("#maintenanceToggle")) $("#maintenanceToggle").checked = Boolean(state.stats.maintenanceMode);
-  if ($("#maintenanceStatusText")) $("#maintenanceStatusText").textContent = state.stats.maintenanceMode ? "褰撳墠缁存姢妯″紡宸插紑鍚€? : "褰撳墠缃戠珯姝ｅ父寮€鏀俱€?;
+  if ($("#maintenanceStatusText")) $("#maintenanceStatusText").textContent = state.stats.maintenanceMode ? "当前维护模式已开启。" : "当前网站正常开放。";
 };
 
 const adminRows = (items, type) =>
@@ -718,7 +718,7 @@ const adminRows = (items, type) =>
         .map(
           (item) => `
             <div class="table-row">
-              <div><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.author || "绠＄悊鍛?)} 路 ${formatDate(item.created_at)} 路 ${item.views || 0} 娆℃祻瑙?/span></div>
+              <div><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.author || "管理员")} 路 ${formatDate(item.created_at)} 路 ${item.views || 0} 次浏览</span></div>
               <div class="row-actions">
                 <button class="button small ghost" type="button" data-edit="${type}" data-id="${item.id}">缂栬緫</button>
                 <button class="button small danger" type="button" data-delete="${type}" data-id="${item.id}">鍒犻櫎</button>
@@ -747,7 +747,7 @@ const renderManagement = () => {
   });
   $$("[data-delete]").forEach((button) => {
     button.addEventListener("click", async () => {
-      if (!window.confirm("鍒犻櫎鍚庝細杩涘叆鍨冨溇妗躲€傜‘瀹氱户缁悧锛?)) return;
+      if (!window.confirm("删除后会进入垃圾桶。确定继续吗？")) return;
       const type = button.dataset.delete;
       await api(`/${type === "announcement" ? "announcements" : "posts"}/${button.dataset.id}`, { method: "DELETE" });
       await loadAdminData();
@@ -817,7 +817,7 @@ const renderAdmins = () => {
     : `<div class="empty">鏆傛棤绠＄悊鍛樸€?/div>`;
   $$("[data-remove-admin]").forEach((button) => {
     button.addEventListener("click", async () => {
-      if (!window.confirm("纭畾鍒犻櫎杩欎釜绠＄悊鍛樿处鍙峰悧锛?)) return;
+      if (!window.confirm("确定删除这个管理员账号吗？")) return;
       await api(`/admin/users/${button.dataset.removeAdmin}`, { method: "DELETE" });
       await loadAdminData();
       showToast("绠＄悊鍛樺凡鍒犻櫎");
@@ -831,7 +831,7 @@ const renderAdmins = () => {
         method: "PUT",
         body: JSON.stringify({ password }),
       });
-      showToast("瀵嗙爜宸查噸缃?);
+      showToast("密码已重置");
     });
   });
 };
@@ -865,7 +865,7 @@ const setupMaintenanceToggle = () => {
       if (state.stats) state.stats.maintenanceMode = result.maintenanceMode;
       renderStats();
       renderMaintenanceBanner();
-      showToast(result.maintenanceMode ? "宸插紑鍚淮鎶ゆā寮? : "宸插叧闂淮鎶ゆā寮?);
+      showToast(result.maintenanceMode ? "已开启维护模式" : "已关闭维护模式");
     } catch (error) {
       if (requestId !== maintenanceRequestId) return;
       state.site.maintenanceMode = previous;
@@ -962,7 +962,7 @@ const setupDialogDismiss = () => {
 const setupHomeActions = () => {
   $("#copyServerAddress")?.addEventListener("click", async () => {
     await navigator.clipboard.writeText(serverAddress);
-    showToast("鏈嶅姟鍣ㄥ湴鍧€宸插鍒?);
+    showToast("服务器地址已复制");
   });
 };
 
