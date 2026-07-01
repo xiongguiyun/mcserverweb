@@ -404,41 +404,106 @@ const closeToolbarMore = () => {
   button.closest(".toolbar-more")?.classList.remove("is-open", "is-open-upward");
 };
 
+const updateColorToolPosition = () => {
+  const panel = $("#colorToolPanel");
+  const button = $("#colorButton");
+  if (!panel || !button || panel.hidden) return;
+  const host = floatingHostFor(button);
+  const isBodyHost = host === document.body;
+  if (panel.parentElement !== host) {
+    panel._colorToolHost = button.closest(".toolbar-color-popover") || button.parentElement;
+    host.append(panel);
+  }
+  const rect = button.getBoundingClientRect();
+  const hostRect = isBodyHost ? { left: 0, top: 0 } : host.getBoundingClientRect();
+  const panelWidth = panel.offsetWidth || 0;
+  const panelHeight = panel.offsetHeight || 0;
+  const margin = 8;
+  const scrollLeft = isBodyHost ? 0 : host.scrollLeft;
+  const scrollTop = isBodyHost ? 0 : host.scrollTop;
+  const maxWidth = isBodyHost ? window.innerWidth : host.clientWidth;
+  const maxHeight = isBodyHost ? window.innerHeight : host.clientHeight;
+  let left = rect.right - hostRect.left + scrollLeft - panelWidth;
+  let top = rect.bottom - hostRect.top + scrollTop + 10;
+
+  left = Math.max(margin, Math.min(left, maxWidth + scrollLeft - panelWidth - margin));
+  if (top + panelHeight > maxHeight + scrollTop - margin) {
+    top = rect.top - hostRect.top + scrollTop - panelHeight - 10;
+  }
+  top = Math.max(scrollTop + margin, top);
+
+  panel.style.position = isBodyHost ? "fixed" : "absolute";
+  panel.style.left = `${Math.round(left)}px`;
+  panel.style.top = `${Math.round(top)}px`;
+  panel.style.right = "auto";
+  panel.style.bottom = "auto";
+};
+
+const closeColorTool = () => {
+  const button = $("#colorButton");
+  const panel = $("#colorToolPanel");
+  if (!button || !panel) return;
+  button.setAttribute("aria-expanded", "false");
+  panel.hidden = true;
+  panel.style.removeProperty("position");
+  panel.style.removeProperty("left");
+  panel.style.removeProperty("top");
+  panel.style.removeProperty("right");
+  panel.style.removeProperty("bottom");
+  button.closest(".toolbar-color-popover")?.classList.remove("is-open");
+  if (panel._colorToolHost && panel.parentElement !== panel._colorToolHost) {
+    panel._colorToolHost.append(panel);
+  }
+};
+
 const enhanceColorTool = () => {
   const colorButton = $("#colorButton");
   if (!colorButton || colorButton.dataset.colorEnhanced) return;
   colorButton.dataset.colorEnhanced = "true";
-  const palette = document.createElement("div");
-  palette.className = "toolbar-color-tool";
-  palette.innerHTML = `
-    <div class="toolbar-color-presets" aria-label="默认文本颜色">
-      ${editorColorPresets
-        .map((color) => `<button class="toolbar-color-swatch" type="button" data-color="${color}" style="--swatch-color: ${color}" aria-label="使用颜色 ${color}"></button>`)
-        .join("")}
+  const wrapper = document.createElement("div");
+  wrapper.className = "toolbar-color-popover";
+  wrapper.innerHTML = `
+    <button type="button" id="colorButton" aria-expanded="false" aria-controls="colorToolPanel">文本颜色</button>
+    <div class="toolbar-color-tool" id="colorToolPanel" hidden>
+      <div class="toolbar-color-presets" aria-label="默认文本颜色">
+        ${editorColorPresets
+          .map((color) => `<button class="toolbar-color-swatch" type="button" data-color="${color}" style="--swatch-color: ${color}" aria-label="使用颜色 ${color}"></button>`)
+          .join("")}
+      </div>
+      <label class="toolbar-color-picker">
+        <span>颜色盘</span>
+        <input id="colorPickerInput" type="color" value="#f5a43a" />
+      </label>
+      <button type="button" id="eyeDropperButton">吸取颜色</button>
+      <button type="button" id="customColorButton">手动填写</button>
     </div>
-    <label class="toolbar-color-picker">
-      <span>颜色盘</span>
-      <input id="colorPickerInput" type="color" value="#f5a43a" />
-    </label>
-    <button type="button" id="eyeDropperButton">吸取颜色</button>
-    <button type="button" id="customColorButton">手动填写</button>
   `;
-  colorButton.replaceWith(palette);
-  palette.querySelectorAll("[data-color]").forEach((button) => {
-    button.addEventListener("click", () => applyEditorColor(button.dataset.color));
-  });
-  palette.querySelector("#colorPickerInput")?.addEventListener("input", (event) => applyEditorColor(event.target.value));
-  palette.querySelector("#eyeDropperButton")?.addEventListener("click", async () => {
-    if (!("EyeDropper" in window)) {
-      showToast("当前浏览器不支持吸取颜色，可使用颜色盘或手动填写");
+  colorButton.replaceWith(wrapper);
+  const toggle = wrapper.querySelector("#colorButton");
+  const panel = wrapper.querySelector("#colorToolPanel");
+  toggle.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const isOpen = toggle.getAttribute("aria-expanded") === "true";
+    if (isOpen) {
+      closeColorTool();
       return;
     }
-    try {
-      const result = await new window.EyeDropper().open();
-      applyEditorColor(result.sRGBHex);
-    } catch {}
+    closeTablePicker();
+    toggle.setAttribute("aria-expanded", "true");
+    panel.hidden = false;
+    wrapper.classList.add("is-open");
+    window.requestAnimationFrame(updateColorToolPosition);
   });
-  palette.querySelector("#customColorButton")?.addEventListener("click", async () => {
+  panel.addEventListener("click", (event) => event.stopPropagation());
+  panel.querySelectorAll("[data-color]").forEach((button) => {
+    button.addEventListener("click", () => applyEditorColor(button.dataset.color));
+  });
+  panel.querySelector("#colorPickerInput")?.addEventListener("input", (event) => applyEditorColor(event.target.value));
+  panel.querySelector("#eyeDropperButton")?.addEventListener("click", () => {
+    const picker = panel.querySelector("#colorPickerInput");
+    applyEditorColor(picker?.value || "#f5a43a");
+  });
+  panel.querySelector("#customColorButton")?.addEventListener("click", async () => {
     const color = await showPromptDialog("输入文本颜色，例如 #ff6600 或 rgb(255, 102, 0)。", {
       title: "文本颜色",
       eyebrow: "编辑工具",
@@ -1032,6 +1097,7 @@ const setupEditor = () => {
   $("#tableButton")?.addEventListener("click", (event) => {
     event.stopPropagation();
     closeToolbarMore();
+    closeColorTool();
     openTablePicker(event.currentTarget);
   });
   $("#spoilerButton")?.addEventListener("click", () => insertHtmlBlock(`<span class="spoiler-inline">隐藏内容</span>`));
@@ -1063,18 +1129,28 @@ const setupEditor = () => {
     const isOpen = button.getAttribute("aria-expanded") === "true";
     if (isOpen) {
       closeToolbarMore();
+      closeColorTool();
       closeTablePicker();
       return;
     }
+    closeColorTool();
+    closeTablePicker();
     button.setAttribute("aria-expanded", String(!isOpen));
     menu.hidden = isOpen;
     button.closest(".toolbar-more")?.classList.toggle("is-open", !isOpen);
     window.requestAnimationFrame(() => updateToolbarMorePosition());
   });
   $("#moreMenu")?.addEventListener("click", (event) => event.stopPropagation());
-  document.addEventListener("click", closeToolbarMore);
-  window.addEventListener("resize", closeToolbarMore);
+  document.addEventListener("click", () => {
+    closeToolbarMore();
+    closeColorTool();
+  });
+  window.addEventListener("resize", () => {
+    closeToolbarMore();
+    closeColorTool();
+  });
   window.addEventListener("scroll", updateToolbarMorePosition, { passive: true });
+  window.addEventListener("scroll", updateColorToolPosition, { passive: true });
   $$(".toolbar-preview-button").forEach((button) => button.addEventListener("click", () => {
     const editor = $("#editor");
     const previewContent = $("#previewContent");
@@ -1385,6 +1461,52 @@ const renderAdminGate = () => {
   if (!shell || !locked) return;
   shell.hidden = !isAdmin();
   locked.hidden = isAdmin();
+  window.requestAnimationFrame(syncAdminSidebarFollow);
+};
+
+const clearAdminSidebarFollow = () => {
+  const sidebar = document.querySelector(".admin-sidebar:not(.admin-sidebar-drawer)");
+  if (!sidebar) return;
+  sidebar.style.removeProperty("position");
+  sidebar.style.removeProperty("top");
+  sidebar.style.removeProperty("left");
+  sidebar.style.removeProperty("width");
+  sidebar.style.removeProperty("z-index");
+};
+
+const syncAdminSidebarFollow = () => {
+  if (page !== "admin") return;
+  const sidebar = document.querySelector(".admin-sidebar:not(.admin-sidebar-drawer)");
+  const shell = $("#adminShell");
+  if (!sidebar || !shell || shell.hidden || !window.matchMedia?.("(min-width: 981px)")?.matches) {
+    clearAdminSidebarFollow();
+    return;
+  }
+
+  const shellRect = shell.getBoundingClientRect();
+  const shellStyle = window.getComputedStyle(shell);
+  const shellPaddingLeft = Number.parseFloat(shellStyle.paddingLeft) || 0;
+  const sidebarHeight = sidebar.offsetHeight || 0;
+  const sidebarWidth = sidebar.offsetWidth || 220;
+  const centeredTop = Math.max(94, Math.round((window.innerHeight - sidebarHeight) / 2));
+
+  if (window.scrollY <= 0) {
+    clearAdminSidebarFollow();
+    return;
+  }
+
+  sidebar.style.position = "fixed";
+  sidebar.style.top = `${centeredTop}px`;
+  sidebar.style.left = `${Math.round(shellRect.left + shellPaddingLeft)}px`;
+  sidebar.style.width = `${sidebarWidth}px`;
+  sidebar.style.zIndex = "25";
+};
+
+const setupAdminSidebarFollow = () => {
+  if (page !== "admin") return;
+  window.addEventListener("scroll", syncAdminSidebarFollow, { passive: true });
+  window.addEventListener("resize", syncAdminSidebarFollow);
+  window.requestAnimationFrame(syncAdminSidebarFollow);
 };
 
 const statCard = (label, value) => `<article class="stat-card"><span>${label}</span><strong>${value}</strong></article>`;
@@ -1600,7 +1722,7 @@ const renderAdmins = () => {
                     ? `
                       <button class="button small ghost" type="button" data-rename-user="${user.id}" data-name="${escapeHtml(user.username)}">改名</button>
                       <button class="button small ghost" type="button" data-role-user="${user.id}" data-role="${user.role}" data-name="${escapeHtml(user.username)}">${user.role === "admin" ? "降为成员" : "设为管理员"}</button>
-                      ${user.role === "admin" ? `<button class="button small ghost" type="button" data-reset-admin="${user.id}" data-name="${escapeHtml(user.username)}">重置密码</button>` : ""}
+                      <button class="button small ghost" type="button" data-reset-user-password="${user.id}" data-name="${escapeHtml(user.username)}">改密码</button>
                       ${user.role === "admin" ? `<button class="button small danger" type="button" data-remove-admin="${user.id}">删除</button>` : ""}
                     `
                     : `<button class="button small ghost" type="button" disabled>${user.is_owner ? "服主账号" : "仅服主可操作"}</button>`
@@ -1664,11 +1786,11 @@ const renderAdmins = () => {
       showToast("管理员已删除");
     });
   });
-  $$("[data-reset-admin]").forEach((button) => {
+  $$("[data-reset-user-password]").forEach((button) => {
     button.addEventListener("click", async () => {
       const password = await showPromptDialog(`为 ${button.dataset.name} 设置新密码（至少 6 位）。`, {
-        title: "重置管理员密码",
-        eyebrow: "权限管理",
+        title: "修改成员密码",
+        eyebrow: "用户管理",
         inputLabel: "新密码",
         inputType: "password",
         autocomplete: "new-password",
@@ -1678,11 +1800,11 @@ const renderAdmins = () => {
         validate: (value) => (value.length >= 6 ? "" : "密码至少需要 6 位"),
       });
       if (!password) return;
-      await api(`/admin/users/${button.dataset.resetAdmin}/password`, {
+      await api(`/admin/users/${button.dataset.resetUserPassword}/password`, {
         method: "PUT",
         body: JSON.stringify({ password }),
       });
-      showToast("密码已重置");
+      showToast("成员密码已更新");
     });
   });
 };
@@ -1948,6 +2070,7 @@ setupAdminUsers();
 setupMaintenanceToggle();
 setupAdminNavigation();
 setupAdminMobileDrawer();
+setupAdminSidebarFollow();
 setupHomeActions();
 setupAnnouncementAnchorFix();
 setupHeroTyping();

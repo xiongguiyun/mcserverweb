@@ -1139,7 +1139,7 @@ const resolvePostReport = async (env, request, id) => {
   return json({ ok: true });
 };
 
-const resetManagedAdminPassword = async (env, request, id) => {
+const resetManagedUserPassword = async (env, request, id) => {
   await requireOwnerAdmin(env, request);
   const targetId = Number(id);
   const owner = await ownerUser(env);
@@ -1149,10 +1149,10 @@ const resetManagedAdminPassword = async (env, request, id) => {
   const body = await readBody(request);
   const password = String(body.password || "");
   if (password.length < 6) return json({ error: "密码至少 6 位" }, 400);
-  const result = await env.DB.prepare("UPDATE users SET password_hash = ? WHERE id = ? AND role = 'admin'")
+  const result = await env.DB.prepare("UPDATE users SET password_hash = ? WHERE id = ?")
     .bind(await hashPassword(password), targetId)
     .run();
-  if (!result.meta?.changes) return json({ error: "没有找到这个管理员" }, 404);
+  if (!result.meta?.changes) return json({ error: "没有找到这个用户" }, 404);
   await env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(targetId).run();
   return json({ ok: true });
 };
@@ -1223,7 +1223,7 @@ export async function onRequest(context) {
       return updateManagedUser(env, request, pathname.split("/").at(-1));
     }
     if (method === "PUT" && /^\/admin\/users\/\d+\/password$/.test(pathname)) {
-      return resetManagedAdminPassword(env, request, pathname.split("/").at(-2));
+      return resetManagedUserPassword(env, request, pathname.split("/").at(-2));
     }
     if (method === "DELETE" && /^\/admin\/users\/\d+$/.test(pathname)) {
       return removeManagedAdmin(env, request, pathname.split("/").at(-1));
