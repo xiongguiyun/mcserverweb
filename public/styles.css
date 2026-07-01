@@ -1913,12 +1913,16 @@ dialog.is-closing::backdrop {
   display: grid;
   place-items: center;
   padding: 22px;
+  opacity: 0;
+  transition: opacity 0.2s linear;
 }
 
 .profile-trash-backdrop {
   position: absolute;
   inset: 0;
   background: rgba(24, 16, 12, 0.62);
+  opacity: 0;
+  transition: opacity 0.2s linear;
 }
 
 .profile-trash-popover {
@@ -1931,6 +1935,24 @@ dialog.is-closing::backdrop {
   background: #fffaf0;
   border: 2px solid #c79a5d;
   box-shadow: 0 16px 0 rgba(43, 27, 18, 0.18), var(--shadow);
+  opacity: 0;
+  transform: translateY(18px);
+  transition:
+    opacity 0.2s linear,
+    transform 0.2s linear;
+}
+
+.profile-trash-overlay.is-open {
+  opacity: 1;
+}
+
+.profile-trash-overlay.is-visible .profile-trash-backdrop,
+.profile-trash-overlay.is-visible .profile-trash-popover {
+  opacity: 1;
+}
+
+.profile-trash-overlay.is-visible .profile-trash-popover {
+  transform: translateY(0);
 }
 
 body.profile-trash-open {
@@ -4108,6 +4130,16 @@ dialog.is-closing::backdrop {
 }
 
 @media (max-width: 620px) {
+  .photo-hero {
+    justify-items: center;
+    padding-inline: 14px;
+  }
+
+  .hero-copy {
+    width: min(100%, 310px);
+    margin-inline: auto;
+  }
+
   .hero-bg {
     background-position: center center;
   }

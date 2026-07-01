@@ -641,17 +641,40 @@ const bindProfileTrashToggle = () => {
   const overlay = $("#profileTrashOverlay");
   if (!button || !overlay) return;
 
-  const sync = () => {
-    overlay.hidden = !state.profileTrashOpen;
-    document.body.classList.toggle("profile-trash-open", state.profileTrashOpen);
+  const prefersReduced = prefersReducedMotion();
+  const setOpenState = (open) => {
+    overlay.classList.toggle("is-open", open);
+    document.body.classList.toggle("profile-trash-open", open);
+    if (!open) return;
+    overlay.hidden = false;
+    requestAnimationFrame(() => overlay.classList.add("is-visible"));
+  };
+  const finishClose = () => {
+    overlay.hidden = true;
+    overlay.classList.remove("is-visible");
+    document.body.classList.remove("profile-trash-open");
   };
   const open = () => {
     state.profileTrashOpen = true;
-    sync();
+    overlay.classList.remove("is-closing");
+    setOpenState(true);
   };
   const close = () => {
     state.profileTrashOpen = false;
-    sync();
+    overlay.classList.remove("is-visible");
+    overlay.classList.add("is-closing");
+    if (prefersReduced) {
+      overlay.classList.remove("is-open", "is-closing");
+      finishClose();
+      return;
+    }
+    const handleTransitionEnd = (event) => {
+      if (event.target !== overlay) return;
+      overlay.removeEventListener("transitionend", handleTransitionEnd);
+      overlay.classList.remove("is-open", "is-closing");
+      finishClose();
+    };
+    overlay.addEventListener("transitionend", handleTransitionEnd);
   };
 
   if (!button.dataset.trashBound) {
@@ -670,7 +693,12 @@ const bindProfileTrashToggle = () => {
     document.addEventListener("keydown", state.profileTrashKeydownHandler);
   }
 
-  sync();
+  if (state.profileTrashOpen) {
+    setOpenState(true);
+  } else {
+    overlay.classList.remove("is-open", "is-visible", "is-closing");
+    finishClose();
+  }
 };
 
 const bindContentButtons = () => {
@@ -1039,7 +1067,7 @@ const renderProfilePage = () => {
       <div class="skin-stage large"><img src="${activeSkinSrc(profile, 210)}" alt="" loading="lazy" /></div>
       <div class="profile-name ${profile.online ? "online" : ""}">
         <strong>${escapeHtml(profile.username)}</strong>
-        <span>${escapeHtml(profile.accountType)} / 注册于 ${formatDate(profile.created_at)}</span>
+        <span>${escapeHtml(profile.accountType)} ${formatDate(profile.created_at)}</span>
       </div>
       <div class="profile-summary">
         <div><strong>${profile.postCount}</strong><span>最近帖子</span></div>
