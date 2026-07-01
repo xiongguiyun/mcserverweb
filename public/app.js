@@ -474,7 +474,6 @@ const enhanceColorTool = () => {
         <span>颜色盘</span>
         <input id="colorPickerInput" type="color" value="#f5a43a" />
       </label>
-      <button type="button" id="eyeDropperButton">吸取颜色</button>
       <button type="button" id="customColorButton">手动填写</button>
     </div>
   `;
@@ -499,10 +498,6 @@ const enhanceColorTool = () => {
     button.addEventListener("click", () => applyEditorColor(button.dataset.color));
   });
   panel.querySelector("#colorPickerInput")?.addEventListener("input", (event) => applyEditorColor(event.target.value));
-  panel.querySelector("#eyeDropperButton")?.addEventListener("click", () => {
-    const picker = panel.querySelector("#colorPickerInput");
-    applyEditorColor(picker?.value || "#f5a43a");
-  });
   panel.querySelector("#customColorButton")?.addEventListener("click", async () => {
     const color = await showPromptDialog("输入文本颜色，例如 #ff6600 或 rgb(255, 102, 0)。", {
       title: "文本颜色",
