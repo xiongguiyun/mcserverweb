@@ -4132,12 +4132,40 @@ dialog.is-closing::backdrop {
 @media (max-width: 620px) {
   .photo-hero {
     justify-items: center;
+    min-height: min(760px, calc(100vh - 76px));
+    padding-block: 42px 56px;
     padding-inline: 14px;
   }
 
   .hero-copy {
     width: min(100%, 310px);
     margin-inline: auto;
+  }
+
+  .hero-title-horizontal {
+    width: 100%;
+    min-height: 0;
+  }
+
+  .photo-hero h1 {
+    font-size: clamp(38px, 11vw, 56px);
+    line-height: 1;
+  }
+
+  .photo-hero p {
+    margin-top: 16px;
+    font-size: 16px;
+    line-height: 1.45;
+  }
+
+  .photo-hero .hero-actions {
+    gap: 10px;
+    margin-top: 22px;
+  }
+
+  .photo-hero .hero-actions .button {
+    min-height: 40px;
+    padding-inline: 16px;
   }
 
   .hero-bg {
@@ -4316,7 +4344,7 @@ dialog.is-closing::backdrop {
   .photo-hero .server-panel {
     width: min(100%, 310px);
     max-width: 310px;
-    margin-top: 24px;
+    margin-top: 20px;
     border-width: 1px;
     box-shadow: 0 5px 0 rgba(0, 0, 0, 0.24);
   }
