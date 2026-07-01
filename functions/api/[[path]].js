@@ -858,7 +858,7 @@ const deletePost = async (env, request, id) => {
 const restorePost = async (env, request, id) => {
   const user = await requireUser(env, request);
   const post = await env.DB.prepare("SELECT id, author_id FROM posts WHERE id = ? AND deleted_at IS NOT NULL").bind(id).first();
-  if (!post) return json({ error: "Post is not in trash" }, 404);
+  if (!post) return json({ error: "Post is not in recycle bin" }, 404);
   if (user.role !== "admin" && Number(post.author_id) !== Number(user.id)) {
     return json({ error: "You can only restore your own posts" }, 403);
   }
@@ -869,7 +869,7 @@ const restorePost = async (env, request, id) => {
 const purgePost = async (env, request, id) => {
   const user = await requireUser(env, request);
   const post = await env.DB.prepare("SELECT id, author_id FROM posts WHERE id = ? AND deleted_at IS NOT NULL").bind(id).first();
-  if (!post) return json({ error: "Post is not in trash" }, 404);
+  if (!post) return json({ error: "Post is not in recycle bin" }, 404);
   if (user.role !== "admin" && Number(post.author_id) !== Number(user.id)) {
     return json({ error: "You can only purge your own posts" }, 403);
   }

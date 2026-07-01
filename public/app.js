@@ -136,7 +136,17 @@ const openDialog = (dialog) => {
   window.clearTimeout(dialog.closeTimer);
   dialog.classList.remove("is-closing");
   if (dialog.open) return;
-  dialog.showModal();
+  try {
+    if (typeof dialog.showModal === "function") {
+      dialog.showModal();
+      return;
+    }
+    if (typeof dialog.show === "function") {
+      dialog.show();
+      return;
+    }
+  } catch {}
+  dialog.setAttribute("open", "");
 };
 
 const closeDialogAnimated = (dialog) => {
@@ -689,7 +699,8 @@ const openReader = (type, id) => {
     </div>
   `;
   $("#readerContent [data-reader-close]")?.addEventListener("click", () => closeDialogAnimated($("#readerDialog")));
-  bindServerStatusCardActions($("#readerContent"));
+  const serverStatusBinder = globalThis.bindServerStatusCardActions;
+  if (typeof serverStatusBinder === "function") serverStatusBinder($("#readerContent"));
   openDialog($("#readerDialog"));
 };
 
@@ -921,7 +932,8 @@ const setupEditor = () => {
       <h1>${escapeHtml(title)}</h1>
       <div class="reader-body">${editor.innerHTML.trim() || "<p>暂无内容</p>"}</div>
     `;
-    bindServerStatusCardActions(previewContent);
+    const serverStatusBinder = globalThis.bindServerStatusCardActions;
+    if (typeof serverStatusBinder === "function") serverStatusBinder(previewContent);
     openPreviewDialog();
   }));
 };
@@ -977,7 +989,7 @@ const renderProfilePage = () => {
         <div><strong>${profile.postCount}</strong><span>最近帖子</span></div>
         <div><strong>${escapeHtml(profile.accountType)}</strong><span>账号类型</span></div>
       </div>
-      ${profile.isSelf ? `<div class="profile-actions"><a class="button danger" href="#profileTrash">垃圾桶</a></div>` : ""}
+      ${profile.isSelf ? `<div class="profile-actions"><a class="button danger" href="#profileTrash">回收站</a></div>` : ""}
       ${totpPanelTemplate(profile)}
     </div>
   `;
@@ -986,7 +998,7 @@ const renderProfilePage = () => {
     ? `
       <section class="profile-trash" id="profileTrash">
         <div class="section-title compact">
-          <h2>垃圾桶</h2>
+          <h2>回收站</h2>
           <p>这里是你已删除的帖子，7 天后会自动彻底删除。</p>
         </div>
         <div class="admin-table profile-trash-table">
@@ -1004,7 +1016,7 @@ const renderProfilePage = () => {
                       </div>`,
                   )
                   .join("")
-              : `<div class="empty">垃圾桶为空。</div>`
+              : `<div class="empty">回收站为空。</div>`
           }
         </div>
       </section>`
@@ -1043,7 +1055,7 @@ const bindProfileTrashButtons = () => {
     button.addEventListener("click", async () => {
       const confirmed = await showConfirmDialog("彻底删除后无法恢复。确定继续吗？", {
         title: "彻底删除帖子",
-        eyebrow: "垃圾桶",
+        eyebrow: "回收站",
         confirmLabel: "彻底删除",
         confirmTone: "danger",
       });
@@ -1234,7 +1246,7 @@ const renderStats = () => {
     dock.id = "trashDock";
     dock.className = "trash-dock button danger";
     dock.type = "button";
-    dock.textContent = `垃圾桶 ${state.stats.trashCount}`;
+    dock.textContent = `回收站 ${state.stats.trashCount}`;
     dock.addEventListener("click", () => {
       location.hash = "#adminTrash";
       $("#adminTrash")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1281,10 +1293,10 @@ const renderManagement = () => {
   });
   $$("[data-delete]").forEach((button) => {
     button.addEventListener("click", async () => {
-      const confirmed = await showConfirmDialog("删除后会进入垃圾桶。确定继续吗？", {
+      const confirmed = await showConfirmDialog("删除后会进入回收站。确定继续吗？", {
         title: "删除内容",
         eyebrow: "内容管理",
-        confirmLabel: "移入垃圾桶",
+        confirmLabel: "移入回收站",
         confirmTone: "danger",
       });
       if (!confirmed) return;
@@ -1293,7 +1305,7 @@ const renderManagement = () => {
       state.trashLoaded = false;
       await loadAdminData();
       if (window.location.hash === "#adminTrash") await renderTrash({ force: true });
-      showToast("内容已移入垃圾桶");
+      showToast("内容已移入回收站");
     });
   });
 };
@@ -1318,7 +1330,7 @@ const renderTrashRows = () => {
             </div>`,
         )
         .join("")
-    : `<div class="empty">垃圾桶为空。</div>`;
+    : `<div class="empty">回收站为空。</div>`;
   $$("[data-restore]").forEach((button) =>
     button.addEventListener("click", async () => {
       await api(`/${button.dataset.restore === "announcement" ? "announcements" : "posts"}/${button.dataset.id}/restore`, { method: "POST" });
@@ -1348,7 +1360,7 @@ const renderTrash = async ({ force = false } = {}) => {
   if (!panel) return;
   const table = panel.querySelector(".admin-table");
   if (!state.trashLoaded || force) {
-    if (table) table.innerHTML = `<div class="empty">正在加载垃圾桶...</div>`;
+    if (table) table.innerHTML = `<div class="empty">正在加载回收站...</div>`;
     state.trash = await api("/admin/trash");
     state.trashLoaded = true;
   }
@@ -1642,4 +1654,3 @@ setupHomeActions();
 setupHeroTyping();
 
 refreshPageData().catch((error) => showToast(error.message));
-
