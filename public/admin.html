@@ -169,7 +169,6 @@
           <section class="admin-panel" id="adminUsersPanel">
             <div class="section-title compact">
               <h2>管理员管理</h2>
-              <p>服主可以创建后续管理员账号、重置他们的密码，服主账号本身不可删除。</p>
             </div>
             <form class="inline-form compact" id="adminUserForm">
               <input id="adminUsername" placeholder="输入管理员账号名" required />
@@ -196,6 +195,9 @@
       </section>
     </main>
 
+    <button class="trash-dock button danger" id="trashDock" type="button" hidden>
+      回收站 <span class="trash-count-badge" hidden>0</span>
+    </button>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <dialog id="previewDialog" class="preview-dialog">
       <button class="dialog-close-button" type="button" data-dialog-close aria-label="关闭预览">×</button>

@@ -10,6 +10,7 @@ const state = {
   profile: null,
   trash: { announcements: [], posts: [] },
   trashLoaded: false,
+  profileTrashOpen: false,
   editingPostId: null,
   forumSearch: "",
   forumSearchOpen: false,
@@ -463,15 +464,22 @@ const renderMaintenanceGate = () => {
 const cardTemplate = (item, type) => {
   const excerpt = item.excerpt || textFromHtml(item.content_html).slice(0, 110);
   const author = item.author || "管理员";
+  const accountType = item.author_account_type || (type === "announcement" ? "管理员" : "成员");
   const canEditPost = type === "post" && page === "forum" && (isAdmin() || ownsContent(item, author));
   const canDeletePost = type === "post" && (isAdmin() || ownsContent(item, author));
   return `
     <article class="post-card ${type === "post" ? "forum-card" : ""}">
       <h3>${escapeHtml(item.title)}</h3>
       <div class="meta">
-        ${type === "announcement" ? "公告" : "玩家论坛"} /
-        <a class="author-link" href="${profileHref(author)}">${escapeHtml(author)}</a> /
-        ${formatDate(item.created_at)}
+        <span class="meta-role">${type === "announcement" ? "公告" : "玩家论坛"}</span>
+        <span class="meta-author">
+          <span class="meta-author-badge">
+            <img class="meta-author-icon" src="${avatarUrl(author, 32)}" alt="" loading="lazy" />
+            <a class="author-link" href="${profileHref(author)}">${escapeHtml(author)}</a>
+          </span>
+          <span class="meta-author-type">${escapeHtml(accountType)}</span>
+        </span>
+        <span class="meta-date">${formatDate(item.created_at)}</span>
       </div>
       <p>${escapeHtml(excerpt || "暂无摘要。")}</p>
       <div class="card-actions">
@@ -628,6 +636,43 @@ const bindTotpSecurity = () => {
   });
 };
 
+const bindProfileTrashToggle = () => {
+  const button = $("#profileTrashButton");
+  const overlay = $("#profileTrashOverlay");
+  if (!button || !overlay) return;
+
+  const sync = () => {
+    overlay.hidden = !state.profileTrashOpen;
+    document.body.classList.toggle("profile-trash-open", state.profileTrashOpen);
+  };
+  const open = () => {
+    state.profileTrashOpen = true;
+    sync();
+  };
+  const close = () => {
+    state.profileTrashOpen = false;
+    sync();
+  };
+
+  if (!button.dataset.trashBound) {
+    button.dataset.trashBound = "true";
+    button.addEventListener("click", open);
+  }
+  if (!overlay.dataset.trashBound) {
+    overlay.dataset.trashBound = "true";
+    overlay.querySelectorAll("[data-profile-trash-close]").forEach((node) => node.addEventListener("click", close));
+  }
+  if (!state.profileTrashKeydownBound) {
+    state.profileTrashKeydownBound = true;
+    state.profileTrashKeydownHandler = (event) => {
+      if (event.key === "Escape" && state.profileTrashOpen) close();
+    };
+    document.addEventListener("keydown", state.profileTrashKeydownHandler);
+  }
+
+  sync();
+};
+
 const bindContentButtons = () => {
   $$(".read-button").forEach((button) => {
     button.addEventListener("click", () => openReader(button.dataset.type, Number(button.dataset.id)));
@@ -676,15 +721,15 @@ const openReader = (type, id) => {
   const accountType = item.author_account_type || (type === "announcement" ? "管理员" : "成员");
   $("#readerContent").innerHTML = `
     <button class="dialog-close-button" type="button" data-reader-close aria-label="关闭阅读页">×</button>
-    <div class="reader-layout ${type === "post" ? "has-author-panel" : ""}">
+    <div class="reader-layout ${type === "post" || type === "announcement" ? "has-author-panel" : ""}">
       ${
-        type === "post"
+        type === "post" || type === "announcement"
           ? `<aside class="reader-author-panel">
               <a class="reader-author-skin" href="${profileHref(author)}">
                 <img src="${skinUrl(author, 210)}" alt="" loading="lazy" />
               </a>
               <div class="reader-author-meta">
-                <span>发布者</span>
+                <span>${type === "announcement" ? "发布公告" : "发布者"}</span>
                 <a class="author-link" href="${profileHref(author)}">${escapeHtml(author)}</a>
                 <strong>${escapeHtml(accountType)}</strong>
               </div>
@@ -693,7 +738,17 @@ const openReader = (type, id) => {
       }
       <div class="reader-main">
         <h1>${escapeHtml(item.title)}</h1>
-        <div class="meta"><a class="author-link" href="${profileHref(author)}">${escapeHtml(author)}</a> / ${formatDate(item.created_at)} / ${item.views || 0} 次浏览</div>
+        <div class="meta">
+          <span class="meta-author">
+            <span class="meta-author-badge">
+              <img class="meta-author-icon" src="${avatarUrl(author, 32)}" alt="" loading="lazy" />
+              <a class="author-link" href="${profileHref(author)}">${escapeHtml(author)}</a>
+            </span>
+            <span class="meta-author-type">${escapeHtml(accountType)}</span>
+          </span>
+          <span class="meta-date">${formatDate(item.created_at)}</span>
+          <span>${item.views || 0} 次浏览</span>
+        </div>
         <div class="reader-body">${item.content_html}</div>
       </div>
     </div>
@@ -978,6 +1033,7 @@ const renderProfilePage = () => {
     posts.innerHTML = "";
     return;
   }
+  const trashPosts = profile.trashPosts || [];
   panel.innerHTML = `
     <div class="profile-page-card">
       <div class="skin-stage large"><img src="${activeSkinSrc(profile, 210)}" alt="" loading="lazy" /></div>
@@ -989,35 +1045,38 @@ const renderProfilePage = () => {
         <div><strong>${profile.postCount}</strong><span>最近帖子</span></div>
         <div><strong>${escapeHtml(profile.accountType)}</strong><span>账号类型</span></div>
       </div>
-      ${profile.isSelf ? `<div class="profile-actions"><a class="button danger" href="#profileTrash">回收站</a></div>` : ""}
+      ${profile.isSelf ? `<div class="profile-actions"><button class="button danger" type="button" id="profileTrashButton">回收站 <span class="profile-trash-count" ${trashPosts.length ? "" : "hidden"}>${trashPosts.length}</span></button></div>` : ""}
       ${totpPanelTemplate(profile)}
     </div>
   `;
-  const trashPosts = profile.trashPosts || [];
   const trashSection = profile.isSelf
     ? `
-      <section class="profile-trash" id="profileTrash">
-        <div class="section-title compact">
-          <h2>回收站</h2>
-          <p>这里是你已删除的帖子，7 天后会自动彻底删除。</p>
-        </div>
-        <div class="admin-table profile-trash-table">
-          ${
-            trashPosts.length
-              ? trashPosts
-                  .map(
-                    (item) => `
-                      <div class="table-row">
-                        <div><strong>${escapeHtml(item.title)}</strong><span>帖子 / ${formatDate(item.deleted_at || item.created_at)}</span></div>
-                        <div class="row-actions">
-                          <button class="button small ghost" type="button" data-profile-restore-post="${item.id}">恢复</button>
-                          <button class="button small danger" type="button" data-profile-purge-post="${item.id}">彻底删除</button>
-                        </div>
-                      </div>`,
-                  )
-                  .join("")
-              : `<div class="empty">回收站为空。</div>`
-          }
+      <section class="profile-trash-overlay" id="profileTrashOverlay" hidden>
+        <div class="profile-trash-backdrop" data-profile-trash-close></div>
+        <div class="profile-trash-popover" role="dialog" aria-modal="true" aria-labelledby="profileTrashTitle">
+          <button class="dialog-close-button" type="button" data-profile-trash-close aria-label="关闭回收站">×</button>
+          <div class="section-title compact">
+            <h2 id="profileTrashTitle">回收站</h2>
+            <p>这里是你已删除的帖子，7 天后会自动彻底删除。</p>
+          </div>
+          <div class="admin-table profile-trash-table">
+            ${
+              trashPosts.length
+                ? trashPosts
+                    .map(
+                      (item) => `
+                        <div class="table-row">
+                          <div><strong>${escapeHtml(item.title)}</strong><span>帖子 / ${formatDate(item.deleted_at || item.created_at)}</span></div>
+                          <div class="row-actions">
+                            <button class="button small ghost" type="button" data-profile-restore-post="${item.id}">恢复</button>
+                            <button class="button small danger" type="button" data-profile-purge-post="${item.id}">彻底删除</button>
+                          </div>
+                        </div>`,
+                    )
+                    .join("")
+                : `<div class="empty">回收站为空。</div>`
+            }
+          </div>
         </div>
       </section>`
     : "";
@@ -1031,6 +1090,7 @@ const renderProfilePage = () => {
   bindTotpSecurity();
   bindContentButtons();
   bindProfileTrashButtons();
+  bindProfileTrashToggle();
 };
 
 const bindProfileTrashButtons = () => {
@@ -1240,19 +1300,14 @@ const renderStats = () => {
     statCard("论坛浏览", state.stats.postViews),
     statCard("管理员账号", state.stats.userCount),
   ].join("");
-  $("#trashDock")?.remove();
-  if (state.stats.trashCount > 0) {
-    const dock = document.createElement("button");
-    dock.id = "trashDock";
-    dock.className = "trash-dock button danger";
-    dock.type = "button";
-    dock.textContent = `回收站 ${state.stats.trashCount}`;
-    dock.addEventListener("click", () => {
-      location.hash = "#adminTrash";
-      $("#adminTrash")?.scrollIntoView({ behavior: "smooth", block: "start" });
-      renderTrash().catch((error) => showToast(error.message));
-    });
-    document.body.append(dock);
+  const dock = $("#trashDock");
+  if (dock) {
+    dock.hidden = !(state.stats.trashCount > 0);
+    const badge = dock.querySelector(".trash-count-badge");
+    if (badge) {
+      badge.textContent = String(state.stats.trashCount || 0);
+      badge.hidden = !(state.stats.trashCount > 0);
+    }
   }
   if ($("#maintenanceToggle")) $("#maintenanceToggle").checked = Boolean(state.stats.maintenanceMode);
   if ($("#maintenanceStatusText")) $("#maintenanceStatusText").textContent = state.stats.maintenanceMode ? "当前维护模式已开启。" : "当前网站正常开放。";
@@ -1374,7 +1429,7 @@ const renderAdmins = () => {
         .map(
           (user) => `
             <div class="table-row user-row">
-              <div><strong>${escapeHtml(user.username)}</strong><span>${escapeHtml(user.account_type)} 路 ${formatDate(user.created_at)}</span></div>
+              <div><strong>${escapeHtml(user.username)}</strong><span>${escapeHtml(user.account_type)} / ${formatDate(user.created_at)}</span></div>
               <div class="row-actions">
                 ${
                   isOwner() && !user.is_owner
@@ -1469,7 +1524,8 @@ const setupMaintenanceToggle = () => {
 
 const setupAdminNavigation = () => {
   const links = $$(".admin-nav a");
-  if (!links.length) return;
+  const trashDock = $("#trashDock");
+  if (!links.length && !trashDock) return;
 
   const setActive = (current) => {
     links.forEach((link) => {
@@ -1488,6 +1544,11 @@ const setupAdminNavigation = () => {
       if (target) setActive(target);
     }),
   );
+  trashDock?.addEventListener("click", () => {
+    window.location.hash = "#adminTrash";
+    $("#adminTrash")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    renderTrash().catch((error) => showToast(error.message));
+  });
   window.addEventListener("hashchange", sync);
   sync();
 };
