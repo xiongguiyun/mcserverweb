@@ -865,6 +865,8 @@ button {
   z-index: 45;
   gap: 8px;
   padding-right: 12px;
+  animation: trash-dock-in 0.38s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: left bottom;
 }
 
 .trash-count-badge,
@@ -1815,6 +1817,17 @@ dialog.is-closing::backdrop {
   }
 }
 
+@keyframes trash-dock-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 #readerContent {
   position: relative;
   padding: 44px;
@@ -1913,12 +1926,17 @@ dialog.is-closing::backdrop {
   display: grid;
   place-items: center;
   padding: 22px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.24s ease;
 }
 
 .profile-trash-backdrop {
   position: absolute;
   inset: 0;
   background: rgba(24, 16, 12, 0.62);
+  opacity: 0;
+  transition: opacity 0.24s ease;
 }
 
 .profile-trash-popover {
@@ -1931,6 +1949,40 @@ dialog.is-closing::backdrop {
   background: #fffaf0;
   border: 2px solid #c79a5d;
   box-shadow: 0 16px 0 rgba(43, 27, 18, 0.18), var(--shadow);
+  opacity: 0;
+  transform: translateY(18px) scale(0.97);
+  transform-origin: center;
+  transition:
+    opacity 0.24s ease,
+    transform 0.34s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform, opacity;
+}
+
+.profile-trash-overlay.is-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.profile-trash-overlay.is-open .profile-trash-backdrop {
+  opacity: 1;
+}
+
+.profile-trash-overlay.is-open .profile-trash-popover {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.profile-trash-overlay.is-closing {
+  opacity: 0;
+}
+
+.profile-trash-overlay.is-closing .profile-trash-backdrop {
+  opacity: 0;
+}
+
+.profile-trash-overlay.is-closing .profile-trash-popover {
+  opacity: 0;
+  transform: translateY(12px) scale(0.985);
 }
 
 body.profile-trash-open {
@@ -2201,6 +2253,16 @@ body.profile-trash-open {
     width: 100%;
     max-height: 82vh;
     padding: 44px 16px 16px;
+    transform: translateY(32px) scale(1);
+    transform-origin: center bottom;
+  }
+
+  .profile-trash-overlay.is-open .profile-trash-popover {
+    transform: translateY(0) scale(1);
+  }
+
+  .profile-trash-overlay.is-closing .profile-trash-popover {
+    transform: translateY(24px) scale(1);
   }
 
   .trash-dock {
@@ -4330,5 +4392,15 @@ dialog.is-closing::backdrop {
 
   .photo-hero .server-address-copy dd {
     overflow-wrap: anywhere;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trash-dock,
+  .profile-trash-overlay,
+  .profile-trash-backdrop,
+  .profile-trash-popover {
+    animation: none;
+    transition: none;
   }
 }

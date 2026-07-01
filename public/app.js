@@ -641,17 +641,41 @@ const bindProfileTrashToggle = () => {
   const overlay = $("#profileTrashOverlay");
   if (!button || !overlay) return;
 
-  const sync = () => {
-    overlay.hidden = !state.profileTrashOpen;
-    document.body.classList.toggle("profile-trash-open", state.profileTrashOpen);
+  const finishClose = () => {
+    window.clearTimeout(overlay.closeTimer);
+    window.cancelAnimationFrame(overlay.openFrame);
+    overlay.hidden = true;
+    overlay.classList.remove("is-open", "is-closing");
+  };
+  const sync = (open) => {
+    window.clearTimeout(overlay.closeTimer);
+    window.cancelAnimationFrame(overlay.openFrame);
+    if (open) {
+      overlay.hidden = false;
+      overlay.classList.remove("is-closing");
+      document.body.classList.add("profile-trash-open");
+      overlay.openFrame = window.requestAnimationFrame(() => {
+        if (state.profileTrashOpen) overlay.classList.add("is-open");
+      });
+      return;
+    }
+    overlay.classList.remove("is-open");
+    document.body.classList.remove("profile-trash-open");
+    if (overlay.hidden || prefersReducedMotion()) {
+      finishClose();
+      return;
+    }
+    overlay.classList.add("is-closing");
+    overlay.closeTimer = window.setTimeout(finishClose, dialogCloseDelay() + 80);
   };
   const open = () => {
     state.profileTrashOpen = true;
-    sync();
+    sync(true);
   };
   const close = () => {
+    if (!state.profileTrashOpen && overlay.hidden) return;
     state.profileTrashOpen = false;
-    sync();
+    sync(false);
   };
 
   if (!button.dataset.trashBound) {
@@ -670,7 +694,7 @@ const bindProfileTrashToggle = () => {
     document.addEventListener("keydown", state.profileTrashKeydownHandler);
   }
 
-  sync();
+  sync(state.profileTrashOpen);
 };
 
 const bindContentButtons = () => {
@@ -1066,7 +1090,7 @@ const renderProfilePage = () => {
                     .map(
                       (item) => `
                         <div class="table-row">
-                          <div><strong>${escapeHtml(item.title)}</strong><span>帖子 / ${formatDate(item.deleted_at || item.created_at)}</span></div>
+                          <div><strong>${escapeHtml(item.title)}</strong><span>帖子 ${formatDate(item.deleted_at || item.created_at)}</span></div>
                           <div class="row-actions">
                             <button class="button small ghost" type="button" data-profile-restore-post="${item.id}">恢复</button>
                             <button class="button small danger" type="button" data-profile-purge-post="${item.id}">彻底删除</button>
@@ -1319,7 +1343,7 @@ const adminRows = (items, type) =>
         .map(
           (item) => `
             <div class="table-row">
-              <div><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.author || "管理员")} / ${formatDate(item.created_at)} / ${item.views || 0} 次浏览</span></div>
+              <div><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.author || "管理员")} ${formatDate(item.created_at)} ${item.views || 0} 次浏览</span></div>
               <div class="row-actions">
                 <button class="button small ghost" type="button" data-edit="${type}" data-id="${item.id}">编辑</button>
                 <button class="button small danger" type="button" data-delete="${type}" data-id="${item.id}">删除</button>
@@ -1377,7 +1401,7 @@ const renderTrashRows = () => {
         .map(
           (item) => `
             <div class="table-row">
-              <div><strong>${escapeHtml(item.title)}</strong><span>${item.type === "announcement" ? "公告" : "帖子"} / ${formatDate(item.deleted_at)}</span></div>
+              <div><strong>${escapeHtml(item.title)}</strong><span>${item.type === "announcement" ? "公告" : "帖子"} ${formatDate(item.deleted_at)}</span></div>
               <div class="row-actions">
                 <button class="button small ghost" type="button" data-restore="${item.type}" data-id="${item.id}">恢复</button>
                 <button class="button small danger" type="button" data-purge="${item.type}" data-id="${item.id}">彻底删除</button>
@@ -1429,7 +1453,7 @@ const renderAdmins = () => {
         .map(
           (user) => `
             <div class="table-row user-row">
-              <div><strong>${escapeHtml(user.username)}</strong><span>${escapeHtml(user.account_type)} / ${formatDate(user.created_at)}</span></div>
+              <div><strong>${escapeHtml(user.username)}</strong><span>${escapeHtml(user.account_type)} ${formatDate(user.created_at)}</span></div>
               <div class="row-actions">
                 ${
                   isOwner() && !user.is_owner
