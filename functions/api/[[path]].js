@@ -504,34 +504,53 @@ const me = async (env, request) => {
   return json({ user: publicUser(user, owner?.id), site: { maintenanceMode: site.maintenanceMode, serverStatus: site.serverStatus } });
 };
 
+const purgeExpiredDeletedPosts = async (env) => {
+  await env.DB.prepare("DELETE FROM posts WHERE deleted_at IS NOT NULL AND deleted_at < datetime('now', '-7 days')").run();
+};
+
+const withAuthorAccountTypes = async (env, rows = []) => {
+  const owner = await ownerUser(env);
+  return rows.map((row) => ({
+    ...row,
+    author_account_type: accountTypeLabel({ id: row.author_id, role: row.author_role }, owner?.id),
+  }));
+};
+
 const listAnnouncements = async (env, { trash = false } = {}) => {
   const { results } = await env.DB.prepare(
     `SELECT announcements.id, announcements.title, announcements.content_html, announcements.pinned,
             announcements.views, announcements.deleted_at, announcements.created_at, announcements.updated_at,
-            users.username AS author
+            users.id AS author_id, users.role AS author_role, users.username AS author
      FROM announcements
      JOIN users ON users.id = announcements.author_id
      WHERE ${trash ? "announcements.deleted_at IS NOT NULL" : "announcements.deleted_at IS NULL"}
      ORDER BY announcements.pinned DESC, announcements.created_at DESC
      LIMIT 50`,
   ).all();
-  return json({ items: results || [] });
+  return json({ items: await withAuthorAccountTypes(env, results || []) });
 };
 
-const listPosts = async (env, { trash = false } = {}) => {
-  if (!trash) {
-    await env.DB.prepare("DELETE FROM posts WHERE deleted_at IS NOT NULL AND deleted_at < datetime('now', '-7 days')").run();
+const listPosts = async (env, { trash = false, authorId = null, limit = 100 } = {}) => {
+  await purgeExpiredDeletedPosts(env);
+  const where = [trash ? "posts.deleted_at IS NOT NULL" : "posts.deleted_at IS NULL"];
+  const bindings = [];
+  if (authorId !== null) {
+    where.push("posts.author_id = ?");
+    bindings.push(authorId);
   }
+  bindings.push(limit);
   const { results } = await env.DB.prepare(
     `SELECT posts.id, posts.title, posts.excerpt, posts.content_html, posts.views, posts.deleted_at, posts.created_at,
-            posts.updated_at, users.username AS author
+            posts.updated_at, users.id AS author_id, users.role AS author_role, users.username AS author
      FROM posts
      JOIN users ON users.id = posts.author_id
-     WHERE ${trash ? "posts.deleted_at IS NOT NULL" : "posts.deleted_at IS NULL"}
+     WHERE ${where.join(" AND ")}
      ORDER BY posts.created_at DESC
-     LIMIT 100`,
-  ).all();
-  return json({ items: results || [] });
+     LIMIT ?`,
+  )
+    .bind(...bindings)
+    .all();
+  return json({ items: await withAuthorAccountTypes(env, results || []) });
 };
 
 const profile = async (env, request, username) => {
@@ -546,15 +565,18 @@ const profile = async (env, request, username) => {
     .first();
   if (!user) return json({ error: "没有找到这个玩家" }, 404);
   const posts = await env.DB.prepare(
-    `SELECT id, title, excerpt, content_html, views, created_at, updated_at
+    `SELECT posts.id, posts.title, posts.excerpt, posts.content_html, posts.views, posts.created_at, posts.updated_at,
+            users.id AS author_id, users.role AS author_role, users.username AS author
      FROM posts
-     WHERE author_id = ? AND deleted_at IS NULL
-     ORDER BY created_at DESC
+     JOIN users ON users.id = posts.author_id
+     WHERE posts.author_id = ? AND posts.deleted_at IS NULL
+     ORDER BY posts.created_at DESC
      LIMIT 20`,
   )
     .bind(user.id)
     .all();
-  const isSelf = viewer?.id === user.id;
+  const isSelf = Number(viewer?.id) === Number(user.id);
+  const trash = isSelf ? (await listPosts(env, { trash: true, authorId: user.id, limit: 50 })).json() : Promise.resolve({ items: [] });
   return json({
     profile: {
       id: user.id,
@@ -565,7 +587,8 @@ const profile = async (env, request, username) => {
       online: user.last_seen_at ? Date.now() - new Date(user.last_seen_at).getTime() < 5 * 60 * 1000 : false,
       created_at: user.created_at,
       postCount: (posts.results || []).length,
-      posts: posts.results || [],
+      posts: await withAuthorAccountTypes(env, posts.results || []),
+      trashPosts: (await trash).items || [],
       isSelf,
       isOwner: owner?.id ? Number(owner.id) === Number(user.id) : false,
     },
@@ -822,21 +845,34 @@ const updatePost = async (env, request, id) => {
 };
 
 const deletePost = async (env, request, id) => {
-  const user = await requireAdmin(env, request);
-  const post = await env.DB.prepare("SELECT id FROM posts WHERE id = ? AND deleted_at IS NULL").bind(id).first();
+  const user = await requireUser(env, request);
+  const post = await env.DB.prepare("SELECT id, author_id FROM posts WHERE id = ? AND deleted_at IS NULL").bind(id).first();
   if (!post) return json({ error: "帖子不存在" }, 404);
+  if (user.role !== "admin" && Number(post.author_id) !== Number(user.id)) {
+    return json({ error: "浣犲彧鑳藉垹闄よ嚜宸辩殑甯栧瓙" }, 403);
+  }
   await env.DB.prepare("UPDATE posts SET deleted_at = CURRENT_TIMESTAMP, deleted_by = ? WHERE id = ?").bind(user.id, id).run();
   return json({ ok: true });
 };
 
 const restorePost = async (env, request, id) => {
-  await requireAdmin(env, request);
+  const user = await requireUser(env, request);
+  const post = await env.DB.prepare("SELECT id, author_id FROM posts WHERE id = ? AND deleted_at IS NOT NULL").bind(id).first();
+  if (!post) return json({ error: "Post is not in trash" }, 404);
+  if (user.role !== "admin" && Number(post.author_id) !== Number(user.id)) {
+    return json({ error: "You can only restore your own posts" }, 403);
+  }
   await env.DB.prepare("UPDATE posts SET deleted_at = NULL, deleted_by = NULL WHERE id = ?").bind(id).run();
   return json({ ok: true });
 };
 
 const purgePost = async (env, request, id) => {
-  await requireAdmin(env, request);
+  const user = await requireUser(env, request);
+  const post = await env.DB.prepare("SELECT id, author_id FROM posts WHERE id = ? AND deleted_at IS NOT NULL").bind(id).first();
+  if (!post) return json({ error: "Post is not in trash" }, 404);
+  if (user.role !== "admin" && Number(post.author_id) !== Number(user.id)) {
+    return json({ error: "You can only purge your own posts" }, 403);
+  }
   await env.DB.prepare("DELETE FROM posts WHERE id = ? AND deleted_at IS NOT NULL").bind(id).run();
   return json({ ok: true });
 };

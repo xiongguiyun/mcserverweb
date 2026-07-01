@@ -9,6 +9,7 @@ const state = {
   admins: [],
   profile: null,
   trash: { announcements: [], posts: [] },
+  trashLoaded: false,
   editingPostId: null,
   forumSearch: "",
   forumSearchOpen: false,
@@ -89,6 +90,10 @@ const formatDate = (value) =>
 
 const isAdmin = () => state.me?.role === "admin";
 const isOwner = () => Boolean(state.me?.is_owner);
+const isOwnUsername = (username) =>
+  Boolean(state.me?.username && String(username || "").toLowerCase() === String(state.me.username).toLowerCase());
+const ownsContent = (item, author) =>
+  Boolean(state.me && (Number(item?.author_id) === Number(state.me.id) || isOwnUsername(author || item?.author)));
 const minecraftImageUrl = (kind, name, size) => `/api/minecraft-image/${kind}/${encodeURIComponent(name)}/${size}`;
 const skinUrl = (name, size = 210) => minecraftImageUrl("body", name, size);
 const avatarUrl = (name, size = 32) => minecraftImageUrl("avatar", name, size);
@@ -448,14 +453,10 @@ const renderMaintenanceGate = () => {
 const cardTemplate = (item, type) => {
   const excerpt = item.excerpt || textFromHtml(item.content_html).slice(0, 110);
   const author = item.author || "管理员";
-  const canManagePost = type === "post" && isAdmin();
-  const skin =
-    type === "post"
-      ? `<a class="skin-link" href="${profileHref(author)}"><img class="skin-figure" src="${skinUrl(author, 210)}" alt="" loading="lazy" /></a>`
-      : "";
+  const canEditPost = type === "post" && page === "forum" && (isAdmin() || ownsContent(item, author));
+  const canDeletePost = type === "post" && (isAdmin() || ownsContent(item, author));
   return `
     <article class="post-card ${type === "post" ? "forum-card" : ""}">
-      ${skin}
       <h3>${escapeHtml(item.title)}</h3>
       <div class="meta">
         ${type === "announcement" ? "公告" : "玩家论坛"} /
@@ -466,9 +467,13 @@ const cardTemplate = (item, type) => {
       <div class="card-actions">
         <button class="button ghost read-button" type="button" data-type="${type}" data-id="${item.id}">阅读</button>
         ${
-          canManagePost
-            ? `<button class="button ghost" type="button" data-edit-post="${item.id}">编辑</button>
-               <button class="button danger" type="button" data-delete-post="${item.id}">删除</button>`
+          canEditPost
+            ? `<button class="button ghost" type="button" data-edit-post="${item.id}">编辑</button>`
+            : ""
+        }
+        ${
+          canDeletePost
+            ? `<button class="button danger" type="button" data-delete-post="${item.id}">删除</button>`
             : ""
         }
       </div>
@@ -637,8 +642,15 @@ const bindContentButtons = () => {
         confirmTone: "danger",
       });
       if (!confirmed) return;
-      await api(`/posts/${button.dataset.deletePost}`, { method: "DELETE" });
-      await loadPublicData();
+      const id = Number(button.dataset.deletePost);
+      const deletedPost = state.posts.find((item) => item.id === id);
+      await api(`/posts/${id}`, { method: "DELETE" });
+      state.posts = state.posts.filter((item) => item.id !== id);
+      if (state.profile?.posts) state.profile.posts = state.profile.posts.filter((item) => item.id !== id);
+      if (state.profile?.isSelf && deletedPost) {
+        state.profile.trashPosts = [{ ...deletedPost, deleted_at: new Date().toISOString() }, ...(state.profile.trashPosts || [])];
+      }
+      renderAll();
       showToast("帖子已移入回收站");
     });
   });
@@ -651,11 +663,32 @@ const openReader = (type, id) => {
   api(`/track-view/${type}/${id}`, { method: "POST" }).catch(() => {});
   item.views = Number(item.views || 0) + 1;
   const author = item.author || "管理员";
+  const accountType = item.author_account_type || (type === "announcement" ? "管理员" : "成员");
   $("#readerContent").innerHTML = `
-    <h1>${escapeHtml(item.title)}</h1>
-    <div class="meta"><a class="author-link" href="${profileHref(author)}">${escapeHtml(author)}</a> / ${formatDate(item.created_at)} / ${item.views || 0} 次浏览</div>
-    <div class="reader-body">${item.content_html}</div>
+    <button class="dialog-close-button" type="button" data-reader-close aria-label="关闭阅读页">×</button>
+    <div class="reader-layout ${type === "post" ? "has-author-panel" : ""}">
+      ${
+        type === "post"
+          ? `<aside class="reader-author-panel">
+              <a class="reader-author-skin" href="${profileHref(author)}">
+                <img src="${skinUrl(author, 210)}" alt="" loading="lazy" />
+              </a>
+              <div class="reader-author-meta">
+                <span>发布者</span>
+                <a class="author-link" href="${profileHref(author)}">${escapeHtml(author)}</a>
+                <strong>${escapeHtml(accountType)}</strong>
+              </div>
+            </aside>`
+          : ""
+      }
+      <div class="reader-main">
+        <h1>${escapeHtml(item.title)}</h1>
+        <div class="meta"><a class="author-link" href="${profileHref(author)}">${escapeHtml(author)}</a> / ${formatDate(item.created_at)} / ${item.views || 0} 次浏览</div>
+        <div class="reader-body">${item.content_html}</div>
+      </div>
+    </div>
   `;
+  $("#readerContent [data-reader-close]")?.addEventListener("click", () => closeDialogAnimated($("#readerDialog")));
   bindServerStatusCardActions($("#readerContent"));
   openDialog($("#readerDialog"));
 };
@@ -944,17 +977,84 @@ const renderProfilePage = () => {
         <div><strong>${profile.postCount}</strong><span>最近帖子</span></div>
         <div><strong>${escapeHtml(profile.accountType)}</strong><span>账号类型</span></div>
       </div>
+      ${profile.isSelf ? `<div class="profile-actions"><a class="button danger" href="#profileTrash">垃圾桶</a></div>` : ""}
       ${totpPanelTemplate(profile)}
     </div>
   `;
+  const trashPosts = profile.trashPosts || [];
+  const trashSection = profile.isSelf
+    ? `
+      <section class="profile-trash" id="profileTrash">
+        <div class="section-title compact">
+          <h2>垃圾桶</h2>
+          <p>这里是你已删除的帖子，7 天后会自动彻底删除。</p>
+        </div>
+        <div class="admin-table profile-trash-table">
+          ${
+            trashPosts.length
+              ? trashPosts
+                  .map(
+                    (item) => `
+                      <div class="table-row">
+                        <div><strong>${escapeHtml(item.title)}</strong><span>帖子 / ${formatDate(item.deleted_at || item.created_at)}</span></div>
+                        <div class="row-actions">
+                          <button class="button small ghost" type="button" data-profile-restore-post="${item.id}">恢复</button>
+                          <button class="button small danger" type="button" data-profile-purge-post="${item.id}">彻底删除</button>
+                        </div>
+                      </div>`,
+                  )
+                  .join("")
+              : `<div class="empty">垃圾桶为空。</div>`
+          }
+        </div>
+      </section>`
+    : "";
   posts.innerHTML = `
     <div class="section-title compact"><h2>${escapeHtml(profile.username)} 的帖子</h2><p>展示最近 20 篇玩家内容。</p></div>
     <div class="list forum-list">${
       profile.posts.length ? profile.posts.map((item) => cardTemplate({ ...item, author: profile.username }, "post")).join("") : `<div class="empty">这个玩家暂时还没有发布。</div>`
     }</div>
+    ${trashSection}
   `;
   bindTotpSecurity();
   bindContentButtons();
+  bindProfileTrashButtons();
+};
+
+const bindProfileTrashButtons = () => {
+  $$("[data-profile-restore-post]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const id = Number(button.dataset.profileRestorePost);
+      const restoredPost = state.profile?.trashPosts?.find((item) => item.id === id);
+      await api(`/posts/${id}/restore`, { method: "POST" });
+      if (state.profile) {
+        state.profile.trashPosts = (state.profile.trashPosts || []).filter((item) => item.id !== id);
+        if (restoredPost) {
+          const restored = { ...restoredPost, deleted_at: null };
+          state.profile.posts = [restored, ...(state.profile.posts || [])].slice(0, 20);
+          state.posts = state.profile.posts;
+        }
+      }
+      renderProfilePage();
+      showToast("帖子已恢复");
+    });
+  });
+  $$("[data-profile-purge-post]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const confirmed = await showConfirmDialog("彻底删除后无法恢复。确定继续吗？", {
+        title: "彻底删除帖子",
+        eyebrow: "垃圾桶",
+        confirmLabel: "彻底删除",
+        confirmTone: "danger",
+      });
+      if (!confirmed) return;
+      const id = Number(button.dataset.profilePurgePost);
+      await api(`/posts/${id}/purge`, { method: "DELETE" });
+      if (state.profile) state.profile.trashPosts = (state.profile.trashPosts || []).filter((item) => item.id !== id);
+      renderProfilePage();
+      showToast("帖子已彻底删除");
+    });
+  });
 };
 
 const setupForumPost = () => {
@@ -1137,7 +1237,8 @@ const renderStats = () => {
     dock.textContent = `垃圾桶 ${state.stats.trashCount}`;
     dock.addEventListener("click", () => {
       location.hash = "#adminTrash";
-      renderTrash();
+      $("#adminTrash")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      renderTrash().catch((error) => showToast(error.message));
     });
     document.body.append(dock);
   }
@@ -1189,20 +1290,20 @@ const renderManagement = () => {
       if (!confirmed) return;
       const type = button.dataset.delete;
       await api(`/${type === "announcement" ? "announcements" : "posts"}/${button.dataset.id}`, { method: "DELETE" });
+      state.trashLoaded = false;
       await loadAdminData();
+      if (window.location.hash === "#adminTrash") await renderTrash({ force: true });
       showToast("内容已移入垃圾桶");
     });
   });
 };
 
-const renderTrash = async () => {
+const renderTrashRows = () => {
   const panel = $("#adminTrash");
   if (!panel) return;
-  const result = await api("/admin/trash");
-  state.trash = result;
   const rows = [
-    ...result.announcements.map((item) => ({ ...item, type: "announcement" })),
-    ...result.posts.map((item) => ({ ...item, type: "post" })),
+    ...(state.trash.announcements || []).map((item) => ({ ...item, type: "announcement" })),
+    ...(state.trash.posts || []).map((item) => ({ ...item, type: "post" })),
   ];
   panel.querySelector(".admin-table").innerHTML = rows.length
     ? rows
@@ -1221,15 +1322,37 @@ const renderTrash = async () => {
   $$("[data-restore]").forEach((button) =>
     button.addEventListener("click", async () => {
       await api(`/${button.dataset.restore === "announcement" ? "announcements" : "posts"}/${button.dataset.id}/restore`, { method: "POST" });
-      await loadAdminData();
+      const collection = button.dataset.restore === "announcement" ? "announcements" : "posts";
+      state.trash[collection] = state.trash[collection].filter((item) => item.id !== Number(button.dataset.id));
+      if (state.stats) state.stats.trashCount = Math.max(0, Number(state.stats.trashCount || 0) - 1);
+      renderTrashRows();
+      renderStats();
+      showToast("内容已恢复");
     }),
   );
   $$("[data-purge]").forEach((button) =>
     button.addEventListener("click", async () => {
       await api(`/${button.dataset.purge === "announcement" ? "announcements" : "posts"}/${button.dataset.id}/purge`, { method: "DELETE" });
-      await loadAdminData();
+      const collection = button.dataset.purge === "announcement" ? "announcements" : "posts";
+      state.trash[collection] = state.trash[collection].filter((item) => item.id !== Number(button.dataset.id));
+      if (state.stats) state.stats.trashCount = Math.max(0, Number(state.stats.trashCount || 0) - 1);
+      renderTrashRows();
+      renderStats();
+      showToast("内容已彻底删除");
     }),
   );
+};
+
+const renderTrash = async ({ force = false } = {}) => {
+  const panel = $("#adminTrash");
+  if (!panel) return;
+  const table = panel.querySelector(".admin-table");
+  if (!state.trashLoaded || force) {
+    if (table) table.innerHTML = `<div class="empty">正在加载垃圾桶...</div>`;
+    state.trash = await api("/admin/trash");
+    state.trashLoaded = true;
+  }
+  renderTrashRows();
 };
 
 const renderAdmins = () => {
@@ -1481,6 +1604,7 @@ const loadAdminData = async () => {
   state.stats = stats;
   state.site.maintenanceMode = Boolean(stats.maintenanceMode);
   state.admins = admins.items;
+  state.trashLoaded = false;
   renderAll();
   renderStats();
   renderManagement();
