@@ -36,11 +36,22 @@ CREATE TABLE IF NOT EXISTS posts (
   excerpt TEXT NOT NULL,
   content_html TEXT NOT NULL,
   author_id INTEGER NOT NULL REFERENCES users(id),
+  pinned INTEGER NOT NULL DEFAULT 0,
   views INTEGER NOT NULL DEFAULT 0,
   deleted_at TEXT,
   deleted_by INTEGER REFERENCES users(id),
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS post_reports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+  reporter_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  reason TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'resolved')),
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  resolved_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS site_settings (
@@ -61,7 +72,10 @@ CREATE TABLE IF NOT EXISTS captcha_challenges (
 
 CREATE INDEX IF NOT EXISTS idx_announcements_created_at ON announcements(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_posts_created_at ON posts(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_posts_pinned_created_at ON posts(pinned DESC, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_posts_deleted_at ON posts(deleted_at);
 CREATE INDEX IF NOT EXISTS idx_announcements_deleted_at ON announcements(deleted_at);
 CREATE INDEX IF NOT EXISTS idx_captcha_challenges_expires_at ON captcha_challenges(expires_at);
+CREATE INDEX IF NOT EXISTS idx_post_reports_status ON post_reports(status, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_post_reports_unique_open ON post_reports(post_id, reporter_id) WHERE status = 'open';

@@ -24,7 +24,7 @@
     <main>
       <section class="page-hero admin-hero">
         <h1>管理后台</h1>
-        <p>发布公告、查看浏览数据、编辑论坛内容、管理管理员账号。</p>
+        <p>发布公告、查看浏览数据、编辑论坛内容、处理举报和管理账号权限。</p>
       </section>
 
       <section class="admin-shell" id="adminShell" hidden>
@@ -38,7 +38,8 @@
             <a href="#adminEditor">内容发布</a>
             <a href="#adminAnnouncements">公告管理</a>
             <a href="#adminPosts">论坛管理</a>
-            <a href="#adminUsersPanel">管理员</a>
+            <a href="#adminReports">举报处理</a>
+            <a href="#adminUsersPanel">用户与权限</a>
             <a href="#adminTrash">回收站</a>
           </nav>
         </aside>
@@ -54,7 +55,8 @@
             <a href="#adminEditor">内容发布</a>
             <a href="#adminAnnouncements">公告管理</a>
             <a href="#adminPosts">论坛管理</a>
-            <a href="#adminUsersPanel">管理员</a>
+            <a href="#adminReports">举报处理</a>
+            <a href="#adminUsersPanel">用户与权限</a>
             <a href="#adminTrash">回收站</a>
           </nav>
         </aside>
@@ -161,20 +163,33 @@
           <section class="admin-panel" id="adminPosts">
             <div class="section-title compact">
               <h2>论坛管理</h2>
-              <p>编辑或删除论坛帖子。</p>
+              <p>编辑、置顶或删除论坛帖子。</p>
             </div>
             <div class="admin-table" id="managePosts"></div>
           </section>
 
+          <section class="admin-panel" id="adminReports">
+            <div class="section-title compact">
+              <h2>举报处理</h2>
+              <p>查看玩家提交的帖子举报，处理后可标记完成。</p>
+            </div>
+            <div class="admin-table" id="adminReportsTable"></div>
+          </section>
+
           <section class="admin-panel" id="adminUsersPanel">
             <div class="section-title compact">
-              <h2>管理员管理</h2>
+              <h2>用户与权限</h2>
+              <p>查看注册用户数量，管理用户名，并选择注册用户成为管理员。</p>
             </div>
             <form class="inline-form compact" id="adminUserForm">
               <input id="adminUsername" placeholder="输入管理员账号名" required />
               <input id="adminPassword" type="password" placeholder="初始密码，至少 6 位" required />
               <button class="button primary" type="submit">创建管理员</button>
             </form>
+            <div class="admin-user-tools">
+              <select id="promoteUserSelect" aria-label="选择注册用户成为管理员"></select>
+              <button class="button primary" type="button" id="promoteUserButton">设为管理员</button>
+            </div>
             <div class="admin-table" id="adminUsers"></div>
           </section>
 

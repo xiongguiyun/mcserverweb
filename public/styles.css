@@ -21,6 +21,7 @@
 
 html {
   scroll-behavior: smooth;
+  scroll-padding-top: 94px;
 }
 
 body {
@@ -637,6 +638,7 @@ button {
 .announcement-stage {
   position: relative;
   overflow: hidden;
+  scroll-margin-top: 94px;
   background: #2a1d16;
 }
 
@@ -935,6 +937,29 @@ button {
 
 .forum-card {
   min-height: 220px;
+}
+
+.post-card.is-pinned {
+  border-color: #f5a43a;
+  box-shadow:
+    0 7px 0 rgba(156, 92, 29, 0.22),
+    inset 0 0 0 2px rgba(245, 164, 58, 0.16);
+}
+
+.pinned-ribbon {
+  position: absolute;
+  top: 14px;
+  right: -38px;
+  width: 140px;
+  padding: 5px 0;
+  color: #2a1d16;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 950;
+  background: linear-gradient(180deg, #ffdd63, #f5a43a);
+  border: 2px solid #9c5c1d;
+  transform: rotate(34deg);
+  box-shadow: 0 4px 10px rgba(26, 18, 12, 0.16);
 }
 
 .skin-figure {
@@ -1236,6 +1261,23 @@ body[data-page="admin"] .admin-locked {
   font-weight: 750;
 }
 
+.table-row.is-pinned-row {
+  background: linear-gradient(90deg, #fff4c7, #fffaf0 48%);
+  border-color: #f5a43a;
+}
+
+.report-row {
+  align-items: start;
+}
+
+.report-reason {
+  margin: 8px 0 0;
+  color: #594b3a;
+  line-height: 1.55;
+  font-size: 13px;
+  font-weight: 750;
+}
+
 .row-actions,
 .footer-tools {
   display: flex;
@@ -1252,6 +1294,14 @@ body[data-page="admin"] .admin-locked {
 
 .inline-form.compact {
   max-width: 480px;
+}
+
+.admin-user-tools {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  max-width: 560px;
+  margin: 0 0 14px;
 }
 
 .admin-form-grid {
@@ -1508,6 +1558,52 @@ body[data-page="login"] {
 .toolbar-more-menu button {
   justify-content: flex-start;
   min-width: 0;
+}
+
+.toolbar-color-tool {
+  display: grid;
+  gap: 8px;
+  min-width: 188px;
+  padding: 6px;
+  background: rgba(255, 250, 240, 0.64);
+  border: 1px solid rgba(133, 108, 72, 0.18);
+  border-radius: 10px;
+}
+
+.toolbar-color-presets {
+  display: grid;
+  grid-template-columns: repeat(7, 22px);
+  gap: 5px;
+}
+
+.toolbar-color-swatch {
+  width: 22px;
+  min-width: 22px !important;
+  height: 22px !important;
+  min-height: 22px;
+  padding: 0 !important;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.36), transparent 45%),
+    var(--swatch-color) !important;
+  border-color: rgba(32, 23, 19, 0.32) !important;
+  border-radius: 50% !important;
+}
+
+.toolbar-color-picker {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 8px;
+  color: #594b3a;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.toolbar-color-picker input[type="color"] {
+  min-height: 30px;
+  height: 30px;
+  padding: 2px;
+  cursor: pointer;
 }
 
 .rich-editor {
@@ -3897,6 +3993,14 @@ dialog.is-closing::backdrop {
     gap: 7px;
   }
 
+  .admin-user-tools {
+    grid-template-columns: 1fr;
+  }
+
+  .toolbar-color-tool {
+    min-width: min(220px, calc(100vw - 36px));
+  }
+
   .forum-toolbar-actions.is-search-open,
   .forum-toolbar-actions.has-search-query {
     grid-template-columns: minmax(180px, 1fr) 42px auto;
@@ -3981,7 +4085,8 @@ dialog.is-closing::backdrop {
 .toolbar-more-menu {
   position: fixed;
   z-index: 1000;
-  width: 164px;
+  width: max-content;
+  min-width: 210px;
   max-width: calc(100vw - 16px);
 }
 

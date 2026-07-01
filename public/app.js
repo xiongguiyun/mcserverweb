@@ -7,6 +7,7 @@ const state = {
   posts: [],
   stats: null,
   admins: [],
+  reports: [],
   profile: null,
   trash: { announcements: [], posts: [] },
   trashLoaded: false,
@@ -113,6 +114,14 @@ const totpAccountInitials = () =>
 const currentProfileQuery = () => new URL(window.location.href).searchParams.get("user") || state.me?.username || "";
 const prefersReducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
 const dialogCloseDelay = () => (prefersReducedMotion() ? 0 : 240);
+const editorColorPresets = ["#c74332", "#f5a43a", "#469146", "#2f7dd1", "#7350a4", "#201713", "#ffffff"];
+
+const applyEditorColor = (color) => {
+  if (!color) return;
+  const picker = $("#colorPickerInput");
+  if (picker && /^#[0-9a-f]{6}$/i.test(color)) picker.value = color;
+  command("foreColor", color);
+};
 
 const renderTotpQrFallback = (result) => `
   <div class="totp-qr-fallback">
@@ -395,6 +404,53 @@ const closeToolbarMore = () => {
   button.closest(".toolbar-more")?.classList.remove("is-open", "is-open-upward");
 };
 
+const enhanceColorTool = () => {
+  const colorButton = $("#colorButton");
+  if (!colorButton || colorButton.dataset.colorEnhanced) return;
+  colorButton.dataset.colorEnhanced = "true";
+  const palette = document.createElement("div");
+  palette.className = "toolbar-color-tool";
+  palette.innerHTML = `
+    <div class="toolbar-color-presets" aria-label="默认文本颜色">
+      ${editorColorPresets
+        .map((color) => `<button class="toolbar-color-swatch" type="button" data-color="${color}" style="--swatch-color: ${color}" aria-label="使用颜色 ${color}"></button>`)
+        .join("")}
+    </div>
+    <label class="toolbar-color-picker">
+      <span>颜色盘</span>
+      <input id="colorPickerInput" type="color" value="#f5a43a" />
+    </label>
+    <button type="button" id="eyeDropperButton">吸取颜色</button>
+    <button type="button" id="customColorButton">手动填写</button>
+  `;
+  colorButton.replaceWith(palette);
+  palette.querySelectorAll("[data-color]").forEach((button) => {
+    button.addEventListener("click", () => applyEditorColor(button.dataset.color));
+  });
+  palette.querySelector("#colorPickerInput")?.addEventListener("input", (event) => applyEditorColor(event.target.value));
+  palette.querySelector("#eyeDropperButton")?.addEventListener("click", async () => {
+    if (!("EyeDropper" in window)) {
+      showToast("当前浏览器不支持吸取颜色，可使用颜色盘或手动填写");
+      return;
+    }
+    try {
+      const result = await new window.EyeDropper().open();
+      applyEditorColor(result.sRGBHex);
+    } catch {}
+  });
+  palette.querySelector("#customColorButton")?.addEventListener("click", async () => {
+    const color = await showPromptDialog("输入文本颜色，例如 #ff6600 或 rgb(255, 102, 0)。", {
+      title: "文本颜色",
+      eyebrow: "编辑工具",
+      inputLabel: "颜色值",
+      placeholder: "#ff6600",
+      confirmLabel: "应用颜色",
+      normalize: (value) => value.trim(),
+    });
+    if (color) applyEditorColor(color);
+  });
+};
+
 const renderAuth = () => {
   const actions = $("#authActions");
   if (!actions) return;
@@ -467,11 +523,13 @@ const cardTemplate = (item, type) => {
   const accountType = item.author_account_type || (type === "announcement" ? "管理员" : "成员");
   const canEditPost = type === "post" && page === "forum" && (isAdmin() || ownsContent(item, author));
   const canDeletePost = type === "post" && (isAdmin() || ownsContent(item, author));
+  const canReportPost = type === "post" && Boolean(state.me) && !isAdmin() && !ownsContent(item, author);
   return `
-    <article class="post-card ${type === "post" ? "forum-card" : ""}">
+    <article class="post-card ${type === "post" ? "forum-card" : ""} ${type === "post" && item.pinned ? "is-pinned" : ""}">
+      ${type === "post" && item.pinned ? `<span class="pinned-ribbon">置顶</span>` : ""}
       <h3>${escapeHtml(item.title)}</h3>
       <div class="meta">
-        <span class="meta-role">${type === "announcement" ? "公告" : "玩家论坛"}</span>
+        <span class="meta-role">${type === "announcement" ? "公告" : item.pinned ? "置顶帖子" : "玩家论坛"}</span>
         <span class="meta-author">
           <span class="meta-author-badge">
             <img class="meta-author-icon" src="${avatarUrl(author, 32)}" alt="" loading="lazy" />
@@ -484,6 +542,11 @@ const cardTemplate = (item, type) => {
       <p>${escapeHtml(excerpt || "暂无摘要。")}</p>
       <div class="card-actions">
         <button class="button ghost read-button" type="button" data-type="${type}" data-id="${item.id}">阅读</button>
+        ${
+          canReportPost
+            ? `<button class="button ghost" type="button" data-report-post="${item.id}">举报</button>`
+            : ""
+        }
         ${
           canEditPost
             ? `<button class="button ghost" type="button" data-edit-post="${item.id}">编辑</button>`
@@ -733,6 +796,26 @@ const bindContentButtons = () => {
       showToast("帖子已移入回收站");
     });
   });
+  $$("[data-report-post]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const reason = await showPromptDialog("请简单说明举报原因，管理员会在后台处理。", {
+        title: "举报帖子",
+        eyebrow: "社区反馈",
+        inputLabel: "举报原因",
+        placeholder: "例如：广告、恶意内容、违规发言",
+        maxLength: 500,
+        confirmLabel: "提交举报",
+        normalize: (value) => value.trim(),
+        validate: (value) => (value.length >= 4 ? "" : "请填写至少 4 个字"),
+      });
+      if (!reason) return;
+      await api(`/posts/${button.dataset.reportPost}/reports`, {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      });
+      showToast("举报已提交，管理员会处理");
+    });
+  });
 };
 
 const openReader = (type, id) => {
@@ -956,17 +1039,7 @@ const setupEditor = () => {
   $("#detailsButton")?.addEventListener("click", () => insertHtmlBlock(`<details class="inline-details"><summary>点击展开</summary><p>折叠内容</p></details><p><br></p>`));
   $("#codeButton")?.addEventListener("click", () => insertHtmlBlock(`<pre class="inline-code"><code>// code</code></pre><p><br></p>`));
   $("#quoteButton")?.addEventListener("click", () => insertHtmlBlock(`<blockquote class="inline-quote">引用内容</blockquote><p><br></p>`));
-  $("#colorButton")?.addEventListener("click", async () => {
-    const color = await showPromptDialog("输入文本颜色，例如 #ff6600 或 rgb(255, 102, 0)。", {
-      title: "文本颜色",
-      eyebrow: "编辑工具",
-      inputLabel: "颜色值",
-      placeholder: "#ff6600",
-      confirmLabel: "应用颜色",
-      normalize: (value) => value.trim(),
-    });
-    if (color) command("foreColor", color);
-  });
+  enhanceColorTool();
   $("#bilibiliButton")?.addEventListener("click", async () => {
     const input = await showPromptDialog("粘贴 Bilibili 链接、BV 号或 av 号。", {
       title: "插入 Bilibili 视频",
@@ -1322,7 +1395,9 @@ const renderStats = () => {
     statCard("总浏览", state.stats.totalViews),
     statCard("公告浏览", state.stats.announcementViews),
     statCard("论坛浏览", state.stats.postViews),
-    statCard("管理员账号", state.stats.userCount),
+    statCard("注册用户", state.stats.userCount),
+    statCard("管理员账号", state.stats.adminCount),
+    statCard("待处理举报", state.stats.reportCount),
   ].join("");
   const dock = $("#trashDock");
   if (dock) {
@@ -1342,9 +1417,14 @@ const adminRows = (items, type) =>
     ? items
         .map(
           (item) => `
-            <div class="table-row">
-              <div><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.author || "管理员")} ${formatDate(item.created_at)} ${item.views || 0} 次浏览</span></div>
+            <div class="table-row ${type === "post" && item.pinned ? "is-pinned-row" : ""}">
+              <div><strong>${type === "post" && item.pinned ? "置顶 · " : ""}${escapeHtml(item.title)}</strong><span>${escapeHtml(item.author || "管理员")} ${formatDate(item.created_at)} ${item.views || 0} 次浏览</span></div>
               <div class="row-actions">
+                ${
+                  type === "post"
+                    ? `<button class="button small ghost" type="button" data-pin-post="${item.id}" data-pinned="${item.pinned ? "1" : "0"}">${item.pinned ? "取消置顶" : "置顶"}</button>`
+                    : ""
+                }
                 <button class="button small ghost" type="button" data-edit="${type}" data-id="${item.id}">编辑</button>
                 <button class="button small danger" type="button" data-delete="${type}" data-id="${item.id}">删除</button>
               </div>
@@ -1385,6 +1465,17 @@ const renderManagement = () => {
       await loadAdminData();
       if (window.location.hash === "#adminTrash") await renderTrash({ force: true });
       showToast("内容已移入回收站");
+    });
+  });
+  $$("[data-pin-post]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const pinned = button.dataset.pinned !== "1";
+      await api(`/posts/${button.dataset.pinPost}/pin`, {
+        method: "PUT",
+        body: JSON.stringify({ pinned }),
+      });
+      await loadAdminData();
+      showToast(pinned ? "帖子已置顶" : "已取消置顶");
     });
   });
 };
@@ -1446,20 +1537,71 @@ const renderTrash = async ({ force = false } = {}) => {
   renderTrashRows();
 };
 
+const renderReports = () => {
+  const table = $("#adminReportsTable");
+  if (!table) return;
+  table.innerHTML = state.reports.length
+    ? state.reports
+        .map(
+          (report) => `
+            <div class="table-row report-row">
+              <div>
+                <strong>${escapeHtml(report.post_title)}</strong>
+                <span>举报人 ${escapeHtml(report.reporter)} · 作者 ${escapeHtml(report.author)} · ${formatDate(report.created_at)}</span>
+                <p class="report-reason">${escapeHtml(report.reason)}</p>
+              </div>
+              <div class="row-actions">
+                <button class="button small ghost" type="button" data-open-report-post="${report.post_id}">查看帖子</button>
+                <button class="button small primary" type="button" data-resolve-report="${report.id}">标记已处理</button>
+              </div>
+            </div>`,
+        )
+        .join("")
+    : `<div class="empty">暂无待处理举报。</div>`;
+  $$("[data-open-report-post]").forEach((button) => {
+    button.addEventListener("click", () => openReader("post", Number(button.dataset.openReportPost)));
+  });
+  $$("[data-resolve-report]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      await api(`/admin/reports/${button.dataset.resolveReport}/resolve`, { method: "POST" });
+      state.reports = state.reports.filter((report) => report.id !== Number(button.dataset.resolveReport));
+      if (state.stats) state.stats.reportCount = Math.max(0, Number(state.stats.reportCount || 0) - 1);
+      renderReports();
+      renderStats();
+      showToast("举报已标记处理");
+    });
+  });
+};
+
 const renderAdmins = () => {
   if (!$("#adminUsers")) return;
+  const normalUsers = state.admins.filter((user) => user.role !== "admin");
+  const promoteSelect = $("#promoteUserSelect");
+  if (promoteSelect) {
+    promoteSelect.innerHTML = normalUsers.length
+      ? normalUsers.map((user) => `<option value="${user.id}">${escapeHtml(user.username)} ${formatDate(user.created_at)}</option>`).join("")
+      : `<option value="">暂无可提权注册用户</option>`;
+    promoteSelect.disabled = !isOwner() || !normalUsers.length;
+  }
+  const promoteButton = $("#promoteUserButton");
+  if (promoteButton) {
+    promoteButton.disabled = !isOwner() || !normalUsers.length;
+    promoteButton.textContent = isOwner() ? "设为管理员" : "仅服主可提权";
+  }
   $("#adminUsers").innerHTML = state.admins.length
     ? state.admins
         .map(
           (user) => `
             <div class="table-row user-row">
-              <div><strong>${escapeHtml(user.username)}</strong><span>${escapeHtml(user.account_type)} ${formatDate(user.created_at)}</span></div>
+              <div><strong>${escapeHtml(user.username)}</strong><span>${escapeHtml(user.account_type)} ${formatDate(user.created_at)}${user.last_seen_at ? ` · 最近在线 ${formatDate(user.last_seen_at)}` : ""}</span></div>
               <div class="row-actions">
                 ${
                   isOwner() && !user.is_owner
                     ? `
-                      <button class="button small ghost" type="button" data-reset-admin="${user.id}" data-name="${escapeHtml(user.username)}">重置密码</button>
-                      <button class="button small danger" type="button" data-remove-admin="${user.id}">删除</button>
+                      <button class="button small ghost" type="button" data-rename-user="${user.id}" data-name="${escapeHtml(user.username)}">改名</button>
+                      <button class="button small ghost" type="button" data-role-user="${user.id}" data-role="${user.role}" data-name="${escapeHtml(user.username)}">${user.role === "admin" ? "降为成员" : "设为管理员"}</button>
+                      ${user.role === "admin" ? `<button class="button small ghost" type="button" data-reset-admin="${user.id}" data-name="${escapeHtml(user.username)}">重置密码</button>` : ""}
+                      ${user.role === "admin" ? `<button class="button small danger" type="button" data-remove-admin="${user.id}">删除</button>` : ""}
                     `
                     : `<button class="button small ghost" type="button" disabled>${user.is_owner ? "服主账号" : "仅服主可操作"}</button>`
                 }
@@ -1467,7 +1609,47 @@ const renderAdmins = () => {
             </div>`,
         )
         .join("")
-    : `<div class="empty">暂无管理员。</div>`;
+    : `<div class="empty">暂无注册用户。</div>`;
+  $("#promoteUserButton")?.addEventListener("click", async () => {
+    const id = $("#promoteUserSelect")?.value;
+    if (!id) return;
+    await api(`/admin/users/${id}`, { method: "PUT", body: JSON.stringify({ role: "admin" }) });
+    await loadAdminData();
+    showToast("用户已设为管理员");
+  });
+  $$("[data-rename-user]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const username = await showPromptDialog(`修改 ${button.dataset.name} 的用户名。`, {
+        title: "修改用户名",
+        eyebrow: "用户管理",
+        inputLabel: "新用户名",
+        defaultValue: button.dataset.name,
+        maxLength: 20,
+        confirmLabel: "保存用户名",
+        normalize: (value) => value.trim(),
+        validate: (value) => (/^[\w\u4e00-\u9fa5-]{3,20}$/.test(value) ? "" : "用户名需要 3 到 20 位"),
+      });
+      if (!username) return;
+      await api(`/admin/users/${button.dataset.renameUser}`, { method: "PUT", body: JSON.stringify({ username }) });
+      await loadAdminData();
+      showToast("用户名已更新");
+    });
+  });
+  $$("[data-role-user]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const nextRole = button.dataset.role === "admin" ? "user" : "admin";
+      const confirmed = await showConfirmDialog(`确定将 ${button.dataset.name} ${nextRole === "admin" ? "设为管理员" : "降为成员"}吗？`, {
+        title: "调整权限",
+        eyebrow: "用户管理",
+        confirmLabel: nextRole === "admin" ? "设为管理员" : "降为成员",
+        confirmTone: nextRole === "admin" ? "primary" : "danger",
+      });
+      if (!confirmed) return;
+      await api(`/admin/users/${button.dataset.roleUser}`, { method: "PUT", body: JSON.stringify({ role: nextRole }) });
+      await loadAdminData();
+      showToast(nextRole === "admin" ? "用户已设为管理员" : "用户已降为成员");
+    });
+  });
   $$("[data-remove-admin]").forEach((button) => {
     button.addEventListener("click", async () => {
       const confirmed = await showConfirmDialog("确定删除这个管理员账号吗？", {
@@ -1628,6 +1810,29 @@ const setupHomeActions = () => {
   });
 };
 
+const scrollToAnnouncementAnchor = () => {
+  if (page !== "home" || window.location.hash !== "#announcements") return;
+  const target = $("#announcements");
+  if (!target) return;
+  const headerHeight = $(".site-header")?.offsetHeight || 0;
+  const top = target.getBoundingClientRect().top + window.scrollY - headerHeight - 12;
+  window.scrollTo({ top: Math.max(0, top), behavior: prefersReducedMotion() ? "auto" : "smooth" });
+};
+
+const setupAnnouncementAnchorFix = () => {
+  if (page !== "home") return;
+  $$('a[href="#announcements"], a[href="/index.html#announcements"]').forEach((link) => {
+    link.addEventListener("click", (event) => {
+      if (new URL(link.href, window.location.href).pathname !== window.location.pathname) return;
+      event.preventDefault();
+      if (window.location.hash !== "#announcements") window.history.pushState(null, "", "#announcements");
+      scrollToAnnouncementAnchor();
+    });
+  });
+  window.addEventListener("hashchange", scrollToAnnouncementAnchor);
+  window.requestAnimationFrame(() => window.setTimeout(scrollToAnnouncementAnchor, 80));
+};
+
 const setupHeroTyping = () => {
   const title = $("#heroTypedTitle");
   if (!title) return;
@@ -1695,16 +1900,24 @@ const loadAdminData = async () => {
   renderAll();
   renderAdminGate();
   if (!isAdmin()) return;
-  const [announcements, posts, stats, admins] = await Promise.all([api("/announcements"), api("/posts"), api("/admin/stats"), api("/admin/users")]);
+  const [announcements, posts, stats, admins, reports] = await Promise.all([
+    api("/announcements"),
+    api("/posts"),
+    api("/admin/stats"),
+    api("/admin/users"),
+    api("/admin/reports"),
+  ]);
   state.announcements = announcements.items;
   state.posts = posts.items;
   state.stats = stats;
   state.site.maintenanceMode = Boolean(stats.maintenanceMode);
   state.admins = admins.items;
+  state.reports = reports.items;
   state.trashLoaded = false;
   renderAll();
   renderStats();
   renderManagement();
+  renderReports();
   renderAdmins();
 };
 
@@ -1736,6 +1949,7 @@ setupMaintenanceToggle();
 setupAdminNavigation();
 setupAdminMobileDrawer();
 setupHomeActions();
+setupAnnouncementAnchorFix();
 setupHeroTyping();
 
 refreshPageData().catch((error) => showToast(error.message));

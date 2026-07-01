@@ -114,7 +114,31 @@ const readBody = async (request) => {
   }
 };
 
+const isMissingColumnError = (error) => /no such column|duplicate column/i.test(messageFromError(error));
+
 const ownerUser = async (env) => env.DB.prepare("SELECT id, username FROM users WHERE role = 'admin' ORDER BY id ASC LIMIT 1").first();
+
+const ensureForumAdminSchema = async (env) => {
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS post_reports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+      reporter_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      reason TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'resolved')),
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      resolved_at TEXT
+    )`,
+  ).run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_post_reports_status ON post_reports(status, created_at DESC)").run();
+  await env.DB.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_post_reports_unique_open ON post_reports(post_id, reporter_id) WHERE status = 'open'").run();
+  try {
+    await env.DB.prepare("ALTER TABLE posts ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0").run();
+  } catch (error) {
+    if (!isMissingColumnError(error)) throw error;
+  }
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_posts_pinned_created_at ON posts(pinned DESC, created_at DESC)").run();
+};
 
 const defaultServerStatusSettings = {
   enabled: true,
@@ -531,6 +555,7 @@ const listAnnouncements = async (env, { trash = false } = {}) => {
 };
 
 const listPosts = async (env, { trash = false, authorId = null, limit = 100 } = {}) => {
+  await ensureForumAdminSchema(env);
   await purgeExpiredDeletedPosts(env);
   const where = [trash ? "posts.deleted_at IS NOT NULL" : "posts.deleted_at IS NULL"];
   const bindings = [];
@@ -540,12 +565,12 @@ const listPosts = async (env, { trash = false, authorId = null, limit = 100 } = 
   }
   bindings.push(limit);
   const { results } = await env.DB.prepare(
-    `SELECT posts.id, posts.title, posts.excerpt, posts.content_html, posts.views, posts.deleted_at, posts.created_at,
+    `SELECT posts.id, posts.title, posts.excerpt, posts.content_html, posts.pinned, posts.views, posts.deleted_at, posts.created_at,
             posts.updated_at, users.id AS author_id, users.role AS author_role, users.username AS author
      FROM posts
      JOIN users ON users.id = posts.author_id
      WHERE ${where.join(" AND ")}
-     ORDER BY posts.created_at DESC
+     ORDER BY posts.pinned DESC, posts.created_at DESC
      LIMIT ?`,
   )
     .bind(...bindings)
@@ -554,6 +579,7 @@ const listPosts = async (env, { trash = false, authorId = null, limit = 100 } = 
 };
 
 const profile = async (env, request, username) => {
+  await ensureForumAdminSchema(env);
   const viewer = await currentUser(env, request);
   const owner = await ownerUser(env);
   const user = await env.DB.prepare(
@@ -565,12 +591,12 @@ const profile = async (env, request, username) => {
     .first();
   if (!user) return json({ error: "没有找到这个玩家" }, 404);
   const posts = await env.DB.prepare(
-    `SELECT posts.id, posts.title, posts.excerpt, posts.content_html, posts.views, posts.created_at, posts.updated_at,
+    `SELECT posts.id, posts.title, posts.excerpt, posts.content_html, posts.pinned, posts.views, posts.created_at, posts.updated_at,
             users.id AS author_id, users.role AS author_role, users.username AS author
      FROM posts
      JOIN users ON users.id = posts.author_id
      WHERE posts.author_id = ? AND posts.deleted_at IS NULL
-     ORDER BY posts.created_at DESC
+     ORDER BY posts.pinned DESC, posts.created_at DESC
      LIMIT 20`,
   )
     .bind(user.id)
@@ -813,6 +839,7 @@ const createAnnouncement = async (env, request) => {
 };
 
 const createPost = async (env, request) => {
+  await ensureForumAdminSchema(env);
   const user = await requireUser(env, request);
   const { title, contentHtml, excerpt } = await contentPayload(request);
   await env.DB.prepare("INSERT INTO posts (title, excerpt, content_html, author_id) VALUES (?, ?, ?, ?)")
@@ -831,6 +858,7 @@ const updateAnnouncement = async (env, request, id) => {
 };
 
 const updatePost = async (env, request, id) => {
+  await ensureForumAdminSchema(env);
   const user = await requireUser(env, request);
   const post = await env.DB.prepare("SELECT id, author_id FROM posts WHERE id = ? AND deleted_at IS NULL").bind(id).first();
   if (!post) return json({ error: "帖子不存在" }, 404);
@@ -844,7 +872,39 @@ const updatePost = async (env, request, id) => {
   return json({ ok: true });
 };
 
+const updatePostPinned = async (env, request, id) => {
+  await ensureForumAdminSchema(env);
+  await requireAdmin(env, request);
+  const body = await readBody(request);
+  const pinned = Boolean(body.pinned);
+  const result = await env.DB.prepare("UPDATE posts SET pinned = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL")
+    .bind(pinned ? 1 : 0, id)
+    .run();
+  if (!result.meta?.changes) return json({ error: "帖子不存在" }, 404);
+  return json({ ok: true, pinned });
+};
+
+const reportPost = async (env, request, id) => {
+  await ensureForumAdminSchema(env);
+  const user = await requireUser(env, request);
+  const post = await env.DB.prepare("SELECT id, author_id FROM posts WHERE id = ? AND deleted_at IS NULL").bind(id).first();
+  if (!post) return json({ error: "帖子不存在" }, 404);
+  if (Number(post.author_id) === Number(user.id)) return json({ error: "不能举报自己的帖子" }, 400);
+  const body = await readBody(request);
+  const reason = String(body.reason || "").trim().slice(0, 500);
+  if (reason.length < 4) return json({ error: "请填写至少 4 个字的举报原因" }, 400);
+  try {
+    await env.DB.prepare("INSERT INTO post_reports (post_id, reporter_id, reason) VALUES (?, ?, ?)")
+      .bind(id, user.id, reason)
+      .run();
+  } catch {
+    return json({ error: "你已经举报过这个帖子，管理员会处理" }, 409);
+  }
+  return json({ ok: true }, 201);
+};
+
 const deletePost = async (env, request, id) => {
+  await ensureForumAdminSchema(env);
   const user = await requireUser(env, request);
   const post = await env.DB.prepare("SELECT id, author_id FROM posts WHERE id = ? AND deleted_at IS NULL").bind(id).first();
   if (!post) return json({ error: "帖子不存在" }, 404);
@@ -903,11 +963,14 @@ const trackView = async (env, type, id) => {
 };
 
 const stats = async (env, request) => {
+  await ensureForumAdminSchema(env);
   await requireAdmin(env, request);
   const site = await getSiteSettings(env);
   const announcementViews = await env.DB.prepare("SELECT COALESCE(SUM(views), 0) AS total FROM announcements WHERE deleted_at IS NULL").first();
   const postViews = await env.DB.prepare("SELECT COALESCE(SUM(views), 0) AS total FROM posts WHERE deleted_at IS NULL").first();
-  const userCount = await env.DB.prepare("SELECT COUNT(*) AS total FROM users WHERE role = 'admin'").first();
+  const userCount = await env.DB.prepare("SELECT COUNT(*) AS total FROM users").first();
+  const adminCount = await env.DB.prepare("SELECT COUNT(*) AS total FROM users WHERE role = 'admin'").first();
+  const reportCount = await env.DB.prepare("SELECT COUNT(*) AS total FROM post_reports WHERE status = 'open'").first();
   const trashCount = await env.DB.prepare(
     "SELECT (SELECT COUNT(*) FROM posts WHERE deleted_at IS NOT NULL) + (SELECT COUNT(*) FROM announcements WHERE deleted_at IS NOT NULL) AS total",
   ).first();
@@ -916,6 +979,8 @@ const stats = async (env, request) => {
     announcementViews: Number(announcementViews.total || 0),
     postViews: Number(postViews.total || 0),
     userCount: Number(userCount.total || 0),
+    adminCount: Number(adminCount.total || 0),
+    reportCount: Number(reportCount.total || 0),
     trashCount: Number(trashCount.total || 0),
     maintenanceMode: site.maintenanceMode,
   });
@@ -977,14 +1042,14 @@ const updateServerStatusSettings = async (env, request) => {
   return json({ ok: true, settings: next });
 };
 
-const listAdmins = async (env, request) => {
+const listAdminUsers = async (env, request) => {
+  await ensureForumAdminSchema(env);
   await requireAdmin(env, request);
   const owner = await ownerUser(env);
   const { results } = await env.DB.prepare(
-    `SELECT id, username, role, created_at
+    `SELECT id, username, role, created_at, last_seen_at
      FROM users
-     WHERE role = 'admin'
-     ORDER BY id ASC`,
+     ORDER BY role = 'admin' DESC, id ASC`,
   ).all();
   return json({
     items: (results || []).map((user) => ({
@@ -1012,6 +1077,28 @@ const createAdminAccount = async (env, request) => {
   return json({ ok: true }, 201);
 };
 
+const updateManagedUser = async (env, request, id) => {
+  const actor = await requireOwnerAdmin(env, request);
+  const targetId = Number(id);
+  const owner = await ownerUser(env);
+  const target = await env.DB.prepare("SELECT id, username, role FROM users WHERE id = ?").bind(targetId).first();
+  if (!target) return json({ error: "没有找到这个用户" }, 404);
+  const body = await readBody(request);
+  const nextUsername = body.username === undefined ? target.username : String(body.username || "").trim();
+  const nextRole = body.role === undefined ? target.role : String(body.role || "").trim();
+  if (!/^[\w\u4e00-\u9fa5-]{3,20}$/.test(nextUsername)) return json({ error: "用户名需要 3 到 20 位" }, 400);
+  if (!["user", "admin"].includes(nextRole)) return json({ error: "账号类型不正确" }, 400);
+  if (owner?.id && Number(owner.id) === targetId && nextRole !== "admin") return json({ error: "服主账号不能降权" }, 400);
+  if (Number(actor.id) === targetId && nextRole !== "admin") return json({ error: "不能降权自己的账号" }, 400);
+  try {
+    await env.DB.prepare("UPDATE users SET username = ?, role = ? WHERE id = ?").bind(nextUsername, nextRole, targetId).run();
+  } catch {
+    return json({ error: "用户名已存在" }, 409);
+  }
+  if (target.role !== nextRole) await env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(targetId).run();
+  return json({ ok: true });
+};
+
 const removeManagedAdmin = async (env, request, id) => {
   const user = await requireOwnerAdmin(env, request);
   const targetId = Number(id);
@@ -1021,6 +1108,34 @@ const removeManagedAdmin = async (env, request, id) => {
   const result = await env.DB.prepare("DELETE FROM users WHERE id = ? AND role = 'admin'").bind(targetId).run();
   if (!result.meta?.changes) return json({ error: "没有找到这个管理员" }, 404);
   await env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(targetId).run();
+  return json({ ok: true });
+};
+
+const listPostReports = async (env, request) => {
+  await ensureForumAdminSchema(env);
+  await requireAdmin(env, request);
+  const { results } = await env.DB.prepare(
+    `SELECT post_reports.id, post_reports.reason, post_reports.status, post_reports.created_at,
+            posts.id AS post_id, posts.title AS post_title,
+            reporters.username AS reporter, authors.username AS author
+     FROM post_reports
+     JOIN posts ON posts.id = post_reports.post_id
+     JOIN users AS reporters ON reporters.id = post_reports.reporter_id
+     JOIN users AS authors ON authors.id = posts.author_id
+     WHERE post_reports.status = 'open'
+     ORDER BY post_reports.created_at DESC
+     LIMIT 80`,
+  ).all();
+  return json({ items: results || [] });
+};
+
+const resolvePostReport = async (env, request, id) => {
+  await ensureForumAdminSchema(env);
+  await requireAdmin(env, request);
+  const result = await env.DB.prepare("UPDATE post_reports SET status = 'resolved', resolved_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'open'")
+    .bind(id)
+    .run();
+  if (!result.meta?.changes) return json({ error: "举报不存在或已处理" }, 404);
   return json({ ok: true });
 };
 
@@ -1077,6 +1192,8 @@ export async function onRequest(context) {
     if (method === "GET" && pathname === "/posts") return listPosts(env);
     if (method === "POST" && pathname === "/posts") return createPost(env, request);
     if (method === "PUT" && /^\/posts\/\d+$/.test(pathname)) return updatePost(env, request, pathname.split("/").at(-1));
+    if (method === "PUT" && /^\/posts\/\d+\/pin$/.test(pathname)) return updatePostPinned(env, request, pathname.split("/").at(-2));
+    if (method === "POST" && /^\/posts\/\d+\/reports$/.test(pathname)) return reportPost(env, request, pathname.split("/").at(-2));
     if (method === "DELETE" && /^\/posts\/\d+$/.test(pathname)) return deletePost(env, request, pathname.split("/").at(-1));
     if (method === "POST" && /^\/posts\/\d+\/restore$/.test(pathname)) return restorePost(env, request, pathname.split("/").at(-2));
     if (method === "DELETE" && /^\/posts\/\d+\/purge$/.test(pathname)) return purgePost(env, request, pathname.split("/").at(-2));
@@ -1100,8 +1217,11 @@ export async function onRequest(context) {
     if (method === "GET" && pathname === "/admin/stats") return stats(env, request);
     if (method === "GET" && pathname === "/admin/settings/server-status") return adminServerStatusSettings(env, request);
     if (method === "PUT" && pathname === "/admin/settings/server-status") return updateServerStatusSettings(env, request);
-    if (method === "GET" && pathname === "/admin/users") return listAdmins(env, request);
+    if (method === "GET" && pathname === "/admin/users") return listAdminUsers(env, request);
     if (method === "POST" && pathname === "/admin/users") return createAdminAccount(env, request);
+    if (method === "PUT" && /^\/admin\/users\/\d+$/.test(pathname)) {
+      return updateManagedUser(env, request, pathname.split("/").at(-1));
+    }
     if (method === "PUT" && /^\/admin\/users\/\d+\/password$/.test(pathname)) {
       return resetManagedAdminPassword(env, request, pathname.split("/").at(-2));
     }
@@ -1112,6 +1232,10 @@ export async function onRequest(context) {
       await requireAdmin(env, request);
       const [announcements, posts] = await Promise.all([listAnnouncements(env, { trash: true }), listPosts(env, { trash: true })]);
       return json({ announcements: (await announcements.json()).items, posts: (await posts.json()).items });
+    }
+    if (method === "GET" && pathname === "/admin/reports") return listPostReports(env, request);
+    if (method === "POST" && /^\/admin\/reports\/\d+\/resolve$/.test(pathname)) {
+      return resolvePostReport(env, request, pathname.split("/").at(-2));
     }
     if (method === "PUT" && pathname === "/admin/settings/maintenance") return updateMaintenance(env, request);
 
