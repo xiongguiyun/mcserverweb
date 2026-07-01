@@ -641,40 +641,17 @@ const bindProfileTrashToggle = () => {
   const overlay = $("#profileTrashOverlay");
   if (!button || !overlay) return;
 
-  const prefersReduced = prefersReducedMotion();
-  const setOpenState = (open) => {
-    overlay.classList.toggle("is-open", open);
-    document.body.classList.toggle("profile-trash-open", open);
-    if (!open) return;
-    overlay.hidden = false;
-    requestAnimationFrame(() => overlay.classList.add("is-visible"));
-  };
-  const finishClose = () => {
-    overlay.hidden = true;
-    overlay.classList.remove("is-visible");
-    document.body.classList.remove("profile-trash-open");
+  const sync = () => {
+    overlay.hidden = !state.profileTrashOpen;
+    document.body.classList.toggle("profile-trash-open", state.profileTrashOpen);
   };
   const open = () => {
     state.profileTrashOpen = true;
-    overlay.classList.remove("is-closing");
-    setOpenState(true);
+    sync();
   };
   const close = () => {
     state.profileTrashOpen = false;
-    overlay.classList.remove("is-visible");
-    overlay.classList.add("is-closing");
-    if (prefersReduced) {
-      overlay.classList.remove("is-open", "is-closing");
-      finishClose();
-      return;
-    }
-    const handleTransitionEnd = (event) => {
-      if (event.target !== overlay) return;
-      overlay.removeEventListener("transitionend", handleTransitionEnd);
-      overlay.classList.remove("is-open", "is-closing");
-      finishClose();
-    };
-    overlay.addEventListener("transitionend", handleTransitionEnd);
+    sync();
   };
 
   if (!button.dataset.trashBound) {
@@ -693,12 +670,7 @@ const bindProfileTrashToggle = () => {
     document.addEventListener("keydown", state.profileTrashKeydownHandler);
   }
 
-  if (state.profileTrashOpen) {
-    setOpenState(true);
-  } else {
-    overlay.classList.remove("is-open", "is-visible", "is-closing");
-    finishClose();
-  }
+  sync();
 };
 
 const bindContentButtons = () => {
