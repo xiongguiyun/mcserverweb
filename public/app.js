@@ -115,12 +115,41 @@ const currentProfileQuery = () => new URL(window.location.href).searchParams.get
 const prefersReducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
 const dialogCloseDelay = () => (prefersReducedMotion() ? 0 : 240);
 const editorColorPresets = ["#c74332", "#f5a43a", "#469146", "#2f7dd1", "#7350a4", "#201713", "#ffffff"];
+let editorSavedRange = null;
+
+const saveEditorSelection = () => {
+  const editor = $("#editor");
+  const selection = window.getSelection?.();
+  if (!editor || !selection || selection.rangeCount === 0) return;
+  const range = selection.getRangeAt(0);
+  if (editor === range.commonAncestorContainer || editor.contains(range.commonAncestorContainer)) {
+    editorSavedRange = range.cloneRange();
+  }
+};
+
+const restoreEditorSelection = () => {
+  const editor = $("#editor");
+  if (!editor) return false;
+  editor.focus({ preventScroll: true });
+  if (!editorSavedRange) return false;
+  try {
+    const selection = window.getSelection?.();
+    selection?.removeAllRanges();
+    selection?.addRange(editorSavedRange);
+    return true;
+  } catch {
+    editorSavedRange = null;
+    return false;
+  }
+};
 
 const applyEditorColor = (color) => {
   if (!color) return;
   const picker = $("#colorPickerInput");
   if (picker && /^#[0-9a-f]{6}$/i.test(color)) picker.value = color;
+  restoreEditorSelection();
   command("foreColor", color);
+  saveEditorSelection();
 };
 
 const renderTotpQrFallback = (result) => `
@@ -497,7 +526,9 @@ const enhanceColorTool = () => {
   panel.querySelectorAll("[data-color]").forEach((button) => {
     button.addEventListener("click", () => applyEditorColor(button.dataset.color));
   });
-  panel.querySelector("#colorPickerInput")?.addEventListener("input", (event) => applyEditorColor(event.target.value));
+  const colorPickerInput = panel.querySelector("#colorPickerInput");
+  colorPickerInput?.addEventListener("input", (event) => applyEditorColor(event.target.value));
+  colorPickerInput?.addEventListener("change", (event) => applyEditorColor(event.target.value));
   panel.querySelector("#customColorButton")?.addEventListener("click", async () => {
     const color = await showPromptDialog("输入文本颜色，例如 #ff6600 或 rgb(255, 102, 0)。", {
       title: "文本颜色",
@@ -1058,6 +1089,13 @@ const openTablePicker = (anchor) => {
 
 const setupEditor = () => {
   if (!$("#editor")) return;
+  const editor = $("#editor");
+  ["keyup", "mouseup", "touchend", "input"].forEach((eventName) => {
+    editor.addEventListener(eventName, saveEditorSelection);
+  });
+  document.addEventListener("selectionchange", () => {
+    if (document.activeElement === editor) saveEditorSelection();
+  });
   $$("[data-command]").forEach((button) => button.addEventListener("click", () => command(button.dataset.command)));
   $("#fontSizeSelect")?.addEventListener("change", (event) => {
     if (event.target.value) command("fontSize", event.target.value);
@@ -1471,30 +1509,7 @@ const clearAdminSidebarFollow = () => {
 
 const syncAdminSidebarFollow = () => {
   if (page !== "admin") return;
-  const sidebar = document.querySelector(".admin-sidebar:not(.admin-sidebar-drawer)");
-  const shell = $("#adminShell");
-  if (!sidebar || !shell || shell.hidden || !window.matchMedia?.("(min-width: 981px)")?.matches) {
-    clearAdminSidebarFollow();
-    return;
-  }
-
-  const shellRect = shell.getBoundingClientRect();
-  const shellStyle = window.getComputedStyle(shell);
-  const shellPaddingLeft = Number.parseFloat(shellStyle.paddingLeft) || 0;
-  const sidebarHeight = sidebar.offsetHeight || 0;
-  const sidebarWidth = sidebar.offsetWidth || 220;
-  const centeredTop = Math.max(94, Math.round((window.innerHeight - sidebarHeight) / 2));
-
-  if (window.scrollY <= 0) {
-    clearAdminSidebarFollow();
-    return;
-  }
-
-  sidebar.style.position = "fixed";
-  sidebar.style.top = `${centeredTop}px`;
-  sidebar.style.left = `${Math.round(shellRect.left + shellPaddingLeft)}px`;
-  sidebar.style.width = `${sidebarWidth}px`;
-  sidebar.style.zIndex = "25";
+  clearAdminSidebarFollow();
 };
 
 const setupAdminSidebarFollow = () => {
