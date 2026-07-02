@@ -1252,16 +1252,35 @@ body[data-page="admin"] .admin-locked {
 
 .admin-list-tools {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto 0 minmax(0, auto);
   gap: 10px;
   align-items: end;
   margin-bottom: 6px;
+}
+
+.admin-list-tools.is-open {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.admin-search-toggle {
+  align-self: end;
+  min-width: 68px;
 }
 
 .admin-list-search {
   display: grid;
   gap: 5px;
   min-width: 0;
+  max-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.admin-list-tools.is-open .admin-list-search {
+  max-width: 100%;
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .admin-list-search span,
@@ -3371,12 +3390,12 @@ dialog {
   }
 
   body[data-page="admin"] .admin-shell {
-    padding: 22px 12px 52px 48px;
+    padding: 18px 10px 44px 44px;
     overflow-x: hidden;
   }
 
   body[data-page="admin"] .admin-workspace {
-    gap: 12px;
+    gap: 10px;
     min-width: 0;
   }
 
@@ -3384,8 +3403,13 @@ dialog {
   body[data-page="admin"] .editor-card,
   body[data-page="admin"] .admin-locked {
     min-width: 0;
-    padding: 14px;
+    padding: 12px;
     overflow-x: hidden;
+  }
+
+  body[data-page="admin"] .editor-card,
+  body[data-page="admin"] .maintenance-admin-card {
+    padding: 12px;
   }
 
   body[data-page="admin"] .admin-form-grid,
@@ -3418,7 +3442,57 @@ dialog {
   }
 
   body[data-page="admin"] .section-title.compact h2 {
-    font-size: 24px;
+    font-size: 22px;
+  }
+
+  body[data-page="admin"] .section-title.compact {
+    margin-bottom: 16px;
+  }
+
+  body[data-page="admin"] .section-title.compact p {
+    margin-top: 8px;
+    line-height: 1.45;
+  }
+
+  body[data-page="admin"] input,
+  body[data-page="admin"] select {
+    min-height: 34px;
+  }
+
+  body[data-page="admin"] .form-row {
+    gap: 5px;
+    margin-bottom: 8px;
+  }
+
+  body[data-page="admin"] .inline-form,
+  body[data-page="admin"] .admin-user-tools {
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+
+  body[data-page="admin"] .maintenance-toggle {
+    grid-template-columns: 48px auto;
+    gap: 10px;
+    font-size: 14px;
+  }
+
+  body[data-page="admin"] .maintenance-toggle input {
+    width: 48px;
+    min-height: 26px;
+  }
+
+  body[data-page="admin"] .maintenance-toggle input::before {
+    width: 17px;
+    height: 17px;
+  }
+
+  body[data-page="admin"] .maintenance-toggle input:checked::before {
+    transform: translateX(22px);
+  }
+
+  body[data-page="admin"] .rich-editor {
+    min-height: 220px;
+    padding: 12px;
   }
 
   body[data-page="admin"] .stat-card strong {
@@ -3435,8 +3509,12 @@ dialog {
   }
 
   body[data-page="admin"] .admin-list-tools {
-    grid-template-columns: 1fr;
+    grid-template-columns: auto minmax(0, auto);
     gap: 6px;
+  }
+
+  body[data-page="admin"] .admin-list-tools.is-open {
+    grid-template-columns: 1fr;
   }
 
   body[data-page="admin"] .admin-list-status {
@@ -4943,5 +5021,224 @@ body[data-page="admin"] .admin-nav a {
 
   body[data-page="admin"].admin-drawer-open .admin-mobile-toggle {
     pointer-events: none;
+  }
+}
+
+/* Final mobile feedback refinements. */
+.profile-post-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+}
+
+.profile-post-toolbar .section-title {
+  margin-bottom: 0;
+}
+
+.profile-post-toolbar .forum-toolbar-actions {
+  grid-template-columns: minmax(0, 0fr) 42px;
+  width: min(100%, 520px);
+}
+
+.profile-post-toolbar .forum-toolbar-actions.is-search-open,
+.profile-post-toolbar .forum-toolbar-actions.has-search-query {
+  grid-template-columns: minmax(260px, 420px) 42px;
+}
+
+.profile-post-toolbar .forum-search-panel.is-open {
+  max-width: min(420px, calc(100vw - 120px));
+}
+
+.profile-post-range {
+  grid-column: 1 / -1;
+  justify-self: end;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.profile-post-pagination {
+  justify-content: center;
+}
+
+@media (max-width: 620px) {
+  .photo-hero {
+    justify-items: center;
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .photo-hero .hero-copy {
+    display: grid;
+    justify-items: center;
+    width: min(100%, 390px);
+    max-width: 390px;
+    margin-right: auto;
+    margin-left: auto;
+  }
+
+  .photo-hero h1 {
+    width: 100%;
+    font-size: clamp(36px, 10vw, 48px);
+    line-height: 1.02;
+  }
+
+  .photo-hero p {
+    max-width: 28ch;
+    margin-top: 16px;
+    font-size: clamp(16px, 4.4vw, 18px);
+    line-height: 1.45;
+  }
+
+  .photo-hero .hero-actions {
+    justify-content: center;
+    width: 100%;
+    margin-top: 22px;
+  }
+
+  .photo-hero .server-panel {
+    width: min(100%, 360px);
+    max-width: 360px;
+    margin-right: auto;
+    margin-left: auto;
+  }
+
+  .forum-controls {
+    gap: 16px;
+    padding-top: 28px;
+  }
+
+  .profile-card {
+    min-height: 0;
+    padding: 16px;
+  }
+
+  .profile-card h2 {
+    margin-bottom: 10px;
+    font-size: 24px;
+  }
+
+  .profile-card .skin-stage {
+    width: min(100%, 148px);
+  }
+
+  .profile-name {
+    padding: 12px 10px;
+  }
+
+  .profile-actions {
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  .profile-actions .button,
+  .profile-card > .button {
+    min-width: 116px;
+    min-height: 36px;
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .forum-toolbar-actions {
+    width: min(100%, calc(100vw - 52px));
+  }
+
+  .forum-toolbar-actions.is-search-open,
+  .forum-toolbar-actions.has-search-query {
+    grid-template-columns: minmax(0, min(340px, calc(100vw - 154px))) 42px auto;
+  }
+
+  .forum-search-panel.is-open {
+    max-width: min(340px, calc(100vw - 154px));
+  }
+
+  .profile-post-toolbar {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
+  }
+
+  .profile-post-toolbar .forum-toolbar-actions {
+    justify-self: center;
+    grid-template-columns: minmax(0, 0fr) 42px;
+    width: min(100%, calc(100vw - 52px));
+  }
+
+  .profile-post-toolbar .forum-toolbar-actions.is-search-open,
+  .profile-post-toolbar .forum-toolbar-actions.has-search-query {
+    grid-template-columns: minmax(0, min(360px, calc(100vw - 96px))) 42px;
+  }
+
+  .profile-post-toolbar .forum-search-panel.is-open {
+    max-width: min(360px, calc(100vw - 96px));
+  }
+
+  .profile-post-range {
+    justify-self: center;
+  }
+
+  body[data-page="admin"] .admin-shell {
+    padding: 18px 10px 44px 44px;
+  }
+
+  body[data-page="admin"] .admin-workspace {
+    gap: 10px;
+  }
+
+  body[data-page="admin"] .admin-panel,
+  body[data-page="admin"] .editor-card,
+  body[data-page="admin"] .admin-locked,
+  body[data-page="admin"] .maintenance-admin-card {
+    padding: 12px;
+  }
+
+  body[data-page="admin"] .section-title.compact {
+    margin-bottom: 16px;
+  }
+
+  body[data-page="admin"] .section-title.compact h2 {
+    font-size: 22px;
+  }
+
+  body[data-page="admin"] input,
+  body[data-page="admin"] select {
+    min-height: 34px;
+  }
+
+  body[data-page="admin"] .rich-editor {
+    min-height: 220px;
+  }
+
+  body[data-page="admin"] .admin-list-tools {
+    grid-template-columns: auto auto;
+  }
+
+  body[data-page="admin"] .admin-list-tools.is-open {
+    grid-template-columns: 1fr;
+  }
+
+  body[data-page="admin"] .admin-list-tools.is-open .admin-list-search,
+  body[data-page="admin"] .admin-list-tools.is-open .admin-list-status {
+    grid-column: 1 / -1;
+  }
+
+  body[data-page="admin"] .admin-sidebar-backdrop {
+    z-index: 54;
+  }
+
+  body[data-page="admin"] .admin-mobile-toggle {
+    z-index: 55;
+  }
+
+  body[data-page="admin"] .admin-sidebar-drawer {
+    top: 50%;
+    z-index: 56;
+    max-height: min(560px, calc(100dvh - 42px));
+    transform: translate(-108%, -50%);
+  }
+
+  body[data-page="admin"].admin-drawer-open .admin-sidebar-drawer {
+    transform: translate(0, -50%);
   }
 }

@@ -15,12 +15,15 @@ const state = {
   editingPostId: null,
   forumSearch: "",
   forumSearchOpen: false,
+  profilePostSearch: "",
+  profilePostSearchOpen: false,
+  profilePostPage: 1,
   adminLists: {
-    announcements: { query: "", page: 1 },
-    posts: { query: "", page: 1 },
-    reports: { query: "", page: 1 },
-    users: { query: "", page: 1 },
-    trash: { query: "", page: 1 },
+    announcements: { query: "", page: 1, open: false },
+    posts: { query: "", page: 1, open: false },
+    reports: { query: "", page: 1, open: false },
+    users: { query: "", page: 1, open: false },
+    trash: { query: "", page: 1, open: false },
   },
 };
 
@@ -706,6 +709,7 @@ const ADMIN_PAGE_SIZE = 10;
 
 const adminListState = (key) => {
   if (!state.adminLists[key]) state.adminLists[key] = { query: "", page: 1 };
+  if (typeof state.adminLists[key].open !== "boolean") state.adminLists[key].open = false;
   return state.adminLists[key];
 };
 
@@ -746,12 +750,15 @@ const adminListView = (key, items, matches) => {
 
 const adminListToolsHtml = (key, view, placeholder) => {
   if (!view.total) return "";
+  const list = adminListState(key);
+  const isOpen = list.open || Boolean(list.query);
   const status = view.query ? `已筛选 ${view.filtered.length}/${view.total} 条` : `显示 ${view.start + 1}-${view.end} / ${view.total} 条`;
   return `
-    <div class="admin-list-tools">
+    <div class="admin-list-tools ${isOpen ? "is-open" : ""}">
+      <button class="button small ghost admin-search-toggle" type="button" data-admin-search-toggle="${key}" aria-expanded="${isOpen}">${isOpen ? "收起" : "搜索"}</button>
       <label class="admin-list-search">
         <span>搜索</span>
-        <input type="search" data-admin-search="${key}" value="${escapeHtml(adminListState(key).query)}" placeholder="${escapeHtml(placeholder)}" />
+        <input type="search" data-admin-search="${key}" value="${escapeHtml(list.query)}" placeholder="${escapeHtml(placeholder)}" ${isOpen ? "" : 'tabindex="-1"'} />
       </label>
       <span class="admin-list-status">${status}</span>
     </div>
@@ -770,17 +777,37 @@ const adminPaginationHtml = (key, view) =>
     : "";
 
 const bindAdminListControls = (key, render) => {
+  $$(`[data-admin-search-toggle="${key}"]`).forEach((button) => {
+    button.addEventListener("click", () => {
+      const list = adminListState(key);
+      list.open = !(list.open || list.query);
+      render();
+      if (!list.open) return;
+      window.requestAnimationFrame(() => $(`[data-admin-search="${key}"]`)?.focus({ preventScroll: true }));
+    });
+  });
   $$(`[data-admin-search="${key}"]`).forEach((input) => {
     input.addEventListener("input", (event) => {
       const cursor = event.target.selectionStart ?? event.target.value.length;
       const list = adminListState(key);
       list.query = event.target.value;
       list.page = 1;
+      list.open = true;
       render();
       const nextInput = $(`[data-admin-search="${key}"]`);
       if (!nextInput) return;
       nextInput.focus({ preventScroll: true });
       nextInput.setSelectionRange?.(cursor, cursor);
+    });
+    input.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      const list = adminListState(key);
+      if (list.query) {
+        list.query = "";
+        list.page = 1;
+      }
+      list.open = false;
+      render();
     });
   });
   $$(`[data-admin-page="${key}"]`).forEach((button) => {
@@ -804,6 +831,113 @@ const updateForumSearchStatus = () => {
   status.hidden = !query;
   status.textContent = query ? `已筛选 ${matched}/${total} 条帖子` : "";
   actions?.classList.toggle("has-search-query", Boolean(query));
+};
+
+const PROFILE_POST_PAGE_SIZE = 10;
+
+const profilePostListView = (posts, author) => {
+  const originalSearch = state.forumSearch;
+  state.forumSearch = state.profilePostSearch;
+  const searchablePosts = posts.map((item) => ({ ...item, author }));
+  const filtered = filterForumPosts(searchablePosts);
+  state.forumSearch = originalSearch;
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PROFILE_POST_PAGE_SIZE));
+  const page = Math.min(Math.max(1, Number(state.profilePostPage) || 1), totalPages);
+  state.profilePostPage = page;
+  const start = (page - 1) * PROFILE_POST_PAGE_SIZE;
+  const end = Math.min(start + PROFILE_POST_PAGE_SIZE, filtered.length);
+  return {
+    filtered,
+    pageItems: filtered.slice(start, end),
+    page,
+    totalPages,
+    start,
+    end,
+  };
+};
+
+const renderProfilePostSearch = (view, total) => {
+  const isOpen = state.profilePostSearchOpen || Boolean(state.profilePostSearch);
+  const status = state.profilePostSearch ? `已筛选 ${view.filtered.length}/${total} 条帖子` : `显示 ${view.start + 1}-${view.end} / ${total} 条帖子`;
+  return `
+    <div class="forum-toolbar profile-post-toolbar">
+      <div class="section-title compact">
+        <h2>${escapeHtml(state.profile?.username || "")} 的帖子</h2>
+        <p>展示最近 20 篇玩家内容。</p>
+      </div>
+      <div class="forum-toolbar-actions ${isOpen ? "is-search-open" : ""} ${state.profilePostSearch ? "has-search-query" : ""}">
+        <button class="forum-search-toggle" type="button" id="profilePostSearchToggle" aria-controls="profilePostSearchPanel" aria-expanded="${isOpen}" aria-label="搜索玩家帖子">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="11" cy="11" r="6.5"></circle>
+            <path d="M16.2 16.2 21 21"></path>
+          </svg>
+        </button>
+        <div class="forum-search-panel ${isOpen ? "is-open" : ""}" id="profilePostSearchPanel" ${isOpen ? "" : "hidden"}>
+          <div class="forum-search-box">
+            <input id="profilePostSearchInput" type="search" autocomplete="off" value="${escapeHtml(state.profilePostSearch)}" placeholder="搜索标题、内容、发布者" aria-label="搜索玩家帖子" />
+            <button class="forum-search-clear" type="button" id="profilePostSearchClear" aria-label="清空搜索">×</button>
+          </div>
+          <span class="forum-search-tip" aria-label="搜索提示">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="9"></circle>
+              <path d="M12 10v6"></path>
+              <path d="M12 7.25h.01"></path>
+            </svg>
+          </span>
+          <div class="forum-search-status">${state.profilePostSearch ? status : ""}</div>
+        </div>
+      </div>
+      <div class="profile-post-range">${status}</div>
+    </div>
+  `;
+};
+
+const renderProfilePostPagination = (view) =>
+  view.totalPages > 1
+    ? `
+      <div class="admin-pagination profile-post-pagination">
+        <button class="button small ghost" type="button" data-profile-post-page="${view.page - 1}" ${view.page <= 1 ? "disabled" : ""}>上一页</button>
+        <span>第 ${view.page} / ${view.totalPages} 页</span>
+        <button class="button small ghost" type="button" data-profile-post-page="${view.page + 1}" ${view.page >= view.totalPages ? "disabled" : ""}>下一页</button>
+      </div>
+    `
+    : "";
+
+const bindProfilePostSearch = () => {
+  $("#profilePostSearchToggle")?.addEventListener("click", () => {
+    state.profilePostSearchOpen = !state.profilePostSearchOpen;
+    renderProfilePage();
+    if (state.profilePostSearchOpen) window.requestAnimationFrame(() => $("#profilePostSearchInput")?.focus({ preventScroll: true }));
+  });
+  $("#profilePostSearchInput")?.addEventListener("input", (event) => {
+    const cursor = event.target.selectionStart ?? event.target.value.length;
+    state.profilePostSearch = event.target.value;
+    state.profilePostSearchOpen = true;
+    state.profilePostPage = 1;
+    renderProfilePage();
+    const input = $("#profilePostSearchInput");
+    input?.focus({ preventScroll: true });
+    input?.setSelectionRange?.(cursor, cursor);
+  });
+  $("#profilePostSearchInput")?.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    state.profilePostSearch = "";
+    state.profilePostSearchOpen = false;
+    state.profilePostPage = 1;
+    renderProfilePage();
+  });
+  $("#profilePostSearchClear")?.addEventListener("click", () => {
+    state.profilePostSearch = "";
+    state.profilePostSearchOpen = false;
+    state.profilePostPage = 1;
+    renderProfilePage();
+  });
+  $$("[data-profile-post-page]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.profilePostPage = Number(button.dataset.profilePostPage) || 1;
+      renderProfilePage();
+    });
+  });
 };
 
 const totpPanelTemplate = (profile) => {
@@ -1628,15 +1762,26 @@ const renderProfilePage = () => {
         </div>
       </section>`
     : "";
+  const profilePosts = profile.posts || [];
+  const postView = profilePostListView(profilePosts, profile.username);
+  const postListHtml = profilePosts.length
+    ? postView.pageItems.length
+      ? postView.pageItems.map((item) => cardTemplate({ ...item, author: profile.username }, "post")).join("")
+      : `<div class="empty">没有匹配的帖子。</div>`
+    : `<div class="empty">这个玩家暂时还没有发布。</div>`;
   posts.innerHTML = `
-    <div class="section-title compact"><h2>${escapeHtml(profile.username)} 的帖子</h2><p>展示最近 20 篇玩家内容。</p></div>
-    <div class="list forum-list">${
-      profile.posts.length ? profile.posts.map((item) => cardTemplate({ ...item, author: profile.username }, "post")).join("") : `<div class="empty">这个玩家暂时还没有发布。</div>`
-    }</div>
+    ${
+      profilePosts.length
+        ? renderProfilePostSearch(postView, profilePosts.length)
+        : `<div class="section-title compact"><h2>${escapeHtml(profile.username)} 的帖子</h2><p>展示最近 20 篇玩家内容。</p></div>`
+    }
+    <div class="list forum-list">${postListHtml}</div>
+    ${profilePosts.length ? renderProfilePostPagination(postView) : ""}
     ${trashSection}
   `;
   bindTotpSecurity();
   bindContentButtons();
+  bindProfilePostSearch();
   bindProfileTrashButtons();
   bindProfileTrashToggle();
 };
