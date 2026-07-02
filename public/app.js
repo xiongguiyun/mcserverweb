@@ -15,6 +15,13 @@ const state = {
   editingPostId: null,
   forumSearch: "",
   forumSearchOpen: false,
+  adminLists: {
+    announcements: { query: "", page: 1 },
+    posts: { query: "", page: 1 },
+    reports: { query: "", page: 1 },
+    users: { query: "", page: 1 },
+    trash: { query: "", page: 1 },
+  },
 };
 
 const page = document.body.dataset.page;
@@ -695,6 +702,98 @@ const filterForumPosts = (posts) => {
   });
 };
 
+const ADMIN_PAGE_SIZE = 10;
+
+const adminListState = (key) => {
+  if (!state.adminLists[key]) state.adminLists[key] = { query: "", page: 1 };
+  return state.adminLists[key];
+};
+
+const adminSearchMatches = (query, haystack, author = "") => {
+  const terms = normalizeSearchTerms(query);
+  if (!terms.length) return true;
+  const authorTerms = [];
+  const freeTerms = [];
+  terms.forEach((term) => {
+    if (term.startsWith("#") && term.length > 1) authorTerms.push(term.slice(1).toLowerCase());
+    else freeTerms.push(term.toLowerCase());
+  });
+  const normalizedHaystack = String(haystack || "").toLowerCase();
+  const normalizedAuthor = String(author || "").toLowerCase();
+  return authorTerms.every((term) => normalizedAuthor.includes(term)) && freeTerms.every((term) => normalizedHaystack.includes(term));
+};
+
+const adminListView = (key, items, matches) => {
+  const list = adminListState(key);
+  const query = list.query.trim();
+  const filtered = query ? items.filter((item) => matches(item, query)) : items;
+  const totalPages = Math.max(1, Math.ceil(filtered.length / ADMIN_PAGE_SIZE));
+  const page = Math.min(Math.max(1, Number(list.page) || 1), totalPages);
+  list.page = page;
+  const start = (page - 1) * ADMIN_PAGE_SIZE;
+  const end = Math.min(start + ADMIN_PAGE_SIZE, filtered.length);
+  return {
+    query,
+    total: items.length,
+    filtered,
+    pageItems: filtered.slice(start, end),
+    page,
+    totalPages,
+    start,
+    end,
+  };
+};
+
+const adminListToolsHtml = (key, view, placeholder) => {
+  if (!view.total) return "";
+  const status = view.query ? `已筛选 ${view.filtered.length}/${view.total} 条` : `显示 ${view.start + 1}-${view.end} / ${view.total} 条`;
+  return `
+    <div class="admin-list-tools">
+      <label class="admin-list-search">
+        <span>搜索</span>
+        <input type="search" data-admin-search="${key}" value="${escapeHtml(adminListState(key).query)}" placeholder="${escapeHtml(placeholder)}" />
+      </label>
+      <span class="admin-list-status">${status}</span>
+    </div>
+  `;
+};
+
+const adminPaginationHtml = (key, view) =>
+  view.totalPages > 1
+    ? `
+      <div class="admin-pagination">
+        <button class="button small ghost" type="button" data-admin-page="${key}" data-page="${view.page - 1}" ${view.page <= 1 ? "disabled" : ""}>上一页</button>
+        <span>第 ${view.page} / ${view.totalPages} 页</span>
+        <button class="button small ghost" type="button" data-admin-page="${key}" data-page="${view.page + 1}" ${view.page >= view.totalPages ? "disabled" : ""}>下一页</button>
+      </div>
+    `
+    : "";
+
+const bindAdminListControls = (key, render) => {
+  $$(`[data-admin-search="${key}"]`).forEach((input) => {
+    input.addEventListener("input", (event) => {
+      const cursor = event.target.selectionStart ?? event.target.value.length;
+      const list = adminListState(key);
+      list.query = event.target.value;
+      list.page = 1;
+      render();
+      const nextInput = $(`[data-admin-search="${key}"]`);
+      if (!nextInput) return;
+      nextInput.focus({ preventScroll: true });
+      nextInput.setSelectionRange?.(cursor, cursor);
+    });
+  });
+  $$(`[data-admin-page="${key}"]`).forEach((button) => {
+    button.addEventListener("click", () => {
+      adminListState(key).page = Number(button.dataset.page) || 1;
+      render();
+    });
+  });
+};
+
+const adminContentSearchText = (item) =>
+  `${item.title || ""} ${item.author || ""} ${formatDate(item.created_at)} ${item.views || 0} ${textFromHtml(item.content_html)}`;
+
 const updateForumSearchStatus = () => {
   const status = $("#forumSearchStatus");
   const actions = $(".forum-toolbar-actions");
@@ -909,6 +1008,72 @@ const bindContentButtons = () => {
   });
 };
 
+const headingLevelForOutline = (heading) => Math.max(0, Math.min(3, Number(heading.tagName.slice(1)) - 2));
+
+const setupReaderOutline = (readerContent) => {
+  const main = readerContent?.querySelector(".reader-main");
+  const body = readerContent?.querySelector(".reader-body");
+  const outline = readerContent?.querySelector("[data-reader-outline]");
+  const list = readerContent?.querySelector("[data-reader-outline-list]");
+  const toggle = readerContent?.querySelector("[data-outline-toggle]");
+  if (!main || !body || !outline || !list || !toggle) return;
+
+  const headings = [...body.querySelectorAll("h2, h3, h4")].filter((heading) => heading.textContent.trim());
+  if (!headings.length) {
+    outline.hidden = true;
+    main.classList.add("has-no-outline");
+    return;
+  }
+
+  main.classList.remove("has-no-outline");
+  outline.hidden = false;
+  const outlineId = Date.now();
+  headings.forEach((heading, index) => {
+    heading.id = `reader-heading-${outlineId}-${index}`;
+  });
+  list.innerHTML = headings
+    .map(
+      (heading) => `
+        <a class="reader-outline-link" href="#${heading.id}" data-outline-target="${heading.id}" style="--outline-depth: ${headingLevelForOutline(heading)}">
+          ${escapeHtml(heading.textContent.trim())}
+        </a>
+      `,
+    )
+    .join("");
+
+  const links = [...list.querySelectorAll(".reader-outline-link")];
+  const setCollapsed = (collapsed) => {
+    outline.classList.toggle("is-collapsed", collapsed);
+    toggle.setAttribute("aria-expanded", String(!collapsed));
+    toggle.setAttribute("aria-label", collapsed ? "显示大纲" : "隐藏大纲");
+    toggle.textContent = collapsed ? "显示" : "隐藏";
+  };
+
+  links.forEach((link, index) => {
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      const heading = headings[index];
+      const top = heading.getBoundingClientRect().top - main.getBoundingClientRect().top + main.scrollTop - 12;
+      main.scrollTo({ top: Math.max(0, top), behavior: prefersReducedMotion() ? "auto" : "smooth" });
+      links.forEach((entry) => entry.classList.toggle("is-active", entry === link));
+    });
+  });
+
+  const syncActiveLink = () => {
+    const mainTop = main.getBoundingClientRect().top;
+    let activeIndex = 0;
+    headings.forEach((heading, index) => {
+      if (heading.getBoundingClientRect().top - mainTop <= 28) activeIndex = index;
+    });
+    links.forEach((link, index) => link.classList.toggle("is-active", index === activeIndex));
+  };
+
+  toggle.addEventListener("click", () => setCollapsed(!outline.classList.contains("is-collapsed")));
+  main.addEventListener("scroll", () => window.requestAnimationFrame(syncActiveLink), { passive: true });
+  setCollapsed(false);
+  syncActiveLink();
+};
+
 const openReader = (type, id) => {
   const source = type === "announcement" ? state.announcements : state.posts;
   const item = source.find((entry) => entry.id === id);
@@ -947,11 +1112,21 @@ const openReader = (type, id) => {
           <span class="meta-date">${formatDate(item.created_at)}</span>
           <span>${item.views || 0} 次浏览</span>
         </div>
-        <div class="reader-body">${item.content_html}</div>
+        <div class="reader-content-grid">
+          <aside class="reader-outline" data-reader-outline hidden>
+            <div class="reader-outline-header">
+              <strong>大纲</strong>
+              <button type="button" data-outline-toggle aria-expanded="true" aria-label="隐藏大纲">隐藏</button>
+            </div>
+            <nav class="reader-outline-list" data-reader-outline-list aria-label="文章大纲"></nav>
+          </aside>
+          <div class="reader-body">${item.content_html}</div>
+        </div>
       </div>
     </div>
   `;
   $("#readerContent [data-reader-close]")?.addEventListener("click", () => closeDialogAnimated($("#readerDialog")));
+  setupReaderOutline($("#readerContent"));
   const serverStatusBinder = globalThis.bindServerStatusCardActions;
   if (typeof serverStatusBinder === "function") serverStatusBinder($("#readerContent"));
   openDialog($("#readerDialog"));
@@ -960,11 +1135,172 @@ const openReader = (type, id) => {
 const command = (name, value = null) => {
   const editor = $("#editor");
   if (!editor) return;
-  editor.focus();
+  if (!restoreEditorSelection()) editor.focus();
   document.execCommand(name, false, value);
+  saveEditorSelection();
+};
+
+const editorAlignmentMap = {
+  justifyLeft: "left",
+  justifyCenter: "center",
+  justifyRight: "right",
+};
+
+const closestEditableBlock = (node, editor) => {
+  let current = node?.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+  while (current && current !== editor) {
+    if (current.matches?.("p,h1,h2,h3,h4,h5,h6,li,blockquote,pre,div,td,th")) return current;
+    current = current.parentElement;
+  }
+  return editor;
+};
+
+const selectedEditableBlocks = (editor) => {
+  const selection = window.getSelection?.();
+  if (!selection || selection.rangeCount === 0) return [];
+  const range = selection.getRangeAt(0);
+  if (!(editor === range.commonAncestorContainer || editor.contains(range.commonAncestorContainer))) return [];
+  const blocks = new Set();
+  const startBlock = closestEditableBlock(range.startContainer, editor);
+  const endBlock = closestEditableBlock(range.endContainer, editor);
+  if (startBlock) blocks.add(startBlock);
+  if (endBlock) blocks.add(endBlock);
+  editor.querySelectorAll("p,h1,h2,h3,h4,h5,h6,li,blockquote,pre,div,td,th").forEach((block) => {
+    try {
+      if (range.intersectsNode(block)) blocks.add(block);
+    } catch {
+      // Ignore detached nodes from rapidly edited selections.
+    }
+  });
+  return [...blocks];
+};
+
+const applyEditorAlignment = (name) => {
+  const editor = $("#editor");
+  const align = editorAlignmentMap[name];
+  if (!editor || !align) return;
+  if (!restoreEditorSelection()) editor.focus();
+  document.execCommand(name, false, null);
+  const blocks = selectedEditableBlocks(editor);
+  const targets = blocks.filter((block) => block !== editor);
+  if (targets.length) {
+    targets.forEach((block) => {
+      block.style.textAlign = align;
+    });
+  } else {
+    editor.style.textAlign = align;
+  }
+  saveEditorSelection();
 };
 
 const insertHtmlBlock = (html) => command("insertHTML", html);
+
+const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const findEditorMatch = (query) => {
+  const editor = $("#editor");
+  if (!editor || !query) return null;
+  const needle = query.toLowerCase();
+  const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+  let node = walker.nextNode();
+  while (node) {
+    const index = node.nodeValue.toLowerCase().indexOf(needle);
+    if (index !== -1) return { node, start: index, end: index + query.length };
+    node = walker.nextNode();
+  }
+  return null;
+};
+
+const selectEditorMatch = (match) => {
+  const editor = $("#editor");
+  if (!editor || !match) return;
+  const range = document.createRange();
+  range.setStart(match.node, match.start);
+  range.setEnd(match.node, match.end);
+  const selection = window.getSelection?.();
+  editor.focus({ preventScroll: true });
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+  saveEditorSelection();
+};
+
+const replaceEditorMatch = (match, replacement) => {
+  if (!match) return;
+  const range = document.createRange();
+  range.setStart(match.node, match.start);
+  range.setEnd(match.node, match.end);
+  range.deleteContents();
+  range.insertNode(document.createTextNode(replacement));
+  $("#editor")?.normalize();
+};
+
+const replaceAllEditorMatches = (query, replacement) => {
+  const editor = $("#editor");
+  if (!editor || !query) return 0;
+  const pattern = new RegExp(escapeRegExp(query), "gi");
+  const nodes = [];
+  const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+  let node = walker.nextNode();
+  while (node) {
+    nodes.push(node);
+    node = walker.nextNode();
+  }
+  let count = 0;
+  nodes.forEach((textNode) => {
+    const nextValue = textNode.nodeValue.replace(pattern, () => {
+      count += 1;
+      return replacement;
+    });
+    if (nextValue !== textNode.nodeValue) textNode.nodeValue = nextValue;
+  });
+  editor.normalize();
+  return count;
+};
+
+const runEditorFindReplace = async () => {
+  const editor = $("#editor");
+  if (!editor) return;
+  const query = await showPromptDialog("输入要在正文中查找的文字。", {
+    title: "查找文字",
+    eyebrow: "编辑工具",
+    inputLabel: "查找内容",
+    required: true,
+    requiredMessage: "请输入查找内容",
+    confirmLabel: "查找",
+    normalize: (value) => value.trim(),
+  });
+  if (!query) return;
+
+  const match = findEditorMatch(query);
+  if (!match) {
+    showToast("没有找到匹配内容");
+    editor.focus();
+    return;
+  }
+  selectEditorMatch(match);
+
+  const replacement = await showPromptDialog("已选中第一处匹配。输入替换文字，留空可删除。", {
+    title: "替换文字",
+    eyebrow: "编辑工具",
+    inputLabel: "替换为",
+    confirmLabel: "继续",
+  });
+  if (replacement === null) return;
+
+  const replaceAll = await showConfirmDialog("要替换正文中的全部匹配内容吗？", {
+    title: "查找和替换",
+    eyebrow: "编辑工具",
+    confirmLabel: "全部替换",
+    cancelLabel: "只替换当前",
+  });
+  if (replaceAll) {
+    const count = replaceAllEditorMatches(query, replacement);
+    showToast(`已替换 ${count} 处`);
+    return;
+  }
+  replaceEditorMatch(match, replacement);
+  showToast("已替换当前匹配");
+};
 
 const createTableHtml = (rows, cols) => {
   const safeRows = Math.max(1, Math.min(10, Number(rows) || 1));
@@ -1093,6 +1429,7 @@ const setupEditor = () => {
   ["keyup", "mouseup", "touchend", "input"].forEach((eventName) => {
     editor.addEventListener(eventName, saveEditorSelection);
   });
+  $(".editor-toolbar")?.addEventListener("pointerdown", saveEditorSelection);
   document.addEventListener("selectionchange", () => {
     if (document.activeElement === editor) saveEditorSelection();
   });
@@ -1105,6 +1442,11 @@ const setupEditor = () => {
     if (event.target.value) command("formatBlock", event.target.value);
     event.target.value = "";
   });
+  $("#alignSelect")?.addEventListener("change", (event) => {
+    if (event.target.value) applyEditorAlignment(event.target.value);
+    event.target.value = "";
+  });
+  $("#findReplaceButton")?.addEventListener("click", () => runEditorFindReplace());
   $("#linkButton")?.addEventListener("click", async () => {
     const url = await showPromptDialog("输入需要插入的链接地址。", {
       title: "插入链接",
@@ -1544,9 +1886,11 @@ const renderStats = () => {
   if ($("#maintenanceStatusText")) $("#maintenanceStatusText").textContent = state.stats.maintenanceMode ? "当前维护模式已开启。" : "当前网站正常开放。";
 };
 
-const adminRows = (items, type) =>
-  items.length
-    ? items
+const adminRows = (items, type) => {
+  const key = type === "post" ? "posts" : "announcements";
+  const view = adminListView(key, items, (item, query) => adminSearchMatches(query, adminContentSearchText(item), item.author));
+  const rows = view.pageItems.length
+    ? view.pageItems
         .map(
           (item) => `
             <div class="table-row ${type === "post" && item.pinned ? "is-pinned-row" : ""}">
@@ -1563,11 +1907,15 @@ const adminRows = (items, type) =>
             </div>`,
         )
         .join("")
-    : `<div class="empty">暂无内容。</div>`;
+    : `<div class="empty">${view.total ? "没有匹配内容。" : "暂无内容。"}</div>`;
+  return `${adminListToolsHtml(key, view, "搜索标题、内容、发布者，#发布者")}${rows}${adminPaginationHtml(key, view)}`;
+};
 
 const renderManagement = () => {
   if ($("#manageAnnouncements")) $("#manageAnnouncements").innerHTML = adminRows(state.announcements, "announcement");
   if ($("#managePosts")) $("#managePosts").innerHTML = adminRows(state.posts, "post");
+  bindAdminListControls("announcements", renderManagement);
+  bindAdminListControls("posts", renderManagement);
   $$("[data-edit]").forEach((button) => {
     button.addEventListener("click", () => {
       const type = button.dataset.edit;
@@ -1619,8 +1967,15 @@ const renderTrashRows = () => {
     ...(state.trash.announcements || []).map((item) => ({ ...item, type: "announcement" })),
     ...(state.trash.posts || []).map((item) => ({ ...item, type: "post" })),
   ];
-  panel.querySelector(".admin-table").innerHTML = rows.length
-    ? rows
+  const view = adminListView("trash", rows, (item, query) =>
+    adminSearchMatches(
+      query,
+      `${item.title || ""} ${item.type === "announcement" ? "公告" : "帖子"} ${item.author || ""} ${formatDate(item.deleted_at)} ${textFromHtml(item.content_html)}`,
+      item.author,
+    ),
+  );
+  const renderedRows = view.pageItems.length
+    ? view.pageItems
         .map(
           (item) => `
             <div class="table-row">
@@ -1632,7 +1987,9 @@ const renderTrashRows = () => {
             </div>`,
         )
         .join("")
-    : `<div class="empty">回收站为空。</div>`;
+    : `<div class="empty">${view.total ? "没有匹配内容。" : "回收站为空。"}</div>`;
+  panel.querySelector(".admin-table").innerHTML = `${adminListToolsHtml("trash", view, "搜索标题、类型、发布者，#发布者")}${renderedRows}${adminPaginationHtml("trash", view)}`;
+  bindAdminListControls("trash", renderTrashRows);
   $$("[data-restore]").forEach((button) =>
     button.addEventListener("click", async () => {
       await api(`/${button.dataset.restore === "announcement" ? "announcements" : "posts"}/${button.dataset.id}/restore`, { method: "POST" });
@@ -1672,8 +2029,15 @@ const renderTrash = async ({ force = false } = {}) => {
 const renderReports = () => {
   const table = $("#adminReportsTable");
   if (!table) return;
-  table.innerHTML = state.reports.length
-    ? state.reports
+  const view = adminListView("reports", state.reports, (report, query) =>
+    adminSearchMatches(
+      query,
+      `${report.post_title || ""} ${report.reporter || ""} ${report.author || ""} ${report.reason || ""} ${formatDate(report.created_at)}`,
+      report.reporter,
+    ),
+  );
+  const rows = view.pageItems.length
+    ? view.pageItems
         .map(
           (report) => `
             <div class="table-row report-row">
@@ -1689,7 +2053,9 @@ const renderReports = () => {
             </div>`,
         )
         .join("")
-    : `<div class="empty">暂无待处理举报。</div>`;
+    : `<div class="empty">${view.total ? "没有匹配举报。" : "暂无待处理举报。"}</div>`;
+  table.innerHTML = `${adminListToolsHtml("reports", view, "搜索帖子、举报人、作者、原因")}${rows}${adminPaginationHtml("reports", view)}`;
+  bindAdminListControls("reports", renderReports);
   $$("[data-open-report-post]").forEach((button) => {
     button.addEventListener("click", () => openReader("post", Number(button.dataset.openReportPost)));
   });
@@ -1720,8 +2086,15 @@ const renderAdmins = () => {
     promoteButton.disabled = !isOwner() || !normalUsers.length;
     promoteButton.textContent = isOwner() ? "设为管理员" : "仅服主可提权";
   }
-  $("#adminUsers").innerHTML = state.admins.length
-    ? state.admins
+  const view = adminListView("users", state.admins, (user, query) =>
+    adminSearchMatches(
+      query,
+      `${user.username || ""} ${user.account_type || ""} ${user.role === "admin" ? "管理员" : "成员"} ${user.is_owner ? "服主" : ""} ${formatDate(user.created_at)} ${user.last_seen_at ? formatDate(user.last_seen_at) : ""}`,
+      user.username,
+    ),
+  );
+  const rows = view.pageItems.length
+    ? view.pageItems
         .map(
           (user) => `
             <div class="table-row user-row">
@@ -1741,14 +2114,16 @@ const renderAdmins = () => {
             </div>`,
         )
         .join("")
-    : `<div class="empty">暂无注册用户。</div>`;
-  $("#promoteUserButton")?.addEventListener("click", async () => {
+    : `<div class="empty">${view.total ? "没有匹配账号。" : "暂无注册用户。"}</div>`;
+  $("#adminUsers").innerHTML = `${adminListToolsHtml("users", view, "搜索用户名、账号类型、角色")}${rows}${adminPaginationHtml("users", view)}`;
+  bindAdminListControls("users", renderAdmins);
+  if (promoteButton) promoteButton.onclick = async () => {
     const id = $("#promoteUserSelect")?.value;
     if (!id) return;
     await api(`/admin/users/${id}`, { method: "PUT", body: JSON.stringify({ role: "admin" }) });
     await loadAdminData();
     showToast("用户已设为管理员");
-  });
+  };
   $$("[data-rename-user]").forEach((button) => {
     button.addEventListener("click", async () => {
       const username = await showPromptDialog(`修改 ${button.dataset.name} 的用户名。`, {
