@@ -465,6 +465,96 @@ const showPromptDialog = (message, options = {}) =>
     ...options,
   });
 
+const ensureEditorFindReplaceDialog = () => {
+  let dialog = $("#editorFindReplaceDialog");
+  if (dialog) return dialog;
+
+  dialog = document.createElement("dialog");
+  dialog.id = "editorFindReplaceDialog";
+  dialog.className = "site-modal-dialog editor-find-replace-dialog";
+  dialog.innerHTML = `
+    <div class="site-modal-shell editor-find-replace-shell">
+      <div class="site-modal-copy">
+        <span class="site-modal-eyebrow">编辑工具</span>
+        <h2>查找和替换</h2>
+        <p>在当前正文编辑器里查找文字，可只定位、替换当前匹配，或一次替换全部匹配。</p>
+      </div>
+      <div class="editor-find-replace-grid">
+        <label class="site-modal-field">
+          <span>查找内容</span>
+          <input id="findReplaceQuery" autocomplete="off" />
+        </label>
+        <label class="site-modal-field">
+          <span>替换为</span>
+          <input id="findReplaceReplacement" autocomplete="off" placeholder="留空则删除匹配内容" />
+        </label>
+      </div>
+      <div class="site-modal-actions editor-find-replace-actions">
+        <button class="site-modal-option" type="button" data-find-replace-cancel>取消</button>
+        <button class="site-modal-option" type="button" data-find-replace-action="find">查找</button>
+        <button class="site-modal-option is-primary" type="button" data-find-replace-action="current">替换当前</button>
+        <button class="site-modal-option is-primary" type="button" data-find-replace-action="all">全部替换</button>
+      </div>
+    </div>
+  `;
+  document.body.append(dialog);
+
+  const resolve = (value) => {
+    const resolver = dialog._resolver;
+    dialog._resolver = null;
+    closeDialogAnimated(dialog);
+    resolver?.(value);
+  };
+  dialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    resolve(null);
+  });
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog) resolve(null);
+  });
+  dialog.querySelector("[data-find-replace-cancel]")?.addEventListener("click", () => resolve(null));
+  dialog.querySelectorAll("[data-find-replace-action]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const query = dialog.querySelector("#findReplaceQuery")?.value.trim() || "";
+      if (!query) {
+        showToast("请输入查找内容");
+        dialog.querySelector("#findReplaceQuery")?.focus();
+        return;
+      }
+      resolve({
+        action: button.dataset.findReplaceAction,
+        query,
+        replacement: dialog.querySelector("#findReplaceReplacement")?.value || "",
+      });
+    });
+  });
+  dialog.querySelector("#findReplaceQuery")?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      dialog.querySelector('[data-find-replace-action="find"]')?.click();
+    }
+  });
+  dialog.querySelector("#findReplaceReplacement")?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      dialog.querySelector('[data-find-replace-action="current"]')?.click();
+    }
+  });
+
+  return dialog;
+};
+
+const showEditorFindReplaceDialog = () =>
+  new Promise((resolve) => {
+    const dialog = ensureEditorFindReplaceDialog();
+    if (dialog._resolver) dialog._resolver(null);
+    dialog._resolver = resolve;
+    dialog.querySelector("#findReplaceQuery").value = "";
+    dialog.querySelector("#findReplaceReplacement").value = "";
+    openDialog(dialog);
+    window.requestAnimationFrame(() => dialog.querySelector("#findReplaceQuery")?.focus());
+  });
+
 const floatingHostFor = (anchor) => anchor?.closest("dialog") || document.body;
 
 const updateToolbarMorePosition = () => {
@@ -1533,6 +1623,10 @@ const commentToolbarTemplate = () => `
       <button type="button" data-comment-command="insertUnorderedList" title="无序列表">•</button>
       <button type="button" data-comment-blockquote title="引用块">“”</button>
       <button type="button" data-comment-link title="链接">链</button>
+      <label class="comment-color-tool" title="文本颜色">
+        <span>色</span>
+        <input type="color" value="#f5a43a" data-comment-color aria-label="文本颜色" />
+      </label>
       <button type="button" data-comment-command="removeFormat" title="清除格式">清</button>
     </div>
     <button class="comment-toolbar-toggle" type="button" data-comment-toolbar-toggle aria-expanded="false" aria-label="展开回复工具栏">工具</button>
@@ -1591,8 +1685,10 @@ const commentUndoTemplate = (postId) => {
 const commentTemplate = (comment, postId) => {
   const deleted = Boolean(comment.deleted_at);
   const authorUser = authorUserFromItem(comment, comment.author);
-  const canQuote = Boolean(state.me && !deleted && !ownsContent(comment, comment.author));
+  const canQuote = Boolean(state.me && !deleted);
   const canReport = Boolean(state.me && comment.can_report && !isOwnerContent(comment));
+  const likeActive = Number(comment.my_reaction) === 1;
+  const dislikeActive = Number(comment.my_reaction) === -1;
   return `
     <article class="comment-card ${deleted ? "is-deleted" : ""} ${Number(state.commentHighlightId) === Number(comment.id) ? "is-highlighted" : ""}" id="comment-${comment.id}" data-comment-id="${comment.id}">
       <div class="comment-avatar">
@@ -1619,8 +1715,18 @@ const commentTemplate = (comment, postId) => {
         }
       </div>
       <div class="comment-actions">
+        ${
+          deleted
+            ? ""
+            : `<button class="comment-reaction-button ${likeActive ? "is-active" : ""}" type="button" data-comment-reaction="like" data-comment-reaction-id="${comment.id}" aria-pressed="${likeActive}" title="点赞">
+                <span aria-hidden="true">赞</span><strong>${Number(comment.like_count || 0)}</strong>
+              </button>
+              <button class="comment-reaction-button ${dislikeActive ? "is-active" : ""}" type="button" data-comment-reaction="dislike" data-comment-reaction-id="${comment.id}" aria-pressed="${dislikeActive}" title="点踩">
+                <span aria-hidden="true">踩</span><strong>${Number(comment.dislike_count || 0)}</strong>
+              </button>`
+        }
         ${canQuote ? `<button class="comment-icon-button" type="button" data-comment-quote="${comment.id}" title="引用回复" aria-label="引用回复"><span aria-hidden="true">引</span></button>` : ""}
-        ${canReport ? `<button class="comment-icon-button danger" type="button" data-comment-report="${comment.id}" title="举报回复" aria-label="举报回复"><span aria-hidden="true">!</span></button>` : ""}
+        ${canReport ? `<button class="comment-icon-button danger" type="button" data-comment-report="${comment.id}" title="举报回复" aria-label="举报回复"><span class="report-warning-icon" aria-hidden="true"></span></button>` : ""}
         ${comment.can_edit ? `<button class="button small ghost" type="button" data-comment-edit="${comment.id}">编辑</button>` : ""}
         ${comment.can_delete ? `<button class="button small danger" type="button" data-comment-delete="${comment.id}">删除</button>` : ""}
       </div>
@@ -1745,6 +1851,21 @@ const submitCommentReport = async (commentId) => {
   return true;
 };
 
+const submitCommentReaction = async (postId, commentId, reaction) => {
+  const comment = commentById(postId, commentId);
+  const nextReaction = Number(comment?.my_reaction) === (reaction === "like" ? 1 : -1) ? "" : reaction;
+  const result = await api(`/comments/${commentId}/reaction`, { method: "POST", body: JSON.stringify({ reaction: nextReaction }) });
+  upsertComment(postId, result.comment);
+  renderComments(postId);
+};
+
+const applyCommentColor = (section, color) => {
+  const editor = section.querySelector("[data-comment-editor]");
+  if (!editor || !color) return;
+  editor.focus({ preventScroll: true });
+  document.execCommand("foreColor", false, color);
+};
+
 const bindPostComments = (postId) => {
   const section = $(`[data-comments-for="${postId}"]`);
   if (!section) return;
@@ -1775,6 +1896,7 @@ const bindPostComments = (postId) => {
     const editor = section.querySelector("[data-comment-editor]");
     if (editor) await insertCommentLink(editor);
   });
+  section.querySelector("[data-comment-color]")?.addEventListener("input", (event) => applyCommentColor(section, event.target.value));
   section.querySelector("[data-comment-clear-quote]")?.addEventListener("click", () => {
     state.commentQuote = null;
     renderComments(postId);
@@ -1828,6 +1950,11 @@ const bindPostComments = (postId) => {
   section.querySelectorAll("[data-comment-report]").forEach((button) => {
     button.addEventListener("click", async () => {
       await submitCommentReport(button.dataset.commentReport);
+    });
+  });
+  section.querySelectorAll("[data-comment-reaction]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      await submitCommentReaction(postId, button.dataset.commentReactionId, button.dataset.commentReaction);
     });
   });
   section.querySelectorAll("[data-comment-edit]").forEach((button) => {
@@ -2147,18 +2274,10 @@ const replaceAllEditorMatches = (query, replacement) => {
 const runEditorFindReplace = async () => {
   const editor = $("#editor");
   if (!editor) return;
-  const query = await showPromptDialog("输入要在正文中查找的文字。", {
-    title: "查找文字",
-    eyebrow: "编辑工具",
-    inputLabel: "查找内容",
-    required: true,
-    requiredMessage: "请输入查找内容",
-    confirmLabel: "查找",
-    normalize: (value) => value.trim(),
-  });
-  if (!query) return;
+  const result = await showEditorFindReplaceDialog();
+  if (!result) return;
 
-  const match = findEditorMatch(query);
+  const match = findEditorMatch(result.query);
   if (!match) {
     showToast("没有找到匹配内容");
     editor.focus();
@@ -2166,26 +2285,16 @@ const runEditorFindReplace = async () => {
   }
   selectEditorMatch(match);
 
-  const replacement = await showPromptDialog("已选中第一处匹配。输入替换文字，留空可删除。", {
-    title: "替换文字",
-    eyebrow: "编辑工具",
-    inputLabel: "替换为",
-    confirmLabel: "继续",
-  });
-  if (replacement === null) return;
-
-  const replaceAll = await showConfirmDialog("要替换正文中的全部匹配内容吗？", {
-    title: "查找和替换",
-    eyebrow: "编辑工具",
-    confirmLabel: "全部替换",
-    cancelLabel: "只替换当前",
-  });
-  if (replaceAll) {
-    const count = replaceAllEditorMatches(query, replacement);
+  if (result.action === "find") {
+    showToast("已选中第一处匹配");
+    return;
+  }
+  if (result.action === "all") {
+    const count = replaceAllEditorMatches(result.query, result.replacement);
     showToast(`已替换 ${count} 处`);
     return;
   }
-  replaceEditorMatch(match, replacement);
+  replaceEditorMatch(match, result.replacement);
   showToast("已替换当前匹配");
 };
 

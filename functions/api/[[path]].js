@@ -163,10 +163,21 @@ const ensureForumAdminSchema = async (env) => {
       resolved_at TEXT
     )`,
   ).run();
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS comment_reactions (
+      comment_id INTEGER NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      value INTEGER NOT NULL CHECK (value IN (-1, 1)),
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (comment_id, user_id)
+    )`,
+  ).run();
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_comments_post_created_at ON comments(post_id, created_at DESC)").run();
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_comments_deleted_at ON comments(deleted_at)").run();
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_comment_reports_status ON comment_reports(status, created_at DESC)").run();
   await env.DB.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_comment_reports_unique_open ON comment_reports(comment_id, reporter_id) WHERE status = 'open'").run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_comment_reactions_value ON comment_reactions(comment_id, value)").run();
   try {
     await env.DB.prepare("ALTER TABLE posts ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0").run();
   } catch (error) {
@@ -1253,10 +1264,32 @@ const commentSelect = `
          comments.quote_comment_id, comments.quote_author, comments.quote_excerpt,
          comments.deleted_at, comments.deleted_by, comments.created_at, comments.updated_at,
          users.username AS author, users.role AS author_role,
-         users.minecraft_name AS author_minecraft_name, users.skin_image AS author_skin_image
+         users.minecraft_name AS author_minecraft_name, users.skin_image AS author_skin_image,
+         (SELECT COUNT(*) FROM comment_reactions WHERE comment_reactions.comment_id = comments.id AND comment_reactions.value = 1) AS like_count,
+         (SELECT COUNT(*) FROM comment_reactions WHERE comment_reactions.comment_id = comments.id AND comment_reactions.value = -1) AS dislike_count
   FROM comments
   JOIN users ON users.id = comments.author_id
 `;
+
+const hydrateCommentActorReactions = async (env, comments, actor) => {
+  const items = (Array.isArray(comments) ? comments : [comments]).filter(Boolean);
+  if (!items.length) return comments;
+  items.forEach((comment) => {
+    comment.my_reaction = 0;
+  });
+  if (!actor?.id) return comments;
+  const placeholders = items.map(() => "?").join(",");
+  const { results } = await env.DB.prepare(
+    `SELECT comment_id, value FROM comment_reactions WHERE user_id = ? AND comment_id IN (${placeholders})`,
+  )
+    .bind(actor.id, ...items.map((comment) => comment.id))
+    .all();
+  const byCommentId = new Map((results || []).map((reaction) => [Number(reaction.comment_id), Number(reaction.value)]));
+  items.forEach((comment) => {
+    comment.my_reaction = byCommentId.get(Number(comment.id)) || 0;
+  });
+  return comments;
+};
 
 const publicComment = (comment, actor, ownerId) => {
   const author = { id: comment.author_id, role: comment.author_role };
@@ -1278,6 +1311,9 @@ const publicComment = (comment, actor, ownerId) => {
     deleted_by: comment.deleted_by || null,
     created_at: comment.created_at,
     updated_at: comment.updated_at,
+    like_count: Number(comment.like_count || 0),
+    dislike_count: Number(comment.dislike_count || 0),
+    my_reaction: Number(comment.my_reaction || 0),
     can_edit: !deleted && canManageAuthoredSnapshot(actor, author, ownerId),
     can_delete: !deleted && canManageAuthoredSnapshot(actor, author, ownerId),
     can_report: !deleted && canReportAuthoredSnapshot(actor, author, ownerId),
@@ -1293,7 +1329,8 @@ const listPostComments = async (env, request, postId) => {
   if (!post) return json({ error: "帖子不存在" }, 404);
   const owner = await ownerUser(env);
   const { results } = await env.DB.prepare(`${commentSelect} WHERE comments.post_id = ? ORDER BY comments.created_at ASC LIMIT 200`).bind(postId).all();
-  return json({ items: (results || []).map((comment) => publicComment(comment, actor, owner?.id)) });
+  const comments = await hydrateCommentActorReactions(env, results || [], actor);
+  return json({ items: comments.map((comment) => publicComment(comment, actor, owner?.id)) });
 };
 
 const createComment = async (env, request, postId) => {
@@ -1311,7 +1348,6 @@ const createComment = async (env, request, postId) => {
       .bind(quoteCommentId, postId)
       .first();
     if (!quote) return json({ error: "引用的回复不存在" }, 404);
-    if (Number(quote.author_id) === Number(user.id)) return json({ error: "请引用其他玩家的回复" }, 400);
     quoteAuthor = quote.author;
     quoteExcerpt = excerptFromHtml(quote.content_html).slice(0, 120);
   }
@@ -1325,6 +1361,7 @@ const createComment = async (env, request, postId) => {
   const comment =
     (result.meta?.last_row_id ? await commentById(env, result.meta.last_row_id) : null) ||
     (await env.DB.prepare(`${commentSelect} WHERE comments.post_id = ? AND comments.author_id = ? ORDER BY comments.id DESC LIMIT 1`).bind(postId, user.id).first());
+  await hydrateCommentActorReactions(env, comment, user);
   return json({ ok: true, comment: publicComment(comment, user, owner?.id) }, 201);
 };
 
@@ -1339,7 +1376,9 @@ const updateComment = async (env, request, id) => {
   }
   const { contentHtml } = await commentPayload(request);
   await env.DB.prepare("UPDATE comments SET content_html = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(contentHtml, id).run();
-  return json({ ok: true, comment: publicComment(await commentById(env, id), user, owner?.id) });
+  const updated = await commentById(env, id);
+  await hydrateCommentActorReactions(env, updated, user);
+  return json({ ok: true, comment: publicComment(updated, user, owner?.id) });
 };
 
 const deleteComment = async (env, request, id) => {
@@ -1361,12 +1400,42 @@ const restoreComment = async (env, request, id) => {
   const owner = await ownerUser(env);
   const comment = await commentById(env, id);
   if (!comment) return json({ error: "回复不存在" }, 404);
-  if (!comment.deleted_at) return json({ ok: true, comment: publicComment(comment, user, owner?.id) });
+  if (!comment.deleted_at) {
+    await hydrateCommentActorReactions(env, comment, user);
+    return json({ ok: true, comment: publicComment(comment, user, owner?.id) });
+  }
   const deletedAt = timestampMs(comment.deleted_at);
   const canUndo = Number(comment.deleted_by) === Number(user.id) && deletedAt && Date.now() - deletedAt <= commentUndoWindowMs;
   if (!canUndo) return json({ error: "撤销时间已过" }, 403);
   await env.DB.prepare("UPDATE comments SET deleted_at = NULL, deleted_by = NULL WHERE id = ?").bind(id).run();
-  return json({ ok: true, comment: publicComment(await commentById(env, id), user, owner?.id) });
+  const restored = await commentById(env, id);
+  await hydrateCommentActorReactions(env, restored, user);
+  return json({ ok: true, comment: publicComment(restored, user, owner?.id) });
+};
+
+const reactToComment = async (env, request, id) => {
+  await ensureForumAdminSchema(env);
+  const user = await requireUser(env, request);
+  const owner = await ownerUser(env);
+  const comment = await commentById(env, id);
+  if (!comment || comment.deleted_at) return json({ error: "回复不存在" }, 404);
+  const body = await readBody(request);
+  const reaction = String(body.reaction || "").toLowerCase();
+  const value = reaction === "like" ? 1 : reaction === "dislike" ? -1 : 0;
+  if (!value) {
+    await env.DB.prepare("DELETE FROM comment_reactions WHERE comment_id = ? AND user_id = ?").bind(id, user.id).run();
+  } else {
+    await env.DB.prepare(
+      `INSERT INTO comment_reactions (comment_id, user_id, value)
+       VALUES (?, ?, ?)
+       ON CONFLICT(comment_id, user_id) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`,
+    )
+      .bind(id, user.id, value)
+      .run();
+  }
+  const updated = await commentById(env, id);
+  await hydrateCommentActorReactions(env, updated, user);
+  return json({ ok: true, comment: publicComment(updated, user, owner?.id) });
 };
 
 const reportComment = async (env, request, id) => {
@@ -1861,6 +1930,7 @@ export async function onRequest(context) {
     if (method === "PUT" && /^\/comments\/\d+$/.test(pathname)) return updateComment(env, request, pathname.split("/").at(-1));
     if (method === "DELETE" && /^\/comments\/\d+$/.test(pathname)) return deleteComment(env, request, pathname.split("/").at(-1));
     if (method === "POST" && /^\/comments\/\d+\/restore$/.test(pathname)) return restoreComment(env, request, pathname.split("/").at(-2));
+    if (method === "POST" && /^\/comments\/\d+\/reaction$/.test(pathname)) return reactToComment(env, request, pathname.split("/").at(-2));
     if (method === "POST" && /^\/comments\/\d+\/reports$/.test(pathname)) return reportComment(env, request, pathname.split("/").at(-2));
 
     if (method === "GET" && /^\/minecraft-image\/(avatar|body)\/[^/]+\/\d+$/.test(pathname)) {

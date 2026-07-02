@@ -2045,6 +2045,36 @@ dialog.is-closing {
   box-shadow: 0 3px 0 #7f281e;
 }
 
+.editor-find-replace-dialog {
+  width: min(620px, calc(100vw - 28px));
+}
+
+.editor-find-replace-shell {
+  gap: 18px;
+}
+
+.editor-find-replace-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.editor-find-replace-actions {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.editor-find-replace-actions .site-modal-option {
+  justify-content: center;
+  text-align: center;
+}
+
+@media (max-width: 620px) {
+  .editor-find-replace-grid,
+  .editor-find-replace-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
 .auth-dialog h2,
 .compose-dialog h2 {
   margin: 0 0 18px;
@@ -5888,7 +5918,8 @@ body[data-page="admin"] .admin-list-status,
 
 .comment-toolbar-drawer button,
 .comment-toolbar-toggle,
-.comment-icon-button {
+.comment-icon-button,
+.comment-color-tool {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -5907,9 +5938,24 @@ body[data-page="admin"] .admin-list-status,
 
 .comment-toolbar-drawer button:hover,
 .comment-toolbar-toggle:hover,
-.comment-icon-button:hover {
+.comment-icon-button:hover,
+.comment-color-tool:hover {
   background: #ffefbd;
   border-color: #b9813e;
+}
+
+.comment-color-tool {
+  position: relative;
+  overflow: hidden;
+}
+
+.comment-color-tool input[type="color"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
 }
 
 .comment-icon-button {
@@ -5922,6 +5968,60 @@ body[data-page="admin"] .admin-list-status,
 
 .comment-icon-button.danger {
   color: #8e2f22;
+}
+
+.comment-reaction-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0 8px;
+  color: #2a1d16;
+  background: #fff7e8;
+  border: 2px solid #d7bc8b;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.comment-reaction-button strong {
+  min-width: 1ch;
+  font-size: 11px;
+}
+
+.comment-reaction-button:hover,
+.comment-reaction-button.is-active {
+  background: #ffefbd;
+  border-color: #b9813e;
+}
+
+.comment-reaction-button.is-active {
+  color: #7b4d17;
+  box-shadow: inset 0 0 0 1px rgba(185, 129, 62, 0.28);
+}
+
+.report-warning-icon {
+  position: relative;
+  display: inline-block;
+  width: 18px;
+  height: 16px;
+  background: #8e2f22;
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
+
+.report-warning-icon::after {
+  content: "!";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 1px;
+  color: #fff7e8;
+  font-size: 11px;
+  font-weight: 950;
+  line-height: 1;
+  text-align: center;
 }
 
 .comment-editor.rich-editor {
