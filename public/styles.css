@@ -1054,11 +1054,10 @@ button {
 }
 
 .post-card.is-highlighted-post {
-  border-color: #5fa86f;
-  background: linear-gradient(180deg, #fffdf6, #f0fff2);
+  border-color: var(--post-highlight-color, #5fa86f);
   box-shadow:
-    0 7px 0 rgba(66, 132, 82, 0.16),
-    inset 0 0 0 2px rgba(95, 168, 111, 0.18);
+    0 7px 0 rgba(106, 69, 35, 0.2),
+    inset 0 0 0 2px var(--post-highlight-color, #5fa86f);
 }
 
 .pinned-ribbon {
@@ -1078,19 +1077,7 @@ button {
 }
 
 .highlight-ribbon {
-  position: absolute;
-  top: 14px;
-  left: -38px;
-  width: 140px;
-  padding: 5px 0;
-  color: #102416;
-  text-align: center;
-  font-size: 12px;
-  font-weight: 950;
-  background: linear-gradient(180deg, #b9f2c4, #5fa86f);
-  border: 2px solid #2f6f3d;
-  transform: rotate(-34deg);
-  box-shadow: 0 4px 10px rgba(26, 18, 12, 0.12);
+  display: none;
 }
 
 .skin-figure {
@@ -1425,13 +1412,32 @@ body[data-page="admin"] .admin-locked {
 }
 
 .table-row.is-highlighted-row {
-  background: linear-gradient(90deg, #effff2, #fffaf0 52%);
-  border-color: #5fa86f;
+  background: #fffaf0;
+  border-color: var(--post-highlight-color, #5fa86f);
+  box-shadow: inset 0 0 0 2px var(--post-highlight-color, #5fa86f);
 }
 
 .report-resolution-dialog,
-.trash-post-edit-dialog {
+.trash-post-edit-dialog,
+.highlight-color-dialog {
   width: min(680px, calc(100vw - 28px));
+}
+
+.highlight-color-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.highlight-color-swatches button {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  background: var(--swatch-color);
+  border: 2px solid #1b120d;
+  border-radius: 4px;
+  cursor: pointer;
+  box-shadow: 0 3px 0 rgba(43, 27, 18, 0.18);
 }
 
 .report-resolution-grid {
@@ -1962,6 +1968,7 @@ dialog {
 dialog[open] {
   opacity: 1;
   transform: translateY(0) scale(1);
+  overscroll-behavior: contain;
 }
 
 dialog.is-closing {
@@ -2356,7 +2363,8 @@ dialog.is-closing::backdrop {
 }
 
 .profile-trash,
-.profile-trash-table {
+.profile-trash-table,
+.profile-report-table {
   display: grid;
   gap: 14px;
 }
@@ -2374,6 +2382,8 @@ dialog.is-closing::backdrop {
   padding: 22px;
   opacity: 0;
   pointer-events: none;
+  overscroll-behavior: contain;
+  touch-action: none;
   transition: opacity 0.24s ease;
 }
 
@@ -2391,6 +2401,8 @@ dialog.is-closing::backdrop {
   width: min(720px, 100%);
   max-height: min(76vh, 680px);
   overflow: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
   padding: 46px 24px 24px;
   background: #fffaf0;
   border: 2px solid #c79a5d;
@@ -2431,8 +2443,11 @@ dialog.is-closing::backdrop {
   transform: translateY(12px) scale(0.985);
 }
 
-body.profile-trash-open {
+body.profile-trash-open,
+body.profile-overlay-open,
+body.dialog-open {
   overflow: hidden;
+  overscroll-behavior: none;
 }
 
 .author-link {
@@ -2461,6 +2476,10 @@ body.profile-trash-open {
   justify-content: center;
   gap: 10px;
   margin-top: 14px;
+}
+
+.profile-floating-actions {
+  align-items: center;
 }
 
 .profile-page {
@@ -5892,6 +5911,7 @@ body[data-page="admin"] .admin-list-status,
 }
 
 .comment-composer {
+  position: relative;
   display: grid;
   gap: 10px;
   padding: 12px;
@@ -5909,11 +5929,18 @@ body[data-page="admin"] .admin-list-status,
 .comment-quote {
   display: grid;
   gap: 4px;
+  margin: 0;
   padding: 10px 12px;
   color: #545b7a;
   background: #f3f4ff;
   border-left: 3px solid #f5a43a;
   border-radius: 6px;
+}
+
+.comment-quote-list {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 10px;
 }
 
 .comment-quote-preview {
@@ -5931,6 +5958,122 @@ body[data-page="admin"] .admin-list-status,
 .comment-quote span {
   margin: 0;
   overflow-wrap: anywhere;
+}
+
+.comment-insert-row {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.comment-inline-action,
+.comment-quote-popover-head button,
+.comment-quote-manager-actions button,
+.comment-icon-button,
+.comment-reaction-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 0 6px;
+  color: #2f62d1;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.comment-inline-action:hover,
+.comment-quote-popover-head button:hover,
+.comment-quote-manager-actions button:hover,
+.comment-icon-button:hover,
+.comment-reaction-button:hover,
+.comment-reaction-button.is-active {
+  color: #1e48a8;
+  background: #eef3ff;
+}
+
+.comment-inline-action strong {
+  margin-left: 4px;
+}
+
+.comment-quote-summary {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.comment-quote-popover {
+  position: absolute;
+  z-index: 6;
+  right: 12px;
+  bottom: 58px;
+  width: min(420px, calc(100% - 24px));
+  max-height: min(360px, 58vh);
+  overflow: auto;
+  padding: 12px;
+  background: #fffaf0;
+  border: 2px solid #d7bc8b;
+  border-radius: 6px;
+  box-shadow: 0 12px 0 rgba(43, 27, 18, 0.12), var(--shadow);
+  overscroll-behavior: contain;
+}
+
+.comment-quote-popover-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.comment-quote-manager-list {
+  display: grid;
+  gap: 8px;
+}
+
+.comment-quote-manager-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  margin: 0;
+  padding: 10px;
+  color: #545b7a;
+  background: #f3f4ff;
+  border: 0;
+  border-left: 3px solid #f5a43a;
+  border-radius: 6px;
+}
+
+.comment-quote-manager-item strong,
+.comment-quote-manager-item span {
+  display: block;
+}
+
+.comment-quote-manager-item strong {
+  font-size: 12px;
+  font-weight: 950;
+}
+
+.comment-quote-manager-item span {
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+
+.comment-quote-manager-actions {
+  display: flex;
+  gap: 2px;
+}
+
+.comment-quote-manager-actions button:disabled {
+  color: #96a5ce;
+  cursor: not-allowed;
+  background: transparent;
 }
 
 .comment-quote-preview button {
@@ -5982,7 +6125,6 @@ body[data-page="admin"] .admin-list-status,
 
 .comment-toolbar-drawer button,
 .comment-toolbar-toggle,
-.comment-icon-button,
 .comment-color-tool {
   display: inline-flex;
   align-items: center;
@@ -6002,7 +6144,6 @@ body[data-page="admin"] .admin-list-status,
 
 .comment-toolbar-drawer button:hover,
 .comment-toolbar-toggle:hover,
-.comment-icon-button:hover,
 .comment-color-tool:hover {
   background: #ffefbd;
   border-color: #b9813e;
@@ -6022,32 +6163,12 @@ body[data-page="admin"] .admin-list-status,
   cursor: pointer;
 }
 
-.comment-icon-button {
-  width: 30px;
-  height: 30px;
-  min-width: 30px;
-  min-height: 30px;
-  padding: 0;
-}
-
 .comment-icon-button.danger {
   color: #8e2f22;
 }
 
 .comment-reaction-button {
-  display: inline-flex;
-  align-items: center;
   gap: 4px;
-  height: 30px;
-  min-height: 30px;
-  padding: 0 8px;
-  color: #2a1d16;
-  background: #fff7e8;
-  border: 2px solid #d7bc8b;
-  border-radius: 4px;
-  font-size: 12px;
-  font-weight: 950;
-  cursor: pointer;
 }
 
 .comment-reaction-button strong {
@@ -6055,15 +6176,8 @@ body[data-page="admin"] .admin-list-status,
   font-size: 11px;
 }
 
-.comment-reaction-button:hover,
 .comment-reaction-button.is-active {
-  background: #ffefbd;
-  border-color: #b9813e;
-}
-
-.comment-reaction-button.is-active {
-  color: #7b4d17;
-  box-shadow: inset 0 0 0 1px rgba(185, 129, 62, 0.28);
+  box-shadow: inset 0 0 0 1px rgba(47, 98, 209, 0.14);
 }
 
 .report-warning-icon {
@@ -6198,6 +6312,13 @@ body[data-page="admin"] .admin-list-status,
 
   .comment-toolbar-drawer {
     overflow-x: auto;
+  }
+
+  .comment-quote-popover {
+    left: 10px;
+    right: 10px;
+    bottom: 56px;
+    width: auto;
   }
 
 .comment-login,

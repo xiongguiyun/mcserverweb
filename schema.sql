@@ -40,6 +40,8 @@ CREATE TABLE IF NOT EXISTS posts (
   content_html TEXT NOT NULL,
   author_id INTEGER NOT NULL REFERENCES users(id),
   pinned INTEGER NOT NULL DEFAULT 0,
+  highlighted INTEGER NOT NULL DEFAULT 0,
+  highlight_color TEXT,
   views INTEGER NOT NULL DEFAULT 0,
   deleted_at TEXT,
   deleted_by INTEGER REFERENCES users(id),
@@ -94,6 +96,16 @@ CREATE TABLE IF NOT EXISTS comment_reactions (
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (comment_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS comment_quotes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  comment_id INTEGER NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
+  quote_comment_id INTEGER NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
+  quote_author TEXT,
+  quote_excerpt TEXT,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS player_reports (
@@ -159,6 +171,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_post_reports_unique_open ON post_reports(p
 CREATE INDEX IF NOT EXISTS idx_comment_reports_status ON comment_reports(status, created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_comment_reports_unique_open ON comment_reports(comment_id, reporter_id) WHERE status = 'open';
 CREATE INDEX IF NOT EXISTS idx_comment_reactions_value ON comment_reactions(comment_id, value);
+CREATE INDEX IF NOT EXISTS idx_comment_quotes_comment_order ON comment_quotes(comment_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_player_reports_status ON player_reports(status, created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_player_reports_unique_open ON player_reports(reported_user_id, reporter_id) WHERE status = 'open';
 CREATE INDEX IF NOT EXISTS idx_user_punishments_active ON user_punishments(user_id, type, expires_at, revoked_at);

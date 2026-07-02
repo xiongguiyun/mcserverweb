@@ -9,7 +9,8 @@ const state = {
   admins: [],
   reports: [],
   comments: {},
-  commentQuote: null,
+  commentQuotes: [],
+  commentQuoteManagerOpenPostId: null,
   commentEditing: null,
   commentHighlightId: null,
   commentUndoItems: [],
@@ -18,6 +19,7 @@ const state = {
   trash: { announcements: [], posts: [] },
   trashLoaded: false,
   profileTrashOpen: false,
+  profileReportsOpen: false,
   editingPostId: null,
   forumSearch: "",
   forumSearchOpen: false,
@@ -91,6 +93,14 @@ const escapeHtml = (value) =>
 
 const stripMinecraftFormatting = (value) => String(value || "").replace(/§[0-9a-fk-or]/gi, "");
 
+const normalizeHexColor = (value, fallback = "") => {
+  const color = String(value || "").trim();
+  return /^#[0-9a-f]{6}$/i.test(color) ? color.toLowerCase() : fallback;
+};
+
+const postHighlightColor = (item) => normalizeHexColor(item?.highlight_color, "#5fa86f");
+const postHighlightStyle = (item) => (item?.highlighted ? ` style="--post-highlight-color: ${postHighlightColor(item)}"` : "");
+
 const textFromHtml = (html) => {
   const div = document.createElement("div");
   div.innerHTML = html || "";
@@ -146,6 +156,7 @@ const currentProfileQuery = () => new URL(window.location.href).searchParams.get
 const prefersReducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
 const dialogCloseDelay = () => (prefersReducedMotion() ? 0 : 240);
 const editorColorPresets = ["#c74332", "#f5a43a", "#469146", "#2f7dd1", "#7350a4", "#201713", "#ffffff"];
+const highlightColorPresets = ["#5fa86f", "#f5a43a", "#2f7dd1", "#c74332", "#7350a4", "#201713"];
 let editorSavedRange = null;
 let profilePostSearchOutsideBound = false;
 let adminSearchOutsideBound = false;
@@ -261,22 +272,39 @@ const safeRenderQrSvg = (result) => {
   }
 };
 
+const syncFloatingScrollLock = () => {
+  const hasOpenDialog = $$("dialog").some((dialog) => dialog.open);
+  const hasProfileOverlay = $$(".profile-floating-overlay").some((overlay) => !overlay.hidden);
+  document.body.classList.toggle("dialog-open", hasOpenDialog);
+  document.body.classList.toggle("profile-overlay-open", hasProfileOverlay);
+};
+
 const openDialog = (dialog) => {
   if (!dialog) return;
   window.clearTimeout(dialog.closeTimer);
   dialog.classList.remove("is-closing");
-  if (dialog.open) return;
+  if (!dialog.dataset.scrollLockBound) {
+    dialog.dataset.scrollLockBound = "true";
+    dialog.addEventListener("close", syncFloatingScrollLock);
+  }
+  if (dialog.open) {
+    syncFloatingScrollLock();
+    return;
+  }
   try {
     if (typeof dialog.showModal === "function") {
       dialog.showModal();
+      syncFloatingScrollLock();
       return;
     }
     if (typeof dialog.show === "function") {
       dialog.show();
+      syncFloatingScrollLock();
       return;
     }
   } catch {}
   dialog.setAttribute("open", "");
+  syncFloatingScrollLock();
 };
 
 const closeDialogAnimated = (dialog) => {
@@ -292,6 +320,7 @@ const closeDialogAnimated = (dialog) => {
     dialog.close();
     dialog.classList.remove("is-closing");
     dialog.removeEventListener("animationend", onAnimationEnd);
+    syncFloatingScrollLock();
   };
   const onAnimationEnd = (event) => {
     if (event.target === dialog) finishClose();
@@ -799,9 +828,8 @@ const cardTemplate = (item, type) => {
   const canDeletePost = type === "post" && canManagePost;
   const canReportPost = type === "post" && Boolean(state.me) && !ownsContent(item, author) && !isOwnerContent(item);
   return `
-    <article class="post-card ${type === "post" ? "forum-card" : ""} ${type === "post" && item.pinned ? "is-pinned" : ""} ${type === "post" && item.highlighted ? "is-highlighted-post" : ""}">
+    <article class="post-card ${type === "post" ? "forum-card" : ""} ${type === "post" && item.pinned ? "is-pinned" : ""} ${type === "post" && item.highlighted ? "is-highlighted-post" : ""}"${type === "post" ? postHighlightStyle(item) : ""}>
       ${type === "post" && item.pinned ? `<span class="pinned-ribbon">置顶</span>` : ""}
-      ${type === "post" && item.highlighted ? `<span class="highlight-ribbon">高亮</span>` : ""}
       <h3>${escapeHtml(item.title)}</h3>
       <div class="meta">
         <span class="meta-role">${type === "announcement" ? "公告" : item.highlighted ? "高亮帖子" : item.pinned ? "置顶帖子" : "玩家论坛"}</span>
@@ -1469,9 +1497,9 @@ const bindProfileSettings = () => {
   });
 };
 
-const bindProfileTrashToggle = () => {
-  const button = $("#profileTrashButton");
-  const overlay = $("#profileTrashOverlay");
+const bindProfileFloatingOverlay = ({ buttonSelector, overlaySelector, closeSelector, stateKey, boundKey }) => {
+  const button = $(buttonSelector);
+  const overlay = $(overlaySelector);
   if (!button || !overlay) return;
 
   const finishClose = () => {
@@ -1479,6 +1507,7 @@ const bindProfileTrashToggle = () => {
     window.cancelAnimationFrame(overlay.openFrame);
     overlay.hidden = true;
     overlay.classList.remove("is-open", "is-closing");
+    syncFloatingScrollLock();
   };
   const sync = (open) => {
     window.clearTimeout(overlay.closeTimer);
@@ -1486,14 +1515,17 @@ const bindProfileTrashToggle = () => {
     if (open) {
       overlay.hidden = false;
       overlay.classList.remove("is-closing");
-      document.body.classList.add("profile-trash-open");
+      syncFloatingScrollLock();
       overlay.openFrame = window.requestAnimationFrame(() => {
-        if (state.profileTrashOpen) overlay.classList.add("is-open");
+        if (state[stateKey]) {
+          overlay.classList.add("is-open");
+          syncFloatingScrollLock();
+        }
       });
       return;
     }
     overlay.classList.remove("is-open");
-    document.body.classList.remove("profile-trash-open");
+    syncFloatingScrollLock();
     if (overlay.hidden || prefersReducedMotion()) {
       finishClose();
       return;
@@ -1502,33 +1534,52 @@ const bindProfileTrashToggle = () => {
     overlay.closeTimer = window.setTimeout(finishClose, dialogCloseDelay() + 80);
   };
   const open = () => {
-    state.profileTrashOpen = true;
+    state[stateKey] = true;
     sync(true);
   };
   const close = () => {
-    if (!state.profileTrashOpen && overlay.hidden) return;
-    state.profileTrashOpen = false;
+    if (!state[stateKey] && overlay.hidden) return;
+    state[stateKey] = false;
     sync(false);
   };
 
-  if (!button.dataset.trashBound) {
-    button.dataset.trashBound = "true";
+  if (!button.dataset[boundKey]) {
+    button.dataset[boundKey] = "true";
     button.addEventListener("click", open);
   }
-  if (!overlay.dataset.trashBound) {
-    overlay.dataset.trashBound = "true";
-    overlay.querySelectorAll("[data-profile-trash-close]").forEach((node) => node.addEventListener("click", close));
+  if (!overlay.dataset[boundKey]) {
+    overlay.dataset[boundKey] = "true";
+    overlay.querySelectorAll(closeSelector).forEach((node) => node.addEventListener("click", close));
   }
-  if (!state.profileTrashKeydownBound) {
-    state.profileTrashKeydownBound = true;
-    state.profileTrashKeydownHandler = (event) => {
-      if (event.key === "Escape" && state.profileTrashOpen) close();
+  const keydownBoundKey = `${boundKey}Keydown`;
+  if (!state[keydownBoundKey]) {
+    state[keydownBoundKey] = true;
+    state[`${boundKey}KeydownHandler`] = (event) => {
+      if (event.key === "Escape" && state[stateKey]) close();
     };
-    document.addEventListener("keydown", state.profileTrashKeydownHandler);
+    document.addEventListener("keydown", state[`${boundKey}KeydownHandler`]);
   }
 
-  sync(state.profileTrashOpen);
+  sync(state[stateKey]);
 };
+
+const bindProfileTrashToggle = () =>
+  bindProfileFloatingOverlay({
+    buttonSelector: "#profileTrashButton",
+    overlaySelector: "#profileTrashOverlay",
+    closeSelector: "[data-profile-trash-close]",
+    stateKey: "profileTrashOpen",
+    boundKey: "trashBound",
+  });
+
+const bindProfileReportsToggle = () =>
+  bindProfileFloatingOverlay({
+    buttonSelector: "#profileReportHistoryButton",
+    overlaySelector: "#profileReportHistoryOverlay",
+    closeSelector: "[data-profile-report-close]",
+    stateKey: "profileReportsOpen",
+    boundKey: "reportsBound",
+  });
 
 const bindContentButtons = () => {
   $$(".read-button").forEach((button) => {
@@ -1615,6 +1666,87 @@ const submitPlayerReport = async (username) => {
   return true;
 };
 
+const activeCommentQuotes = (postId) => state.commentQuotes.filter((quote) => Number(quote.postId) === Number(postId));
+
+const removeCommentQuotesForPost = (postId) => {
+  state.commentQuotes = state.commentQuotes.filter((quote) => Number(quote.postId) !== Number(postId));
+  if (Number(state.commentQuoteManagerOpenPostId) === Number(postId)) state.commentQuoteManagerOpenPostId = null;
+};
+
+const addCommentQuote = (postId, comment) => {
+  if (!comment || comment.deleted_at) return false;
+  const current = activeCommentQuotes(postId);
+  if (current.some((quote) => Number(quote.id) === Number(comment.id))) return false;
+  if (current.length >= 8) {
+    showToast("最多可引用 8 条回复");
+    return false;
+  }
+  state.commentQuotes = [
+    ...state.commentQuotes,
+    {
+      postId,
+      id: Number(comment.id),
+      author: comment.author || "被引用回复",
+      excerpt: textFromHtml(comment.content_html).slice(0, 120),
+    },
+  ];
+  return true;
+};
+
+const removeCommentQuote = (postId, quoteId) => {
+  state.commentQuotes = state.commentQuotes.filter((quote) => !(Number(quote.postId) === Number(postId) && Number(quote.id) === Number(quoteId)));
+};
+
+const moveCommentQuote = (postId, quoteId, direction) => {
+  const quoteIdNumber = Number(quoteId);
+  const postIdNumber = Number(postId);
+  const quotes = activeCommentQuotes(postId);
+  const index = quotes.findIndex((quote) => Number(quote.id) === quoteIdNumber);
+  const nextIndex = index + direction;
+  if (index < 0 || nextIndex < 0 || nextIndex >= quotes.length) return;
+  const reordered = [...quotes];
+  [reordered[index], reordered[nextIndex]] = [reordered[nextIndex], reordered[index]];
+  state.commentQuotes = [
+    ...state.commentQuotes.filter((quote) => Number(quote.postId) !== postIdNumber),
+    ...reordered,
+  ];
+};
+
+const commentQuoteListTemplate = (quotes, { editable = false } = {}) =>
+  quotes
+    .map(
+      (quote, index) => `
+        <blockquote class="${editable ? "comment-quote-manager-item" : "comment-quote"}">
+          <div>
+            <strong>${index + 1}. ${escapeHtml(quote.author || quote.quote_author || "被引用回复")}</strong>
+            <span>${escapeHtml(quote.excerpt || quote.quote_excerpt || "")}</span>
+          </div>
+          ${
+            editable
+              ? `<div class="comment-quote-manager-actions">
+                  <button type="button" data-comment-quote-move="${quote.id}" data-comment-quote-direction="-1" ${index === 0 ? "disabled" : ""} aria-label="上移引用">↑</button>
+                  <button type="button" data-comment-quote-move="${quote.id}" data-comment-quote-direction="1" ${index === quotes.length - 1 ? "disabled" : ""} aria-label="下移引用">↓</button>
+                  <button type="button" data-comment-remove-quote="${quote.id}" aria-label="移除引用">×</button>
+                </div>`
+              : ""
+          }
+        </blockquote>
+      `,
+    )
+    .join("");
+
+const commentQuoteManagerTemplate = (quotes) => `
+  <div class="comment-quote-popover" data-comment-quote-popover>
+    <div class="comment-quote-popover-head">
+      <strong>引用顺序</strong>
+      <button type="button" data-comment-close-quote-manager aria-label="关闭引用管理">×</button>
+    </div>
+    <div class="comment-quote-manager-list">
+      ${quotes.length ? commentQuoteListTemplate(quotes, { editable: true }) : `<div class="empty compact">点击某条回复的“+ 引用”后，会出现在这里。</div>`}
+    </div>
+  </div>
+`;
+
 const commentToolbarTemplate = () => `
   <div class="comment-toolbar-shell" data-comment-toolbar-shell>
     <div class="comment-toolbar-drawer" data-comment-toolbar-drawer aria-hidden="true">
@@ -1638,25 +1770,28 @@ const commentComposerTemplate = (postId) => {
   if (!state.me) {
     return `<div class="comment-login"><span>登录后可以回复。</span><a class="button small primary" href="/login.html">登录</a></div>`;
   }
-  const quote = state.commentQuote?.postId === postId ? state.commentQuote : null;
+  const quotes = activeCommentQuotes(postId);
   const editing = state.commentEditing?.postId === postId ? state.commentEditing : null;
+  const quoteManagerOpen = Number(state.commentQuoteManagerOpenPostId) === Number(postId);
   return `
     <form class="comment-composer" data-comment-composer="${postId}">
       <div class="comment-composer-head">
         <strong>${editing ? "编辑回复" : "发表评论"}</strong>
         ${editing ? `<button class="button small ghost" type="button" data-comment-cancel-edit>取消编辑</button>` : ""}
       </div>
-      ${
-        quote && !editing
-          ? `<div class="comment-quote-preview">
-              <span>引用 ${escapeHtml(quote.author)}</span>
-              <p>${escapeHtml(quote.excerpt)}</p>
-              <button type="button" data-comment-clear-quote aria-label="取消引用">×</button>
-            </div>`
-          : ""
-      }
       ${commentToolbarTemplate()}
       <div class="comment-editor rich-editor" contenteditable="true" role="textbox" data-comment-editor aria-label="回复内容">${editing ? editing.contentHtml : ""}</div>
+      ${
+        !editing
+          ? `<div class="comment-insert-row">
+              <button class="comment-inline-action" type="button" data-comment-open-quote-manager aria-expanded="${quoteManagerOpen}">
+                <span aria-hidden="true">+</span> 引用${quotes.length ? ` <strong>${quotes.length}</strong>` : ""}
+              </button>
+              ${quotes.length ? `<span class="comment-quote-summary">已选择 ${quotes.length} 条引用</span>` : ""}
+            </div>
+            ${quoteManagerOpen ? commentQuoteManagerTemplate(quotes) : ""}`
+          : ""
+      }
       <div class="comment-submit-row">
         <button class="button primary small" type="submit">${editing ? "保存回复" : "发布回复"}</button>
       </div>
@@ -1690,6 +1825,11 @@ const commentTemplate = (comment, postId) => {
   const canReport = Boolean(state.me && comment.can_report && !isOwnerContent(comment));
   const likeActive = Number(comment.my_reaction) === 1;
   const dislikeActive = Number(comment.my_reaction) === -1;
+  const quotes = Array.isArray(comment.quotes) && comment.quotes.length
+    ? comment.quotes
+    : comment.quote_excerpt
+      ? [{ id: comment.quote_comment_id, author: comment.quote_author || "被引用回复", excerpt: comment.quote_excerpt }]
+      : [];
   return `
     <article class="comment-card ${deleted ? "is-deleted" : ""} ${Number(state.commentHighlightId) === Number(comment.id) ? "is-highlighted" : ""}" id="comment-${comment.id}" data-comment-id="${comment.id}">
       <div class="comment-avatar">
@@ -1707,8 +1847,8 @@ const commentTemplate = (comment, postId) => {
             ? `<p class="comment-deleted">这条回复已删除。</p>`
             : `
               ${
-                comment.quote_excerpt
-                  ? `<blockquote class="comment-quote"><strong>${escapeHtml(comment.quote_author || "被引用回复")}</strong><span>${escapeHtml(comment.quote_excerpt)}</span></blockquote>`
+                quotes.length
+                  ? `<div class="comment-quote-list">${commentQuoteListTemplate(quotes)}</div>`
                   : ""
               }
               <div class="comment-body reader-body">${comment.content_html}</div>
@@ -1720,13 +1860,13 @@ const commentTemplate = (comment, postId) => {
           deleted
             ? ""
             : `<button class="comment-reaction-button ${likeActive ? "is-active" : ""}" type="button" data-comment-reaction="like" data-comment-reaction-id="${comment.id}" aria-pressed="${likeActive}" title="点赞">
-                <span aria-hidden="true">赞</span><strong>${Number(comment.like_count || 0)}</strong>
+                <span aria-hidden="true">👍</span><strong>${Number(comment.like_count || 0)}</strong>
               </button>
               <button class="comment-reaction-button ${dislikeActive ? "is-active" : ""}" type="button" data-comment-reaction="dislike" data-comment-reaction-id="${comment.id}" aria-pressed="${dislikeActive}" title="点踩">
-                <span aria-hidden="true">踩</span><strong>${Number(comment.dislike_count || 0)}</strong>
+                <span aria-hidden="true">👎</span><strong>${Number(comment.dislike_count || 0)}</strong>
               </button>`
         }
-        ${canQuote ? `<button class="comment-icon-button" type="button" data-comment-quote="${comment.id}" title="引用回复" aria-label="引用回复"><span aria-hidden="true">引</span></button>` : ""}
+        ${canQuote ? `<button class="comment-icon-button" type="button" data-comment-quote="${comment.id}" title="引用回复" aria-label="引用回复"><span aria-hidden="true">+ 引用</span></button>` : ""}
         ${canReport ? `<button class="comment-icon-button danger" type="button" data-comment-report="${comment.id}" title="举报回复" aria-label="举报回复"><span class="report-warning-icon" aria-hidden="true"></span></button>` : ""}
         ${comment.can_edit ? `<button class="button small ghost" type="button" data-comment-edit="${comment.id}">编辑</button>` : ""}
         ${comment.can_delete ? `<button class="button small danger" type="button" data-comment-delete="${comment.id}">删除</button>` : ""}
@@ -1898,9 +2038,27 @@ const bindPostComments = (postId) => {
     if (editor) await insertCommentLink(editor);
   });
   section.querySelector("[data-comment-color]")?.addEventListener("input", (event) => applyCommentColor(section, event.target.value));
-  section.querySelector("[data-comment-clear-quote]")?.addEventListener("click", () => {
-    state.commentQuote = null;
+  section.querySelector("[data-comment-open-quote-manager]")?.addEventListener("click", () => {
+    state.commentQuoteManagerOpenPostId = Number(state.commentQuoteManagerOpenPostId) === Number(postId) ? null : postId;
     renderComments(postId);
+  });
+  section.querySelector("[data-comment-close-quote-manager]")?.addEventListener("click", () => {
+    state.commentQuoteManagerOpenPostId = null;
+    renderComments(postId);
+  });
+  section.querySelectorAll("[data-comment-quote-move]").forEach((button) => {
+    button.addEventListener("click", () => {
+      moveCommentQuote(postId, button.dataset.commentQuoteMove, Number(button.dataset.commentQuoteDirection || 0));
+      state.commentQuoteManagerOpenPostId = postId;
+      renderComments(postId);
+    });
+  });
+  section.querySelectorAll("[data-comment-remove-quote]").forEach((button) => {
+    button.addEventListener("click", () => {
+      removeCommentQuote(postId, button.dataset.commentRemoveQuote);
+      state.commentQuoteManagerOpenPostId = postId;
+      renderComments(postId);
+    });
   });
   section.querySelector("[data-comment-cancel-edit]")?.addEventListener("click", () => {
     state.commentEditing = null;
@@ -1931,11 +2089,10 @@ const bindPostComments = (postId) => {
       showToast("回复已更新，可在 30 秒内撤销");
       return;
     }
-    const body = { contentHtml };
-    if (state.commentQuote?.postId === postId) body.quoteCommentId = state.commentQuote.id;
+    const body = { contentHtml, quoteCommentIds: activeCommentQuotes(postId).map((quote) => quote.id) };
     const result = await api(`/posts/${postId}/comments`, { method: "POST", body: JSON.stringify(body) });
     upsertComment(postId, result.comment);
-    state.commentQuote = null;
+    removeCommentQuotesForPost(postId);
     renderComments(postId);
     showToast("回复已发布");
   });
@@ -1944,7 +2101,7 @@ const bindPostComments = (postId) => {
       const comment = commentById(postId, button.dataset.commentQuote);
       if (!comment) return;
       state.commentEditing = null;
-      state.commentQuote = { postId, id: comment.id, author: comment.author, excerpt: textFromHtml(comment.content_html).slice(0, 120) };
+      if (addCommentQuote(postId, comment)) state.commentQuoteManagerOpenPostId = postId;
       focusCommentComposer(postId);
     });
   });
@@ -1962,7 +2119,7 @@ const bindPostComments = (postId) => {
     button.addEventListener("click", () => {
       const comment = commentById(postId, button.dataset.commentEdit);
       if (!comment) return;
-      state.commentQuote = null;
+      removeCommentQuotesForPost(postId);
       state.commentEditing = { postId, id: comment.id, contentHtml: comment.content_html, previousHtml: comment.content_html };
       focusCommentComposer(postId);
     });
@@ -2138,7 +2295,7 @@ const openReader = (type, id) => {
   if (typeof serverStatusBinder === "function") serverStatusBinder($("#readerContent"));
   openDialog($("#readerDialog"));
   if (type === "post") {
-    state.commentQuote = null;
+    removeCommentQuotesForPost(id);
     state.commentEditing = null;
     loadPostComments(id).catch((error) => {
       const section = $(`[data-comments-for="${id}"]`);
@@ -2623,6 +2780,7 @@ const renderProfilePage = () => {
     return;
   }
   const trashPosts = profile.trashPosts || [];
+  const reportHistory = profile.reportHistory || [];
   const inviteCode = String(profile.inviteCode || "");
   const invitePanel = profile.isSelf
     ? `
@@ -2653,13 +2811,20 @@ const renderProfilePage = () => {
       ${reportPanel}
       ${profileSettingsTemplate(profile)}
       ${invitePanel}
-      ${profile.isSelf ? `<div class="profile-actions"><button class="button danger" type="button" id="profileTrashButton">回收站 <span class="profile-trash-count" ${trashPosts.length ? "" : "hidden"}>${trashPosts.length}</span></button></div>` : ""}
+      ${
+        profile.isSelf
+          ? `<div class="profile-actions profile-floating-actions">
+              <button class="button danger" type="button" id="profileReportHistoryButton">我的举报 <span class="profile-trash-count" ${reportHistory.length ? "" : "hidden"}>${reportHistory.length}</span></button>
+              <button class="button danger" type="button" id="profileTrashButton">回收站 <span class="profile-trash-count" ${trashPosts.length ? "" : "hidden"}>${trashPosts.length}</span></button>
+            </div>`
+          : ""
+      }
       ${totpPanelTemplate(profile)}
     </div>
   `;
   const trashSection = profile.isSelf
     ? `
-      <section class="profile-trash-overlay" id="profileTrashOverlay" hidden>
+      <section class="profile-trash-overlay profile-floating-overlay" id="profileTrashOverlay" hidden>
         <div class="profile-trash-backdrop" data-profile-trash-close></div>
         <div class="profile-trash-popover" role="dialog" aria-modal="true" aria-labelledby="profileTrashTitle">
           <button class="dialog-close-button" type="button" data-profile-trash-close aria-label="关闭回收站">×</button>
@@ -2689,36 +2854,39 @@ const renderProfilePage = () => {
         </div>
       </section>`
     : "";
-  const profilePosts = profile.posts || [];
-  const postView = profilePostListView(profilePosts, profile.username);
-  const reportHistory = profile.reportHistory || [];
-  const reportHistorySection = profile.isSelf
-    ? `<section class="profile-report-history">
-        <div class="section-title compact">
-          <h2>我的举报</h2>
-          <p>查看你提交过的举报处理情况。</p>
-        </div>
-        <div class="admin-table">
-          ${
-            reportHistory.length
-              ? reportHistory
-                  .map((report) => {
-                    const kind = report.kind === "player" ? "玩家" : report.kind === "comment" ? "回复" : "帖子";
-                    const punishment = report.punishment_type ? ` · ${punishmentLabels[report.punishment_type] || "处罚"} 至 ${report.punishment_expires_at || "到期"}` : "";
-                    return `<div class="table-row">
-                      <div>
-                        <strong>${kind} · ${escapeHtml(report.target_title || "被举报内容")}</strong>
-                        <span>${report.status === "resolved" ? "已处理" : "待处理"} · ${formatDate(report.created_at)}${punishment}</span>
-                        ${report.resolution_reason ? `<p class="report-reason">${escapeHtml(report.resolution_reason)}</p>` : ""}
-                      </div>
-                    </div>`;
-                  })
-                  .join("")
-              : `<div class="empty">还没有提交过举报。</div>`
-          }
+  const reportHistoryOverlay = profile.isSelf
+    ? `<section class="profile-trash-overlay profile-report-overlay profile-floating-overlay" id="profileReportHistoryOverlay" hidden>
+        <div class="profile-trash-backdrop" data-profile-report-close></div>
+        <div class="profile-trash-popover profile-report-popover" role="dialog" aria-modal="true" aria-labelledby="profileReportHistoryTitle">
+          <button class="dialog-close-button" type="button" data-profile-report-close aria-label="关闭我的举报">×</button>
+          <div class="section-title compact">
+            <h2 id="profileReportHistoryTitle">我的举报</h2>
+            <p>查看你提交过的举报处理情况。</p>
+          </div>
+          <div class="admin-table profile-report-table">
+            ${
+              reportHistory.length
+                ? reportHistory
+                    .map((report) => {
+                      const kind = report.kind === "player" ? "玩家" : report.kind === "comment" ? "回复" : "帖子";
+                      const punishment = report.punishment_type ? ` · ${punishmentLabels[report.punishment_type] || "处罚"} 至 ${report.punishment_expires_at || "到期"}` : "";
+                      return `<div class="table-row">
+                        <div>
+                          <strong>${kind} · ${escapeHtml(report.target_title || "被举报内容")}</strong>
+                          <span>${report.status === "resolved" ? "已处理" : "待处理"} · ${formatDate(report.created_at)}${punishment}</span>
+                          ${report.resolution_reason ? `<p class="report-reason">${escapeHtml(report.resolution_reason)}</p>` : ""}
+                        </div>
+                      </div>`;
+                    })
+                    .join("")
+                : `<div class="empty">还没有提交过举报。</div>`
+            }
+          </div>
         </div>
       </section>`
     : "";
+  const profilePosts = profile.posts || [];
+  const postView = profilePostListView(profilePosts, profile.username);
   const postListHtml = profilePosts.length
     ? postView.pageItems.length
       ? postView.pageItems.map((item) => cardTemplate({ ...item, author: profile.username }, "post")).join("")
@@ -2732,7 +2900,7 @@ const renderProfilePage = () => {
     }
     <div class="list forum-list">${postListHtml}</div>
     ${profilePosts.length ? renderProfilePostPagination(postView) : ""}
-    ${reportHistorySection}
+    ${reportHistoryOverlay}
     ${trashSection}
   `;
   bindTotpSecurity();
@@ -2742,6 +2910,7 @@ const renderProfilePage = () => {
   bindProfilePostSearch();
   bindProfileTrashButtons();
   bindProfileTrashToggle();
+  bindProfileReportsToggle();
 };
 
 const bindProfileInviteCopy = () => {
@@ -3017,6 +3186,68 @@ const renderStats = () => {
   if ($("#maintenanceStatusText")) $("#maintenanceStatusText").textContent = state.stats.maintenanceMode ? "当前维护模式已开启。" : "当前网站正常开放。";
 };
 
+const ensureHighlightColorDialog = () => {
+  let dialog = $("#highlightColorDialog");
+  if (dialog) return dialog;
+  dialog = document.createElement("dialog");
+  dialog.id = "highlightColorDialog";
+  dialog.className = "site-modal-dialog highlight-color-dialog";
+  dialog.innerHTML = `
+    <div class="site-modal-shell">
+      <div class="site-modal-copy">
+        <span class="site-modal-eyebrow">帖子高亮</span>
+        <h2>设置边框颜色</h2>
+        <p>高亮只显示边框，不再填充背景。</p>
+      </div>
+      <div class="highlight-color-swatches" aria-label="高亮颜色预设">
+        ${highlightColorPresets
+          .map((color) => `<button type="button" data-highlight-color-preset="${color}" style="--swatch-color: ${color}" aria-label="使用颜色 ${color}"></button>`)
+          .join("")}
+      </div>
+      <label class="site-modal-field">
+        <span>自定义颜色</span>
+        <input id="highlightColorInput" type="color" value="#5fa86f" />
+      </label>
+      <div class="site-modal-actions">
+        <button class="site-modal-option" type="button" data-highlight-color-cancel>取消</button>
+        <button class="site-modal-option is-primary" type="button" data-highlight-color-save>保存高亮</button>
+      </div>
+    </div>
+  `;
+  document.body.append(dialog);
+  dialog.querySelector("[data-highlight-color-cancel]")?.addEventListener("click", () => closeDialogAnimated(dialog));
+  dialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeDialogAnimated(dialog);
+  });
+  dialog.querySelectorAll("[data-highlight-color-preset]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const input = dialog.querySelector("#highlightColorInput");
+      if (input) input.value = normalizeHexColor(button.dataset.highlightColorPreset, "#5fa86f");
+    });
+  });
+  dialog.querySelector("[data-highlight-color-save]")?.addEventListener("click", async () => {
+    const id = dialog.dataset.postId;
+    const color = normalizeHexColor(dialog.querySelector("#highlightColorInput")?.value, "#5fa86f");
+    await api(`/posts/${id}/highlight`, {
+      method: "PUT",
+      body: JSON.stringify({ highlighted: true, highlightColor: color }),
+    });
+    closeDialogAnimated(dialog);
+    await loadAdminData();
+    showToast("帖子高亮颜色已保存");
+  });
+  return dialog;
+};
+
+const openHighlightColorDialog = (post) => {
+  const dialog = ensureHighlightColorDialog();
+  dialog.dataset.postId = String(post.id);
+  const input = dialog.querySelector("#highlightColorInput");
+  if (input) input.value = postHighlightColor(post);
+  openDialog(dialog);
+};
+
 const adminRows = (items, type) => {
   const key = type === "post" ? "posts" : "announcements";
   const view = adminListView(key, items, (item, query) => adminSearchMatches(query, adminContentSearchText(item), item.author));
@@ -3026,7 +3257,7 @@ const adminRows = (items, type) => {
           (item) => {
             const canManage = canManageContentItem(item, item.author);
             return `
-            <div class="table-row ${type === "post" && item.pinned ? "is-pinned-row" : ""} ${type === "post" && item.highlighted ? "is-highlighted-row" : ""}">
+            <div class="table-row ${type === "post" && item.pinned ? "is-pinned-row" : ""} ${type === "post" && item.highlighted ? "is-highlighted-row" : ""}"${type === "post" ? postHighlightStyle(item) : ""}>
               <div><strong>${type === "post" && item.pinned ? "置顶 · " : ""}${type === "post" && item.highlighted ? "高亮 · " : ""}${escapeHtml(item.title)}</strong><span>${escapeHtml(item.author || "管理员")} ${formatDate(item.created_at)} ${item.views || 0} 次浏览</span></div>
               <div class="row-actions">
                 ${
@@ -3036,7 +3267,12 @@ const adminRows = (items, type) => {
                 }
                 ${
                   type === "post"
-                    ? `<button class="button small ghost" type="button" data-highlight-post="${canManage ? item.id : ""}" data-highlighted="${item.highlighted ? "1" : "0"}" ${canManage ? "" : "disabled"}>${item.highlighted ? "取消高亮" : "高亮"}</button>`
+                    ? `<button class="button small ghost" type="button" data-highlight-post="${canManage ? item.id : ""}" data-highlighted="${item.highlighted ? "1" : "0"}" data-highlight-color="${postHighlightColor(item)}" ${canManage ? "" : "disabled"}>${item.highlighted ? "高亮颜色" : "高亮"}</button>`
+                    : ""
+                }
+                ${
+                  type === "post" && item.highlighted
+                    ? `<button class="button small ghost" type="button" data-unhighlight-post="${canManage ? item.id : ""}" ${canManage ? "" : "disabled"}>取消高亮</button>`
                     : ""
                 }
                 <button class="button small ghost" type="button" ${canManage ? `data-edit="${type}" data-id="${item.id}"` : "disabled"}>编辑</button>
@@ -3099,14 +3335,20 @@ const renderManagement = () => {
     });
   });
   $$("[data-highlight-post]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const post = state.posts.find((item) => Number(item.id) === Number(button.dataset.highlightPost));
+      if (!post) return;
+      openHighlightColorDialog(post);
+    });
+  });
+  $$("[data-unhighlight-post]").forEach((button) => {
     button.addEventListener("click", async () => {
-      const highlighted = button.dataset.highlighted !== "1";
-      await api(`/posts/${button.dataset.highlightPost}/highlight`, {
+      await api(`/posts/${button.dataset.unhighlightPost}/highlight`, {
         method: "PUT",
-        body: JSON.stringify({ highlighted }),
+        body: JSON.stringify({ highlighted: false }),
       });
       await loadAdminData();
-      showToast(highlighted ? "帖子已高亮" : "已取消高亮");
+      showToast("已取消高亮");
     });
   });
 };
@@ -3187,6 +3429,7 @@ const reportPostReaderItem = (report) => ({
   content_html: report.post_content_html || "<p>暂无可查看内容。</p>",
   pinned: Boolean(report.post_pinned),
   highlighted: Boolean(report.post_highlighted),
+  highlight_color: report.post_highlight_color || "",
   views: Number(report.post_views || 0),
   created_at: report.post_created_at || report.created_at,
   updated_at: report.post_updated_at || report.created_at,

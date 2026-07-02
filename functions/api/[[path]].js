@@ -92,6 +92,11 @@ const excerptFromHtml = (html) =>
     .trim()
     .slice(0, 120);
 
+const normalizeHexColor = (value, fallback = "#5fa86f") => {
+  const color = String(value || "").trim();
+  return /^#[0-9a-f]{6}$/i.test(color) ? color.toLowerCase() : fallback;
+};
+
 const motdToPlainText = (motd) => {
   if (!motd) return "";
   if (typeof motd === "string") return motd.replace(/§[0-9a-fk-or]/gi, "");
@@ -173,11 +178,23 @@ const ensureForumAdminSchema = async (env) => {
       PRIMARY KEY (comment_id, user_id)
     )`,
   ).run();
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS comment_quotes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      comment_id INTEGER NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
+      quote_comment_id INTEGER NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
+      quote_author TEXT,
+      quote_excerpt TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`,
+  ).run();
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_comments_post_created_at ON comments(post_id, created_at DESC)").run();
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_comments_deleted_at ON comments(deleted_at)").run();
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_comment_reports_status ON comment_reports(status, created_at DESC)").run();
   await env.DB.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_comment_reports_unique_open ON comment_reports(comment_id, reporter_id) WHERE status = 'open'").run();
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_comment_reactions_value ON comment_reactions(comment_id, value)").run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_comment_quotes_comment_order ON comment_quotes(comment_id, sort_order)").run();
   await addTableColumnIfMissing(env, "post_reports", "resolution_reason TEXT");
   await addTableColumnIfMissing(env, "post_reports", "punishment_type TEXT");
   await addTableColumnIfMissing(env, "post_reports", "punishment_expires_at TEXT");
@@ -190,6 +207,7 @@ const ensureForumAdminSchema = async (env) => {
     if (!isMissingColumnError(error)) throw error;
   }
   await addTableColumnIfMissing(env, "posts", "highlighted INTEGER NOT NULL DEFAULT 0");
+  await addTableColumnIfMissing(env, "posts", "highlight_color TEXT");
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_posts_pinned_created_at ON posts(pinned DESC, created_at DESC)").run();
 };
 
@@ -912,7 +930,7 @@ const listPosts = async (env, { trash = false, authorId = null, limit = 100 } = 
   }
   bindings.push(limit);
   const { results } = await env.DB.prepare(
-    `SELECT posts.id, posts.title, posts.excerpt, posts.content_html, posts.pinned, posts.highlighted, posts.views, posts.deleted_at, posts.created_at,
+    `SELECT posts.id, posts.title, posts.excerpt, posts.content_html, posts.pinned, posts.highlighted, posts.highlight_color, posts.views, posts.deleted_at, posts.created_at,
             posts.updated_at, users.id AS author_id, users.role AS author_role, users.username AS author,
             users.minecraft_name AS author_minecraft_name, users.skin_image AS author_skin_image
      FROM posts
@@ -976,7 +994,7 @@ const profile = async (env, request, username) => {
     .first();
   if (!user) return json({ error: "没有找到这个玩家" }, 404);
   const posts = await env.DB.prepare(
-    `SELECT posts.id, posts.title, posts.excerpt, posts.content_html, posts.pinned, posts.highlighted, posts.views, posts.created_at, posts.updated_at,
+    `SELECT posts.id, posts.title, posts.excerpt, posts.content_html, posts.pinned, posts.highlighted, posts.highlight_color, posts.views, posts.created_at, posts.updated_at,
             users.id AS author_id, users.role AS author_role, users.username AS author,
             users.minecraft_name AS author_minecraft_name, users.skin_image AS author_skin_image
      FROM posts
@@ -1375,11 +1393,12 @@ const updatePostHighlighted = async (env, request, id) => {
   }
   const body = await readBody(request);
   const highlighted = Boolean(body.highlighted);
-  const result = await env.DB.prepare("UPDATE posts SET highlighted = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL")
-    .bind(highlighted ? 1 : 0, id)
+  const highlightColor = highlighted ? normalizeHexColor(body.highlightColor || body.highlight_color) : null;
+  const result = await env.DB.prepare("UPDATE posts SET highlighted = ?, highlight_color = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL")
+    .bind(highlighted ? 1 : 0, highlightColor, id)
     .run();
   if (!result.meta?.changes) return json({ error: "帖子不存在" }, 404);
-  return json({ ok: true, highlighted });
+  return json({ ok: true, highlighted, highlightColor });
 };
 
 const reportPost = async (env, request, id) => {
@@ -1410,12 +1429,26 @@ const reportPost = async (env, request, id) => {
   return json({ ok: true, ownerOnly: user.role === "admin" && targetNeedsOwnerReview({ id: post.author_id, role: post.author_role }, owner?.id) }, 201);
 };
 
+const normalizeQuoteCommentIds = (body) => {
+  const source = Array.isArray(body.quoteCommentIds) ? body.quoteCommentIds : [body.quoteCommentId];
+  const seen = new Set();
+  return source
+    .map((value) => Number(value || 0))
+    .filter((value) => Number.isInteger(value) && value > 0)
+    .filter((value) => {
+      if (seen.has(value)) return false;
+      seen.add(value);
+      return true;
+    })
+    .slice(0, 8);
+};
+
 const commentPayload = async (request) => {
   const body = await readBody(request);
   const contentHtml = sanitizeHtml(body.contentHtml).slice(0, 12000);
   const excerpt = excerptFromHtml(contentHtml);
   if (!excerpt) throw new Response(JSON.stringify({ error: "回复内容不能为空" }), { status: 400 });
-  return { contentHtml, quoteCommentId: Number(body.quoteCommentId || 0) || null };
+  return { contentHtml, quoteCommentIds: normalizeQuoteCommentIds(body) };
 };
 
 const commentSelect = `
@@ -1450,9 +1483,46 @@ const hydrateCommentActorReactions = async (env, comments, actor) => {
   return comments;
 };
 
+const hydrateCommentQuotes = async (env, comments) => {
+  const items = (Array.isArray(comments) ? comments : [comments]).filter(Boolean);
+  if (!items.length) return comments;
+  items.forEach((comment) => {
+    comment.quotes = [];
+  });
+  const placeholders = items.map(() => "?").join(",");
+  const { results } = await env.DB.prepare(
+    `SELECT comment_id, quote_comment_id, quote_author, quote_excerpt, sort_order
+     FROM comment_quotes
+     WHERE comment_id IN (${placeholders})
+     ORDER BY comment_id ASC, sort_order ASC, id ASC`,
+  )
+    .bind(...items.map((comment) => comment.id))
+    .all();
+  const byCommentId = new Map();
+  (results || []).forEach((quote) => {
+    const key = Number(quote.comment_id);
+    if (!byCommentId.has(key)) byCommentId.set(key, []);
+    byCommentId.get(key).push({
+      id: Number(quote.quote_comment_id),
+      author: quote.quote_author || "被引用回复",
+      excerpt: quote.quote_excerpt || "",
+      sort_order: Number(quote.sort_order || 0),
+    });
+  });
+  items.forEach((comment) => {
+    comment.quotes = byCommentId.get(Number(comment.id)) || [];
+  });
+  return comments;
+};
+
 const publicComment = (comment, actor, ownerId) => {
   const author = { id: comment.author_id, role: comment.author_role };
   const deleted = Boolean(comment.deleted_at);
+  const quotes = Array.isArray(comment.quotes) && comment.quotes.length
+    ? comment.quotes
+    : comment.quote_excerpt
+      ? [{ id: comment.quote_comment_id || null, author: comment.quote_author || "被引用回复", excerpt: comment.quote_excerpt || "" }]
+      : [];
   return {
     id: comment.id,
     post_id: comment.post_id,
@@ -1466,6 +1536,7 @@ const publicComment = (comment, actor, ownerId) => {
     quote_comment_id: comment.quote_comment_id || null,
     quote_author: comment.quote_author || "",
     quote_excerpt: comment.quote_excerpt || "",
+    quotes: deleted ? [] : quotes,
     deleted_at: comment.deleted_at || "",
     deleted_by: comment.deleted_by || null,
     created_at: comment.created_at,
@@ -1489,6 +1560,7 @@ const listPostComments = async (env, request, postId) => {
   const owner = await ownerUser(env);
   const { results } = await env.DB.prepare(`${commentSelect} WHERE comments.post_id = ? ORDER BY comments.created_at ASC LIMIT 200`).bind(postId).all();
   const comments = await hydrateCommentActorReactions(env, results || [], actor);
+  await hydrateCommentQuotes(env, comments);
   return json({ items: comments.map((comment) => publicComment(comment, actor, owner?.id)) });
 };
 
@@ -1498,30 +1570,61 @@ const createComment = async (env, request, postId) => {
   await assertNoPunishment(env, user, ["comment_ban"]);
   const post = await env.DB.prepare("SELECT id FROM posts WHERE id = ? AND deleted_at IS NULL").bind(postId).first();
   if (!post) return json({ error: "帖子不存在" }, 404);
-  const { contentHtml, quoteCommentId } = await commentPayload(request);
-  let quoteAuthor = "";
-  let quoteExcerpt = "";
-  if (quoteCommentId) {
+  const { contentHtml, quoteCommentIds } = await commentPayload(request);
+  let quoteRows = [];
+  if (quoteCommentIds.length) {
+    const placeholders = quoteCommentIds.map(() => "?").join(",");
+    const { results } = await env.DB.prepare(
+      `${commentSelect} WHERE comments.id IN (${placeholders}) AND comments.post_id = ? AND comments.deleted_at IS NULL`,
+    )
+      .bind(...quoteCommentIds, postId)
+      .all();
+    if ((results || []).length !== quoteCommentIds.length) return json({ error: "寮曠敤鐨勫洖澶嶄笉瀛樺湪" }, 404);
+    const byId = new Map((results || []).map((quote) => [Number(quote.id), quote]));
+    quoteRows = quoteCommentIds.map((quoteId) => {
+      const quote = byId.get(Number(quoteId));
+      return {
+        id: Number(quote.id),
+        author: quote.author,
+        excerpt: excerptFromHtml(quote.content_html).slice(0, 120),
+      };
+    });
+  }
+  const firstQuote = quoteRows[0];
+  if (false) {
     const quote = await env.DB.prepare(
       `${commentSelect} WHERE comments.id = ? AND comments.post_id = ? AND comments.deleted_at IS NULL`,
     )
-      .bind(quoteCommentId, postId)
+      .bind(firstQuote?.id || 0, postId)
       .first();
     if (!quote) return json({ error: "引用的回复不存在" }, 404);
-    quoteAuthor = quote.author;
-    quoteExcerpt = excerptFromHtml(quote.content_html).slice(0, 120);
+    const legacyQuoteAuthor = quote.author;
+    const legacyQuoteExcerpt = excerptFromHtml(quote.content_html).slice(0, 120);
+    void legacyQuoteAuthor;
+    void legacyQuoteExcerpt;
   }
   const result = await env.DB.prepare(
     `INSERT INTO comments (post_id, author_id, content_html, quote_comment_id, quote_author, quote_excerpt)
      VALUES (?, ?, ?, ?, ?, ?)`,
   )
-    .bind(postId, user.id, contentHtml, quoteCommentId, quoteAuthor || null, quoteExcerpt || null)
+    .bind(postId, user.id, contentHtml, firstQuote?.id || null, firstQuote?.author || null, firstQuote?.excerpt || null)
     .run();
   const owner = await ownerUser(env);
   const comment =
     (result.meta?.last_row_id ? await commentById(env, result.meta.last_row_id) : null) ||
     (await env.DB.prepare(`${commentSelect} WHERE comments.post_id = ? AND comments.author_id = ? ORDER BY comments.id DESC LIMIT 1`).bind(postId, user.id).first());
+  if (comment?.id && quoteRows.length) {
+    for (const [index, quote] of quoteRows.entries()) {
+      await env.DB.prepare(
+        `INSERT INTO comment_quotes (comment_id, quote_comment_id, quote_author, quote_excerpt, sort_order)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+        .bind(comment.id, quote.id, quote.author || null, quote.excerpt || null, index)
+        .run();
+    }
+  }
   await hydrateCommentActorReactions(env, comment, user);
+  await hydrateCommentQuotes(env, comment);
   return json({ ok: true, comment: publicComment(comment, user, owner?.id) }, 201);
 };
 
@@ -1538,6 +1641,7 @@ const updateComment = async (env, request, id) => {
   await env.DB.prepare("UPDATE comments SET content_html = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(contentHtml, id).run();
   const updated = await commentById(env, id);
   await hydrateCommentActorReactions(env, updated, user);
+  await hydrateCommentQuotes(env, updated);
   return json({ ok: true, comment: publicComment(updated, user, owner?.id) });
 };
 
@@ -1562,6 +1666,7 @@ const restoreComment = async (env, request, id) => {
   if (!comment) return json({ error: "回复不存在" }, 404);
   if (!comment.deleted_at) {
     await hydrateCommentActorReactions(env, comment, user);
+    await hydrateCommentQuotes(env, comment);
     return json({ ok: true, comment: publicComment(comment, user, owner?.id) });
   }
   const deletedAt = timestampMs(comment.deleted_at);
@@ -1570,6 +1675,7 @@ const restoreComment = async (env, request, id) => {
   await env.DB.prepare("UPDATE comments SET deleted_at = NULL, deleted_by = NULL WHERE id = ?").bind(id).run();
   const restored = await commentById(env, id);
   await hydrateCommentActorReactions(env, restored, user);
+  await hydrateCommentQuotes(env, restored);
   return json({ ok: true, comment: publicComment(restored, user, owner?.id) });
 };
 
@@ -1595,6 +1701,7 @@ const reactToComment = async (env, request, id) => {
   }
   const updated = await commentById(env, id);
   await hydrateCommentActorReactions(env, updated, user);
+  await hydrateCommentQuotes(env, updated);
   return json({ ok: true, comment: publicComment(updated, user, owner?.id) });
 };
 
@@ -1876,7 +1983,7 @@ const listPostReports = async (env, request) => {
   const { results: postReports } = await env.DB.prepare(
     `SELECT post_reports.id, post_reports.reason, post_reports.status, post_reports.created_at,
             posts.id AS post_id, posts.title AS post_title, posts.excerpt AS post_excerpt,
-            posts.content_html AS post_content_html, posts.pinned AS post_pinned, posts.highlighted AS post_highlighted,
+            posts.content_html AS post_content_html, posts.pinned AS post_pinned, posts.highlighted AS post_highlighted, posts.highlight_color AS post_highlight_color,
             posts.views AS post_views, posts.created_at AS post_created_at,
             posts.updated_at AS post_updated_at,
             reporters.username AS reporter,
@@ -1906,7 +2013,7 @@ const listPostReports = async (env, request) => {
     `SELECT comment_reports.id, comment_reports.reason, comment_reports.status, comment_reports.created_at,
             comments.id AS comment_id, comments.content_html AS comment_content_html,
             posts.id AS post_id, posts.title AS post_title, posts.excerpt AS post_excerpt,
-            posts.content_html AS post_content_html, posts.pinned AS post_pinned, posts.highlighted AS post_highlighted,
+            posts.content_html AS post_content_html, posts.pinned AS post_pinned, posts.highlighted AS post_highlighted, posts.highlight_color AS post_highlight_color,
             posts.views AS post_views, posts.created_at AS post_created_at,
             posts.updated_at AS post_updated_at,
             reporters.username AS reporter,
