@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS announcements (
   content_html TEXT NOT NULL,
   author_id INTEGER NOT NULL REFERENCES users(id),
   pinned INTEGER NOT NULL DEFAULT 0,
+  highlighted INTEGER NOT NULL DEFAULT 0,
   views INTEGER NOT NULL DEFAULT 0,
   deleted_at TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -67,7 +68,10 @@ CREATE TABLE IF NOT EXISTS post_reports (
   reason TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'resolved')),
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  resolved_at TEXT
+  resolved_at TEXT,
+  resolution_reason TEXT,
+  punishment_type TEXT,
+  punishment_expires_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS comment_reports (
@@ -77,7 +81,10 @@ CREATE TABLE IF NOT EXISTS comment_reports (
   reason TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'resolved')),
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  resolved_at TEXT
+  resolved_at TEXT,
+  resolution_reason TEXT,
+  punishment_type TEXT,
+  punishment_expires_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS comment_reactions (
@@ -96,7 +103,21 @@ CREATE TABLE IF NOT EXISTS player_reports (
   reason TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'resolved')),
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  resolved_at TEXT
+  resolved_at TEXT,
+  resolution_reason TEXT,
+  punishment_type TEXT,
+  punishment_expires_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS user_punishments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  admin_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  type TEXT NOT NULL CHECK (type IN ('account_ban', 'comment_ban', 'post_ban', 'site_ban')),
+  reason TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  expires_at TEXT NOT NULL,
+  revoked_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS site_settings (
@@ -140,5 +161,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_comment_reports_unique_open ON comment_rep
 CREATE INDEX IF NOT EXISTS idx_comment_reactions_value ON comment_reactions(comment_id, value);
 CREATE INDEX IF NOT EXISTS idx_player_reports_status ON player_reports(status, created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_player_reports_unique_open ON player_reports(reported_user_id, reporter_id) WHERE status = 'open';
+CREATE INDEX IF NOT EXISTS idx_user_punishments_active ON user_punishments(user_id, type, expires_at, revoked_at);
 CREATE INDEX IF NOT EXISTS idx_invite_codes_used_by ON invite_codes(used_by);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_invite_codes_one_active_per_owner ON invite_codes(owner_id) WHERE used_at IS NULL;

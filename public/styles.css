@@ -1053,6 +1053,14 @@ button {
     inset 0 0 0 2px rgba(245, 164, 58, 0.16);
 }
 
+.post-card.is-highlighted-post {
+  border-color: #5fa86f;
+  background: linear-gradient(180deg, #fffdf6, #f0fff2);
+  box-shadow:
+    0 7px 0 rgba(66, 132, 82, 0.16),
+    inset 0 0 0 2px rgba(95, 168, 111, 0.18);
+}
+
 .pinned-ribbon {
   position: absolute;
   top: 14px;
@@ -1067,6 +1075,22 @@ button {
   border: 2px solid #9c5c1d;
   transform: rotate(34deg);
   box-shadow: 0 4px 10px rgba(26, 18, 12, 0.16);
+}
+
+.highlight-ribbon {
+  position: absolute;
+  top: 14px;
+  left: -38px;
+  width: 140px;
+  padding: 5px 0;
+  color: #102416;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 950;
+  background: linear-gradient(180deg, #b9f2c4, #5fa86f);
+  border: 2px solid #2f6f3d;
+  transform: rotate(-34deg);
+  box-shadow: 0 4px 10px rgba(26, 18, 12, 0.12);
 }
 
 .skin-figure {
@@ -1398,6 +1422,46 @@ body[data-page="admin"] .admin-locked {
 .table-row.is-pinned-row {
   background: linear-gradient(90deg, #fff4c7, #fffaf0 48%);
   border-color: #f5a43a;
+}
+
+.table-row.is-highlighted-row {
+  background: linear-gradient(90deg, #effff2, #fffaf0 52%);
+  border-color: #5fa86f;
+}
+
+.report-resolution-dialog,
+.trash-post-edit-dialog {
+  width: min(680px, calc(100vw - 28px));
+}
+
+.report-resolution-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px;
+  gap: 12px;
+}
+
+.report-resolution-grid select {
+  min-height: 42px;
+  padding: 0 12px;
+  border-radius: 12px;
+  background: #fffdf6;
+}
+
+.trash-post-edit-body {
+  min-height: 180px;
+  max-height: 42vh;
+  overflow: auto;
+}
+
+.profile-report-history {
+  display: grid;
+  gap: 12px;
+}
+
+@media (max-width: 620px) {
+  .report-resolution-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .report-row {
@@ -6136,8 +6200,8 @@ body[data-page="admin"] .admin-list-status,
     overflow-x: auto;
   }
 
-  .comment-login,
-  .comment-undo {
+.comment-login,
+.comment-undo {
     align-items: stretch;
     flex-direction: column;
   }

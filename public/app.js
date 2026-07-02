@@ -799,11 +799,12 @@ const cardTemplate = (item, type) => {
   const canDeletePost = type === "post" && canManagePost;
   const canReportPost = type === "post" && Boolean(state.me) && !ownsContent(item, author) && !isOwnerContent(item);
   return `
-    <article class="post-card ${type === "post" ? "forum-card" : ""} ${type === "post" && item.pinned ? "is-pinned" : ""}">
+    <article class="post-card ${type === "post" ? "forum-card" : ""} ${type === "post" && item.pinned ? "is-pinned" : ""} ${type === "post" && item.highlighted ? "is-highlighted-post" : ""}">
       ${type === "post" && item.pinned ? `<span class="pinned-ribbon">置顶</span>` : ""}
+      ${type === "post" && item.highlighted ? `<span class="highlight-ribbon">高亮</span>` : ""}
       <h3>${escapeHtml(item.title)}</h3>
       <div class="meta">
-        <span class="meta-role">${type === "announcement" ? "公告" : item.pinned ? "置顶帖子" : "玩家论坛"}</span>
+        <span class="meta-role">${type === "announcement" ? "公告" : item.highlighted ? "高亮帖子" : item.pinned ? "置顶帖子" : "玩家论坛"}</span>
         <span class="meta-author">
           <span class="meta-author-badge">
             <img class="meta-author-icon" src="${activeAvatarSrc(authorUser, 32)}" alt="" loading="lazy" />
@@ -2675,6 +2676,7 @@ const renderProfilePage = () => {
                         <div class="table-row">
                           <div><strong>${escapeHtml(item.title)}</strong><span>帖子 ${formatDate(item.deleted_at || item.created_at)}</span></div>
                           <div class="row-actions">
+                            <button class="button small ghost" type="button" data-profile-edit-trash-post="${item.id}">编辑</button>
                             <button class="button small ghost" type="button" data-profile-restore-post="${item.id}">恢复</button>
                             <button class="button small danger" type="button" data-profile-purge-post="${item.id}">彻底删除</button>
                           </div>
@@ -2689,6 +2691,34 @@ const renderProfilePage = () => {
     : "";
   const profilePosts = profile.posts || [];
   const postView = profilePostListView(profilePosts, profile.username);
+  const reportHistory = profile.reportHistory || [];
+  const reportHistorySection = profile.isSelf
+    ? `<section class="profile-report-history">
+        <div class="section-title compact">
+          <h2>我的举报</h2>
+          <p>查看你提交过的举报处理情况。</p>
+        </div>
+        <div class="admin-table">
+          ${
+            reportHistory.length
+              ? reportHistory
+                  .map((report) => {
+                    const kind = report.kind === "player" ? "玩家" : report.kind === "comment" ? "回复" : "帖子";
+                    const punishment = report.punishment_type ? ` · ${punishmentLabels[report.punishment_type] || "处罚"} 至 ${report.punishment_expires_at || "到期"}` : "";
+                    return `<div class="table-row">
+                      <div>
+                        <strong>${kind} · ${escapeHtml(report.target_title || "被举报内容")}</strong>
+                        <span>${report.status === "resolved" ? "已处理" : "待处理"} · ${formatDate(report.created_at)}${punishment}</span>
+                        ${report.resolution_reason ? `<p class="report-reason">${escapeHtml(report.resolution_reason)}</p>` : ""}
+                      </div>
+                    </div>`;
+                  })
+                  .join("")
+              : `<div class="empty">还没有提交过举报。</div>`
+          }
+        </div>
+      </section>`
+    : "";
   const postListHtml = profilePosts.length
     ? postView.pageItems.length
       ? postView.pageItems.map((item) => cardTemplate({ ...item, author: profile.username }, "post")).join("")
@@ -2702,6 +2732,7 @@ const renderProfilePage = () => {
     }
     <div class="list forum-list">${postListHtml}</div>
     ${profilePosts.length ? renderProfilePostPagination(postView) : ""}
+    ${reportHistorySection}
     ${trashSection}
   `;
   bindTotpSecurity();
@@ -2722,7 +2753,70 @@ const bindProfileInviteCopy = () => {
   });
 };
 
+const ensureTrashPostEditDialog = () => {
+  let dialog = $("#trashPostEditDialog");
+  if (dialog) return dialog;
+  dialog = document.createElement("dialog");
+  dialog.id = "trashPostEditDialog";
+  dialog.className = "site-modal-dialog trash-post-edit-dialog";
+  dialog.innerHTML = `
+    <div class="site-modal-shell">
+      <div class="site-modal-copy">
+        <span class="site-modal-eyebrow">回收站</span>
+        <h2>编辑帖子</h2>
+        <p>保存后帖子仍留在回收站，恢复后才会重新公开。</p>
+      </div>
+      <label class="site-modal-field">
+        <span>标题</span>
+        <input id="trashPostEditTitle" maxlength="80" />
+      </label>
+      <div class="rich-editor trash-post-edit-body" id="trashPostEditBody" contenteditable="true" role="textbox" aria-label="帖子正文"></div>
+      <div class="site-modal-actions">
+        <button class="site-modal-option" type="button" data-trash-edit-cancel>取消</button>
+        <button class="site-modal-option is-primary" type="button" data-trash-edit-save>保存</button>
+      </div>
+    </div>
+  `;
+  document.body.append(dialog);
+  dialog.querySelector("[data-trash-edit-cancel]")?.addEventListener("click", () => closeDialogAnimated(dialog));
+  dialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeDialogAnimated(dialog);
+  });
+  dialog.querySelector("[data-trash-edit-save]")?.addEventListener("click", async () => {
+    const id = Number(dialog.dataset.postId);
+    const title = dialog.querySelector("#trashPostEditTitle")?.value.trim() || "";
+    const contentHtml = dialog.querySelector("#trashPostEditBody")?.innerHTML.trim() || "";
+    if (!title || !textFromHtml(contentHtml)) {
+      showToast("标题和正文都要填写");
+      return;
+    }
+    await api(`/posts/${id}`, { method: "PUT", body: JSON.stringify({ title, contentHtml }) });
+    if (state.profile) {
+      state.profile.trashPosts = (state.profile.trashPosts || []).map((item) =>
+        item.id === id ? { ...item, title, content_html: contentHtml, excerpt: textFromHtml(contentHtml).slice(0, 140) } : item,
+      );
+    }
+    closeDialogAnimated(dialog);
+    renderProfilePage();
+    showToast("回收站帖子已保存");
+  });
+  return dialog;
+};
+
 const bindProfileTrashButtons = () => {
+  $$("[data-profile-edit-trash-post]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const id = Number(button.dataset.profileEditTrashPost);
+      const post = state.profile?.trashPosts?.find((item) => item.id === id);
+      if (!post) return;
+      const dialog = ensureTrashPostEditDialog();
+      dialog.dataset.postId = String(id);
+      dialog.querySelector("#trashPostEditTitle").value = post.title || "";
+      dialog.querySelector("#trashPostEditBody").innerHTML = post.content_html || "";
+      openDialog(dialog);
+    });
+  });
   $$("[data-profile-restore-post]").forEach((button) => {
     button.addEventListener("click", async () => {
       const id = Number(button.dataset.profileRestorePost);
@@ -2932,16 +3026,21 @@ const adminRows = (items, type) => {
           (item) => {
             const canManage = canManageContentItem(item, item.author);
             return `
-            <div class="table-row ${type === "post" && item.pinned ? "is-pinned-row" : ""}">
-              <div><strong>${type === "post" && item.pinned ? "置顶 · " : ""}${escapeHtml(item.title)}</strong><span>${escapeHtml(item.author || "管理员")} ${formatDate(item.created_at)} ${item.views || 0} 次浏览</span></div>
+            <div class="table-row ${type === "post" && item.pinned ? "is-pinned-row" : ""} ${type === "post" && item.highlighted ? "is-highlighted-row" : ""}">
+              <div><strong>${type === "post" && item.pinned ? "置顶 · " : ""}${type === "post" && item.highlighted ? "高亮 · " : ""}${escapeHtml(item.title)}</strong><span>${escapeHtml(item.author || "管理员")} ${formatDate(item.created_at)} ${item.views || 0} 次浏览</span></div>
               <div class="row-actions">
                 ${
                   type === "post"
                     ? `<button class="button small ghost" type="button" data-pin-post="${canManage ? item.id : ""}" data-pinned="${item.pinned ? "1" : "0"}" ${canManage ? "" : "disabled"}>${item.pinned ? "取消置顶" : "置顶"}</button>`
                     : ""
                 }
+                ${
+                  type === "post"
+                    ? `<button class="button small ghost" type="button" data-highlight-post="${canManage ? item.id : ""}" data-highlighted="${item.highlighted ? "1" : "0"}" ${canManage ? "" : "disabled"}>${item.highlighted ? "取消高亮" : "高亮"}</button>`
+                    : ""
+                }
                 <button class="button small ghost" type="button" ${canManage ? `data-edit="${type}" data-id="${item.id}"` : "disabled"}>编辑</button>
-                <button class="button small danger" type="button" ${canManage ? `data-delete="${type}" data-id="${item.id}"` : "disabled"}>删除</button>
+                <button class="button small danger" type="button" ${canManage ? `data-delete="${type}" data-id="${item.id}"` : "disabled"}>${type === "post" ? "撤回" : "删除"}</button>
               </div>
             </div>`;
           },
@@ -2972,14 +3071,15 @@ const renderManagement = () => {
   });
   $$("[data-delete]").forEach((button) => {
     button.addEventListener("click", async () => {
-      const confirmed = await showConfirmDialog("删除后会进入回收站。确定继续吗？", {
-        title: "删除内容",
+      const type = button.dataset.delete;
+      const isPost = type === "post";
+      const confirmed = await showConfirmDialog(isPost ? "撤回后会进入作者的回收站。确定继续吗？" : "删除后会进入回收站。确定继续吗？", {
+        title: isPost ? "撤回帖子" : "删除内容",
         eyebrow: "内容管理",
-        confirmLabel: "移入回收站",
+        confirmLabel: isPost ? "撤回" : "移入回收站",
         confirmTone: "danger",
       });
       if (!confirmed) return;
-      const type = button.dataset.delete;
       await api(`/${type === "announcement" ? "announcements" : "posts"}/${button.dataset.id}`, { method: "DELETE" });
       state.trashLoaded = false;
       await loadAdminData();
@@ -2996,6 +3096,17 @@ const renderManagement = () => {
       });
       await loadAdminData();
       showToast(pinned ? "帖子已置顶" : "已取消置顶");
+    });
+  });
+  $$("[data-highlight-post]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const highlighted = button.dataset.highlighted !== "1";
+      await api(`/posts/${button.dataset.highlightPost}/highlight`, {
+        method: "PUT",
+        body: JSON.stringify({ highlighted }),
+      });
+      await loadAdminData();
+      showToast(highlighted ? "帖子已高亮" : "已取消高亮");
     });
   });
 };
@@ -3075,6 +3186,7 @@ const reportPostReaderItem = (report) => ({
   excerpt: report.post_excerpt || "",
   content_html: report.post_content_html || "<p>暂无可查看内容。</p>",
   pinned: Boolean(report.post_pinned),
+  highlighted: Boolean(report.post_highlighted),
   views: Number(report.post_views || 0),
   created_at: report.post_created_at || report.created_at,
   updated_at: report.post_updated_at || report.created_at,
@@ -3085,6 +3197,98 @@ const reportPostReaderItem = (report) => ({
   author_minecraft_name: report.kind === "comment" ? report.post_author_minecraft_name || report.author_minecraft_name || "" : report.author_minecraft_name || "",
   author_skin_image: report.kind === "comment" ? report.post_author_skin_image || report.author_skin_image || "" : report.author_skin_image || "",
 });
+
+const punishmentLabels = {
+  none: "不处罚",
+  account_ban: "临时封号",
+  comment_ban: "禁止评论",
+  post_ban: "禁止发表帖子",
+  site_ban: "禁止访问网站",
+};
+
+const showReportResolutionDialog = (report) =>
+  new Promise((resolve) => {
+    let dialog = $("#reportResolutionDialog");
+    if (!dialog) {
+      dialog = document.createElement("dialog");
+      dialog.id = "reportResolutionDialog";
+      dialog.className = "site-modal-dialog report-resolution-dialog";
+      dialog.innerHTML = `
+        <div class="site-modal-shell">
+          <div class="site-modal-copy">
+            <span class="site-modal-eyebrow">举报处理</span>
+            <h2>处理举报</h2>
+            <p id="reportResolutionTarget"></p>
+          </div>
+          <label class="site-modal-field">
+            <span>处理说明</span>
+            <input id="reportResolutionReason" maxlength="500" placeholder="例如：内容违规，已警告并限制发言" />
+          </label>
+          <div class="report-resolution-grid">
+            <label class="site-modal-field">
+              <span>处罚</span>
+              <select id="reportPunishmentType">
+                <option value="none">不处罚</option>
+                <option value="account_ban">临时封号</option>
+                <option value="comment_ban">禁止评论</option>
+                <option value="post_ban">禁止发表帖子</option>
+                <option value="site_ban">禁止访问网站</option>
+              </select>
+            </label>
+            <label class="site-modal-field">
+              <span>时长</span>
+              <select id="reportPunishmentDuration">
+                <option value="24">1 天</option>
+                <option value="72">3 天</option>
+                <option value="168">7 天</option>
+                <option value="720">30 天</option>
+              </select>
+            </label>
+          </div>
+          <label class="site-modal-field">
+            <span>处罚原因</span>
+            <input id="reportPunishmentReason" maxlength="500" placeholder="留给处罚记录，可和处理说明不同" />
+          </label>
+          <div class="site-modal-actions">
+            <button class="site-modal-option" type="button" data-report-resolution-cancel>取消</button>
+            <button class="site-modal-option is-primary" type="button" data-report-resolution-confirm>标记已处理</button>
+          </div>
+        </div>
+      `;
+      document.body.append(dialog);
+      dialog.querySelector("[data-report-resolution-cancel]")?.addEventListener("click", () => {
+        dialog._resolver?.(null);
+        dialog._resolver = null;
+        closeDialogAnimated(dialog);
+      });
+      dialog.querySelector("[data-report-resolution-confirm]")?.addEventListener("click", () => {
+        const punishmentType = dialog.querySelector("#reportPunishmentType")?.value || "none";
+        const resolutionReason = dialog.querySelector("#reportResolutionReason")?.value.trim() || "";
+        const punishmentReason = dialog.querySelector("#reportPunishmentReason")?.value.trim() || resolutionReason;
+        dialog._resolver?.({
+          resolutionReason,
+          punishmentType,
+          punishmentDurationHours: Number(dialog.querySelector("#reportPunishmentDuration")?.value || 24),
+          punishmentReason,
+        });
+        dialog._resolver = null;
+        closeDialogAnimated(dialog);
+      });
+      dialog.addEventListener("cancel", (event) => {
+        event.preventDefault();
+        dialog._resolver?.(null);
+        dialog._resolver = null;
+        closeDialogAnimated(dialog);
+      });
+    }
+    dialog._resolver = resolve;
+    dialog.querySelector("#reportResolutionTarget").textContent = `对象：${report.target_user || report.author || report.post_title || "被举报内容"}`;
+    dialog.querySelector("#reportResolutionReason").value = "";
+    dialog.querySelector("#reportPunishmentType").value = "none";
+    dialog.querySelector("#reportPunishmentDuration").value = "24";
+    dialog.querySelector("#reportPunishmentReason").value = "";
+    openDialog(dialog);
+  });
 
 const renderReports = () => {
   const table = $("#adminReportsTable");
@@ -3142,14 +3346,20 @@ const renderReports = () => {
   });
   $$("[data-resolve-report]").forEach((button) => {
     button.addEventListener("click", async () => {
-      await api(`/admin/reports/${button.dataset.resolveReportKind}/${button.dataset.resolveReport}/resolve`, { method: "POST" });
+      const report = state.reports.find((entry) => entry.kind === button.dataset.resolveReportKind && entry.id === Number(button.dataset.resolveReport));
+      const resolution = await showReportResolutionDialog(report || {});
+      if (!resolution) return;
+      const result = await api(`/admin/reports/${button.dataset.resolveReportKind}/${button.dataset.resolveReport}/resolve`, {
+        method: "POST",
+        body: JSON.stringify(resolution),
+      });
       state.reports = state.reports.filter(
         (report) => !(report.kind === button.dataset.resolveReportKind && report.id === Number(button.dataset.resolveReport)),
       );
       if (state.stats) state.stats.reportCount = Math.max(0, Number(state.stats.reportCount || 0) - 1);
       renderReports();
       renderStats();
-      showToast("举报已标记处理");
+      showToast(result.punishment ? `举报已处理，已执行${punishmentLabels[result.punishment.type] || "处罚"}` : "举报已标记处理");
     });
   });
 };

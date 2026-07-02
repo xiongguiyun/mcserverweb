@@ -178,17 +178,32 @@ const ensureForumAdminSchema = async (env) => {
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_comment_reports_status ON comment_reports(status, created_at DESC)").run();
   await env.DB.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_comment_reports_unique_open ON comment_reports(comment_id, reporter_id) WHERE status = 'open'").run();
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_comment_reactions_value ON comment_reactions(comment_id, value)").run();
+  await addTableColumnIfMissing(env, "post_reports", "resolution_reason TEXT");
+  await addTableColumnIfMissing(env, "post_reports", "punishment_type TEXT");
+  await addTableColumnIfMissing(env, "post_reports", "punishment_expires_at TEXT");
+  await addTableColumnIfMissing(env, "comment_reports", "resolution_reason TEXT");
+  await addTableColumnIfMissing(env, "comment_reports", "punishment_type TEXT");
+  await addTableColumnIfMissing(env, "comment_reports", "punishment_expires_at TEXT");
   try {
     await env.DB.prepare("ALTER TABLE posts ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0").run();
   } catch (error) {
     if (!isMissingColumnError(error)) throw error;
   }
+  await addTableColumnIfMissing(env, "posts", "highlighted INTEGER NOT NULL DEFAULT 0");
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_posts_pinned_created_at ON posts(pinned DESC, created_at DESC)").run();
 };
 
 const addUserColumnIfMissing = async (env, definition) => {
   try {
     await env.DB.prepare(`ALTER TABLE users ADD COLUMN ${definition}`).run();
+  } catch (error) {
+    if (!isMissingColumnError(error)) throw error;
+  }
+};
+
+const addTableColumnIfMissing = async (env, table, definition) => {
+  try {
+    await env.DB.prepare(`ALTER TABLE ${table} ADD COLUMN ${definition}`).run();
   } catch (error) {
     if (!isMissingColumnError(error)) throw error;
   }
@@ -211,6 +226,22 @@ const ensurePlayerProfileSchema = async (env) => {
   ).run();
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_player_reports_status ON player_reports(status, created_at DESC)").run();
   await env.DB.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_player_reports_unique_open ON player_reports(reported_user_id, reporter_id) WHERE status = 'open'").run();
+  await addTableColumnIfMissing(env, "player_reports", "resolution_reason TEXT");
+  await addTableColumnIfMissing(env, "player_reports", "punishment_type TEXT");
+  await addTableColumnIfMissing(env, "player_reports", "punishment_expires_at TEXT");
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS user_punishments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      admin_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      type TEXT NOT NULL CHECK (type IN ('account_ban', 'comment_ban', 'post_ban', 'site_ban')),
+      reason TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      expires_at TEXT NOT NULL,
+      revoked_at TEXT
+    )`,
+  ).run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_user_punishments_active ON user_punishments(user_id, type, expires_at, revoked_at)").run();
 };
 
 const defaultServerStatusSettings = {
@@ -668,6 +699,7 @@ const currentUser = async (env, request) => {
 const requireUser = async (env, request) => {
   const user = await currentUser(env, request);
   if (!user) throw new Response(JSON.stringify({ error: "请先登录" }), { status: 401 });
+  await assertNoPunishment(env, user, ["site_ban", "account_ban"]);
   return user;
 };
 
@@ -733,6 +765,74 @@ const timestampMs = (value) => {
 const nextUsernameChangeIso = (lastChangedAt) => {
   const lastChangedMs = timestampMs(lastChangedAt);
   return lastChangedMs ? new Date(lastChangedMs + usernameChangeCooldownMs).toISOString() : "";
+};
+
+const punishmentTypeLabels = {
+  account_ban: "临时封号",
+  comment_ban: "禁止评论",
+  post_ban: "禁止发表帖子",
+  site_ban: "禁止访问网站",
+};
+
+const punishmentTypes = new Set(Object.keys(punishmentTypeLabels));
+
+const activePunishments = async (env, userId, types = []) => {
+  await ensurePlayerProfileSchema(env);
+  const wanted = types.length ? types : [...punishmentTypes];
+  const placeholders = wanted.map(() => "?").join(",");
+  const { results } = await env.DB.prepare(
+    `SELECT id, type, reason, expires_at
+     FROM user_punishments
+     WHERE user_id = ? AND revoked_at IS NULL AND expires_at > CURRENT_TIMESTAMP AND type IN (${placeholders})
+     ORDER BY expires_at DESC`,
+  )
+    .bind(userId, ...wanted)
+    .all();
+  return results || [];
+};
+
+const punishmentMessage = (punishment) => {
+  const label = punishmentTypeLabels[punishment.type] || "处罚";
+  const expires = punishment.expires_at ? `，到期时间 ${punishment.expires_at}` : "";
+  const reason = punishment.reason ? `，原因：${punishment.reason}` : "";
+  return `${label}生效中${expires}${reason}`;
+};
+
+const assertNoPunishment = async (env, user, types) => {
+  if (!user || user.role === "admin") return;
+  const punishment = (await activePunishments(env, user.id, types))[0];
+  if (punishment) throw new Response(JSON.stringify({ error: punishmentMessage(punishment), punishment }), { status: 403 });
+};
+
+const createPunishmentFromBody = async (env, actor, targetId, body = {}) => {
+  const type = String(body.punishmentType || "").trim();
+  if (!type || type === "none") return null;
+  if (!punishmentTypes.has(type)) throw new Response(JSON.stringify({ error: "处罚类型不正确" }), { status: 400 });
+  const hours = Math.max(1, Math.min(24 * 30, Number(body.punishmentDurationHours || 24)));
+  const reason = String(body.punishmentReason || body.resolutionReason || "").trim().slice(0, 500);
+  const expiresAt = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
+  await env.DB.prepare("INSERT INTO user_punishments (user_id, admin_id, type, reason, expires_at) VALUES (?, ?, ?, ?, ?)")
+    .bind(targetId, actor.id, type, reason || null, expiresAt)
+    .run();
+  return { type, reason, expiresAt };
+};
+
+const resolveReportWithPunishment = async (env, request, table, reportId, actor, targetId) => {
+  const body = await readBody(request);
+  const resolutionReason = String(body.resolutionReason || body.punishmentReason || "").trim().slice(0, 500);
+  const punishment = await createPunishmentFromBody(env, actor, targetId, body);
+  const result = await env.DB.prepare(
+    `UPDATE ${table}
+     SET status = 'resolved',
+         resolved_at = CURRENT_TIMESTAMP,
+         resolution_reason = ?,
+         punishment_type = ?,
+         punishment_expires_at = ?
+     WHERE id = ? AND status = 'open'`,
+  )
+    .bind(resolutionReason || null, punishment?.type || null, punishment?.expiresAt || null, reportId)
+    .run();
+  return { result, punishment };
 };
 
 const canManageAuthoredContent = async (env, actor, authorId) => {
@@ -812,7 +912,7 @@ const listPosts = async (env, { trash = false, authorId = null, limit = 100 } = 
   }
   bindings.push(limit);
   const { results } = await env.DB.prepare(
-    `SELECT posts.id, posts.title, posts.excerpt, posts.content_html, posts.pinned, posts.views, posts.deleted_at, posts.created_at,
+    `SELECT posts.id, posts.title, posts.excerpt, posts.content_html, posts.pinned, posts.highlighted, posts.views, posts.deleted_at, posts.created_at,
             posts.updated_at, users.id AS author_id, users.role AS author_role, users.username AS author,
             users.minecraft_name AS author_minecraft_name, users.skin_image AS author_skin_image
      FROM posts
@@ -824,6 +924,43 @@ const listPosts = async (env, { trash = false, authorId = null, limit = 100 } = 
     .bind(...bindings)
     .all();
   return json({ items: await withAuthorAccountTypes(env, results || []) });
+};
+
+const ownReportHistory = async (env, userId) => {
+  const { results: postReports } = await env.DB.prepare(
+    `SELECT 'post' AS kind, post_reports.id, post_reports.reason, post_reports.status, post_reports.created_at,
+            post_reports.resolved_at, post_reports.resolution_reason, post_reports.punishment_type, post_reports.punishment_expires_at,
+            posts.title AS target_title
+     FROM post_reports
+     JOIN posts ON posts.id = post_reports.post_id
+     WHERE post_reports.reporter_id = ?`,
+  )
+    .bind(userId)
+    .all();
+  const { results: commentReports } = await env.DB.prepare(
+    `SELECT 'comment' AS kind, comment_reports.id, comment_reports.reason, comment_reports.status, comment_reports.created_at,
+            comment_reports.resolved_at, comment_reports.resolution_reason, comment_reports.punishment_type, comment_reports.punishment_expires_at,
+            posts.title AS target_title
+     FROM comment_reports
+     JOIN comments ON comments.id = comment_reports.comment_id
+     JOIN posts ON posts.id = comments.post_id
+     WHERE comment_reports.reporter_id = ?`,
+  )
+    .bind(userId)
+    .all();
+  const { results: playerReports } = await env.DB.prepare(
+    `SELECT 'player' AS kind, player_reports.id, player_reports.reason, player_reports.status, player_reports.created_at,
+            player_reports.resolved_at, player_reports.resolution_reason, player_reports.punishment_type, player_reports.punishment_expires_at,
+            reported.username AS target_title
+     FROM player_reports
+     JOIN users AS reported ON reported.id = player_reports.reported_user_id
+     WHERE player_reports.reporter_id = ?`,
+  )
+    .bind(userId)
+    .all();
+  return [...(postReports || []), ...(commentReports || []), ...(playerReports || [])]
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    .slice(0, 50);
 };
 
 const profile = async (env, request, username) => {
@@ -839,7 +976,7 @@ const profile = async (env, request, username) => {
     .first();
   if (!user) return json({ error: "没有找到这个玩家" }, 404);
   const posts = await env.DB.prepare(
-    `SELECT posts.id, posts.title, posts.excerpt, posts.content_html, posts.pinned, posts.views, posts.created_at, posts.updated_at,
+    `SELECT posts.id, posts.title, posts.excerpt, posts.content_html, posts.pinned, posts.highlighted, posts.views, posts.created_at, posts.updated_at,
             users.id AS author_id, users.role AS author_role, users.username AS author,
             users.minecraft_name AS author_minecraft_name, users.skin_image AS author_skin_image
      FROM posts
@@ -853,6 +990,7 @@ const profile = async (env, request, username) => {
   const isSelf = Number(viewer?.id) === Number(user.id);
   const inviteCode = isSelf ? await activeInviteCode(env, user.id) : "";
   const trash = isSelf ? (await listPosts(env, { trash: true, authorId: user.id, limit: 50 })).json() : Promise.resolve({ items: [] });
+  const reportHistory = isSelf ? await ownReportHistory(env, user.id) : [];
   return json({
     profile: {
       id: user.id,
@@ -868,6 +1006,7 @@ const profile = async (env, request, username) => {
       postCount: (posts.results || []).length,
       posts: await withAuthorAccountTypes(env, posts.results || []),
       trashPosts: (await trash).items || [],
+      reportHistory,
       inviteCode,
       isSelf,
       isOwner: owner?.id ? Number(owner.id) === Number(user.id) : false,
@@ -898,6 +1037,7 @@ const login = async (env, request) => {
   if (user.totp_enabled && !(await verifyTotpAsync(user.totp_secret, totpCode))) {
     return json({ error: "请输入正确的双重验证码", needsTotp: true }, 401);
   }
+  await assertNoPunishment(env, user, ["site_ban", "account_ban"]);
   const token = await createSession(env, user);
   await env.DB.prepare("UPDATE users SET last_seen_at = CURRENT_TIMESTAMP WHERE id = ?").bind(user.id).run();
   const owner = await ownerUser(env);
@@ -965,6 +1105,7 @@ const account = async (env, request) => {
     if (existingUser.totp_enabled && !(await verifyTotpAsync(existingUser.totp_secret, totpCode))) {
       return json({ error: "请输入正确的双重验证码", needsTotp: true }, 401);
     }
+    await assertNoPunishment(env, existingUser, ["site_ban", "account_ban"]);
     await env.DB.prepare("UPDATE users SET last_seen_at = CURRENT_TIMESTAMP WHERE id = ?").bind(existingUser.id).run();
     return createAuthResponse(env, existingUser, 200, { mode: "login" });
   }
@@ -1170,6 +1311,7 @@ const createAnnouncement = async (env, request) => {
 const createPost = async (env, request) => {
   await ensureForumAdminSchema(env);
   const user = await requireUser(env, request);
+  await assertNoPunishment(env, user, ["post_ban"]);
   const { title, contentHtml, excerpt } = await contentPayload(request);
   await env.DB.prepare("INSERT INTO posts (title, excerpt, content_html, author_id) VALUES (?, ?, ?, ?)")
     .bind(title, excerpt, contentHtml, user.id)
@@ -1194,7 +1336,7 @@ const updateAnnouncement = async (env, request, id) => {
 const updatePost = async (env, request, id) => {
   await ensureForumAdminSchema(env);
   const user = await requireUser(env, request);
-  const post = await env.DB.prepare("SELECT id, author_id FROM posts WHERE id = ? AND deleted_at IS NULL").bind(id).first();
+  const post = await env.DB.prepare("SELECT id, author_id FROM posts WHERE id = ?").bind(id).first();
   if (!post) return json({ error: "帖子不存在" }, 404);
   if (!(await canManageAuthoredContent(env, user, post.author_id))) {
     return json({ error: "你只能编辑自己的帖子" }, 403);
@@ -1221,6 +1363,23 @@ const updatePostPinned = async (env, request, id) => {
     .run();
   if (!result.meta?.changes) return json({ error: "帖子不存在" }, 404);
   return json({ ok: true, pinned });
+};
+
+const updatePostHighlighted = async (env, request, id) => {
+  await ensureForumAdminSchema(env);
+  const user = await requireAdmin(env, request);
+  const post = await env.DB.prepare("SELECT id, author_id FROM posts WHERE id = ? AND deleted_at IS NULL").bind(id).first();
+  if (!post) return json({ error: "帖子不存在" }, 404);
+  if (!(await canManageAuthoredContent(env, user, post.author_id))) {
+    return json({ error: "不能管理这个帖子" }, 403);
+  }
+  const body = await readBody(request);
+  const highlighted = Boolean(body.highlighted);
+  const result = await env.DB.prepare("UPDATE posts SET highlighted = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL")
+    .bind(highlighted ? 1 : 0, id)
+    .run();
+  if (!result.meta?.changes) return json({ error: "帖子不存在" }, 404);
+  return json({ ok: true, highlighted });
 };
 
 const reportPost = async (env, request, id) => {
@@ -1336,6 +1495,7 @@ const listPostComments = async (env, request, postId) => {
 const createComment = async (env, request, postId) => {
   await ensureForumAdminSchema(env);
   const user = await requireUser(env, request);
+  await assertNoPunishment(env, user, ["comment_ban"]);
   const post = await env.DB.prepare("SELECT id FROM posts WHERE id = ? AND deleted_at IS NULL").bind(postId).first();
   if (!post) return json({ error: "帖子不存在" }, 404);
   const { contentHtml, quoteCommentId } = await commentPayload(request);
@@ -1716,7 +1876,7 @@ const listPostReports = async (env, request) => {
   const { results: postReports } = await env.DB.prepare(
     `SELECT post_reports.id, post_reports.reason, post_reports.status, post_reports.created_at,
             posts.id AS post_id, posts.title AS post_title, posts.excerpt AS post_excerpt,
-            posts.content_html AS post_content_html, posts.pinned AS post_pinned,
+            posts.content_html AS post_content_html, posts.pinned AS post_pinned, posts.highlighted AS post_highlighted,
             posts.views AS post_views, posts.created_at AS post_created_at,
             posts.updated_at AS post_updated_at,
             reporters.username AS reporter,
@@ -1746,7 +1906,7 @@ const listPostReports = async (env, request) => {
     `SELECT comment_reports.id, comment_reports.reason, comment_reports.status, comment_reports.created_at,
             comments.id AS comment_id, comments.content_html AS comment_content_html,
             posts.id AS post_id, posts.title AS post_title, posts.excerpt AS post_excerpt,
-            posts.content_html AS post_content_html, posts.pinned AS post_pinned,
+            posts.content_html AS post_content_html, posts.pinned AS post_pinned, posts.highlighted AS post_highlighted,
             posts.views AS post_views, posts.created_at AS post_created_at,
             posts.updated_at AS post_updated_at,
             reporters.username AS reporter,
@@ -1804,11 +1964,9 @@ const resolvePostReport = async (env, request, id) => {
   if (!canResolveReportForTarget(actor, { id: report.target_id, role: report.target_role }, owner?.id)) {
     return json({ error: "管理员相关举报只能由服主处理" }, 403);
   }
-  const result = await env.DB.prepare("UPDATE post_reports SET status = 'resolved', resolved_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'open'")
-    .bind(id)
-    .run();
+  const { result, punishment } = await resolveReportWithPunishment(env, request, "post_reports", id, actor, report.target_id);
   if (!result.meta?.changes) return json({ error: "举报不存在或已处理" }, 404);
-  return json({ ok: true });
+  return json({ ok: true, punishment });
 };
 
 const resolveCommentReport = async (env, request, id) => {
@@ -1828,11 +1986,9 @@ const resolveCommentReport = async (env, request, id) => {
   if (!canResolveReportForTarget(actor, { id: report.target_id, role: report.target_role }, owner?.id)) {
     return json({ error: "管理员相关举报只能由服主处理" }, 403);
   }
-  const result = await env.DB.prepare("UPDATE comment_reports SET status = 'resolved', resolved_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'open'")
-    .bind(id)
-    .run();
+  const { result, punishment } = await resolveReportWithPunishment(env, request, "comment_reports", id, actor, report.target_id);
   if (!result.meta?.changes) return json({ error: "举报不存在或已处理" }, 404);
-  return json({ ok: true });
+  return json({ ok: true, punishment });
 };
 
 const resolvePlayerReport = async (env, request, id) => {
@@ -1851,10 +2007,9 @@ const resolvePlayerReport = async (env, request, id) => {
   if (!canResolveReportForTarget(actor, { id: report.target_id, role: report.target_role }, owner?.id)) {
     return json({ error: "管理员相关举报只能由服主处理" }, 403);
   }
-  await env.DB.prepare("UPDATE player_reports SET status = 'resolved', resolved_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'open'")
-    .bind(id)
-    .run();
-  return json({ ok: true });
+  const { result, punishment } = await resolveReportWithPunishment(env, request, "player_reports", id, actor, report.target_id);
+  if (!result.meta?.changes) return json({ error: "举报不存在或已处理" }, 404);
+  return json({ ok: true, punishment });
 };
 
 const resetManagedUserPassword = async (env, request, id) => {
@@ -1889,6 +2044,10 @@ export async function onRequest(context) {
   const method = request.method;
 
   try {
+    if (pathname !== "/logout") {
+      const sessionUser = await currentUser(env, request);
+      if (sessionUser) await assertNoPunishment(env, sessionUser, ["site_ban", "account_ban"]);
+    }
     if (method === "GET" && pathname === "/captcha") return createCaptchaChallenge(env);
     if (method === "POST" && pathname === "/captcha/verify") return verifyCaptchaChallenge(env, request);
     if (method === "GET" && pathname === "/me") return me(env, request);
@@ -1916,6 +2075,7 @@ export async function onRequest(context) {
     if (method === "POST" && /^\/posts\/\d+\/comments$/.test(pathname)) return createComment(env, request, pathname.split("/").at(-2));
     if (method === "PUT" && /^\/posts\/\d+$/.test(pathname)) return updatePost(env, request, pathname.split("/").at(-1));
     if (method === "PUT" && /^\/posts\/\d+\/pin$/.test(pathname)) return updatePostPinned(env, request, pathname.split("/").at(-2));
+    if (method === "PUT" && /^\/posts\/\d+\/highlight$/.test(pathname)) return updatePostHighlighted(env, request, pathname.split("/").at(-2));
     if (method === "POST" && /^\/posts\/\d+\/reports$/.test(pathname)) return reportPost(env, request, pathname.split("/").at(-2));
     if (method === "DELETE" && /^\/posts\/\d+$/.test(pathname)) return deletePost(env, request, pathname.split("/").at(-1));
     if (method === "POST" && /^\/posts\/\d+\/restore$/.test(pathname)) return restorePost(env, request, pathname.split("/").at(-2));
