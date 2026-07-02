@@ -11,6 +11,7 @@ const state = {
   comments: {},
   commentQuotes: [],
   commentQuoteManagerOpenPostId: null,
+  commentComposerOpenPostIds: {},
   commentEditing: null,
   commentHighlightId: null,
   commentUndoItems: [],
@@ -1673,6 +1674,12 @@ const removeCommentQuotesForPost = (postId) => {
   if (Number(state.commentQuoteManagerOpenPostId) === Number(postId)) state.commentQuoteManagerOpenPostId = null;
 };
 
+const isCommentComposerOpen = (postId) => Boolean(state.commentComposerOpenPostIds?.[postId] || state.commentEditing?.postId === postId);
+
+const setCommentComposerOpen = (postId, open) => {
+  state.commentComposerOpenPostIds = { ...(state.commentComposerOpenPostIds || {}), [postId]: Boolean(open) };
+};
+
 const addCommentQuote = (postId, comment) => {
   if (!comment || comment.deleted_at) return false;
   const current = activeCommentQuotes(postId);
@@ -1712,11 +1719,32 @@ const moveCommentQuote = (postId, quoteId, direction) => {
   ];
 };
 
+const reorderCommentQuoteToIndex = (postId, quoteId, targetIndex) => {
+  const quoteIdNumber = Number(quoteId);
+  const postIdNumber = Number(postId);
+  const quotes = activeCommentQuotes(postId);
+  const fromIndex = quotes.findIndex((quote) => Number(quote.id) === quoteIdNumber);
+  if (fromIndex < 0) return false;
+  let insertIndex = Math.max(0, Math.min(Number(targetIndex), quotes.length));
+  if (fromIndex < insertIndex) insertIndex -= 1;
+  if (fromIndex === insertIndex) return false;
+  const reordered = [...quotes];
+  const [moved] = reordered.splice(fromIndex, 1);
+  reordered.splice(Math.max(0, Math.min(insertIndex, reordered.length)), 0, moved);
+  state.commentQuotes = [
+    ...state.commentQuotes.filter((quote) => Number(quote.postId) !== postIdNumber),
+    ...reordered,
+  ];
+  return true;
+};
+
 const commentQuoteListTemplate = (quotes, { editable = false } = {}) =>
   quotes
     .map(
       (quote, index) => `
-        <blockquote class="${editable ? "comment-quote-manager-item" : "comment-quote"}">
+        <blockquote class="${editable ? "comment-quote-manager-item" : "comment-quote"}" ${
+          editable ? `draggable="true" data-comment-quote-id="${quote.id}" data-comment-quote-index="${index}"` : ""
+        }>
           <div>
             <strong>${index + 1}. ${escapeHtml(quote.author || quote.quote_author || "被引用回复")}</strong>
             <span>${escapeHtml(quote.excerpt || quote.quote_excerpt || "")}</span>
@@ -1735,13 +1763,13 @@ const commentQuoteListTemplate = (quotes, { editable = false } = {}) =>
     )
     .join("");
 
-const commentQuoteManagerTemplate = (quotes) => `
-  <div class="comment-quote-popover" data-comment-quote-popover>
+const commentQuoteManagerTemplate = (quotes, open = false) => `
+  <div class="comment-quote-popover ${open ? "is-open" : ""}" data-comment-quote-popover aria-hidden="${!open}">
     <div class="comment-quote-popover-head">
       <strong>引用顺序</strong>
       <button type="button" data-comment-close-quote-manager aria-label="关闭引用管理">×</button>
     </div>
-    <div class="comment-quote-manager-list">
+    <div class="comment-quote-manager-list" data-comment-quote-list>
       ${quotes.length ? commentQuoteListTemplate(quotes, { editable: true }) : `<div class="empty compact">点击某条回复的“+ 引用”后，会出现在这里。</div>`}
     </div>
   </div>
@@ -1772,28 +1800,36 @@ const commentComposerTemplate = (postId) => {
   }
   const quotes = activeCommentQuotes(postId);
   const editing = state.commentEditing?.postId === postId ? state.commentEditing : null;
+  const composerOpen = isCommentComposerOpen(postId);
   const quoteManagerOpen = Number(state.commentQuoteManagerOpenPostId) === Number(postId);
   return `
-    <form class="comment-composer" data-comment-composer="${postId}">
-      <div class="comment-composer-head">
-        <strong>${editing ? "编辑回复" : "发表评论"}</strong>
-        ${editing ? `<button class="button small ghost" type="button" data-comment-cancel-edit>取消编辑</button>` : ""}
-      </div>
-      ${commentToolbarTemplate()}
-      <div class="comment-editor rich-editor" contenteditable="true" role="textbox" data-comment-editor aria-label="回复内容">${editing ? editing.contentHtml : ""}</div>
-      ${
-        !editing
-          ? `<div class="comment-insert-row">
-              <button class="comment-inline-action" type="button" data-comment-open-quote-manager aria-expanded="${quoteManagerOpen}">
-                <span aria-hidden="true">+</span> 引用${quotes.length ? ` <strong>${quotes.length}</strong>` : ""}
-              </button>
-              ${quotes.length ? `<span class="comment-quote-summary">已选择 ${quotes.length} 条引用</span>` : ""}
-            </div>
-            ${quoteManagerOpen ? commentQuoteManagerTemplate(quotes) : ""}`
-          : ""
-      }
-      <div class="comment-submit-row">
-        <button class="button primary small" type="submit">${editing ? "保存回复" : "发布回复"}</button>
+    <form class="comment-composer ${composerOpen ? "is-expanded" : "is-collapsed"}" data-comment-composer="${postId}">
+      <button class="comment-composer-toggle" type="button" data-comment-composer-toggle aria-expanded="${composerOpen}">
+        ${composerOpen ? (editing ? "收起编辑" : "收起评论") : "+ 发表评论"}
+      </button>
+      <div class="comment-composer-panel" aria-hidden="${!composerOpen}">
+        <div class="comment-composer-panel-inner">
+          <div class="comment-composer-head">
+            <strong>${editing ? "编辑回复" : "发表评论"}</strong>
+            ${editing ? `<button class="button small ghost" type="button" data-comment-cancel-edit>取消编辑</button>` : ""}
+          </div>
+          ${commentToolbarTemplate()}
+          <div class="comment-editor rich-editor" contenteditable="true" role="textbox" data-comment-editor aria-label="回复内容">${editing ? editing.contentHtml : ""}</div>
+          ${
+            !editing
+              ? `<div class="comment-insert-row">
+                  <button class="comment-inline-action" type="button" data-comment-open-quote-manager aria-expanded="${quoteManagerOpen}">
+                    <span aria-hidden="true">+</span> 引用${quotes.length ? ` <strong>${quotes.length}</strong>` : ""}
+                  </button>
+                  ${quotes.length ? `<span class="comment-quote-summary">已选择 ${quotes.length} 条引用</span>` : ""}
+                </div>
+                ${commentQuoteManagerTemplate(quotes, quoteManagerOpen)}`
+              : ""
+          }
+          <div class="comment-submit-row">
+            <button class="button primary small" type="submit">${editing ? "保存回复" : "发布回复"}</button>
+          </div>
+        </div>
       </div>
     </form>
   `;
@@ -1862,7 +1898,7 @@ const commentTemplate = (comment, postId) => {
             : `<button class="comment-reaction-button ${likeActive ? "is-active" : ""}" type="button" data-comment-reaction="like" data-comment-reaction-id="${comment.id}" aria-pressed="${likeActive}" title="点赞">
                 <span aria-hidden="true">👍</span><strong>${Number(comment.like_count || 0)}</strong>
               </button>
-              <button class="comment-reaction-button ${dislikeActive ? "is-active" : ""}" type="button" data-comment-reaction="dislike" data-comment-reaction-id="${comment.id}" aria-pressed="${dislikeActive}" title="点踩">
+              <button class="comment-reaction-button is-dislike ${dislikeActive ? "is-active" : ""}" type="button" data-comment-reaction="dislike" data-comment-reaction-id="${comment.id}" aria-pressed="${dislikeActive}" title="点踩">
                 <span aria-hidden="true">👎</span><strong>${Number(comment.dislike_count || 0)}</strong>
               </button>`
         }
@@ -1930,6 +1966,7 @@ const startCommentUndo = (item) => {
 };
 
 const focusCommentComposer = (postId) => {
+  setCommentComposerOpen(postId, true);
   renderComments(postId);
   const editor = $(`[data-comments-for="${postId}"] [data-comment-editor]`);
   editor?.focus({ preventScroll: true });
@@ -2010,6 +2047,23 @@ const applyCommentColor = (section, color) => {
 const bindPostComments = (postId) => {
   const section = $(`[data-comments-for="${postId}"]`);
   if (!section) return;
+  section.querySelector("[data-comment-composer-toggle]")?.addEventListener("click", (event) => {
+    const form = event.currentTarget.closest("[data-comment-composer]");
+    const open = !form.classList.contains("is-expanded");
+    setCommentComposerOpen(postId, open);
+    form.classList.toggle("is-expanded", open);
+    form.classList.toggle("is-collapsed", !open);
+    event.currentTarget.setAttribute("aria-expanded", String(open));
+    event.currentTarget.textContent = open ? (state.commentEditing?.postId === postId ? "收起编辑" : "收起评论") : "+ 发表评论";
+    form.querySelector(".comment-composer-panel")?.setAttribute("aria-hidden", String(!open));
+    if (!open) state.commentQuoteManagerOpenPostId = null;
+    if (!open) {
+      form.querySelector("[data-comment-quote-popover]")?.classList.remove("is-open");
+      form.querySelector("[data-comment-quote-popover]")?.setAttribute("aria-hidden", "true");
+      form.querySelector("[data-comment-open-quote-manager]")?.setAttribute("aria-expanded", "false");
+    }
+    if (open) window.setTimeout(() => section.querySelector("[data-comment-editor]")?.focus({ preventScroll: true }), prefersReducedMotion() ? 0 : 180);
+  });
   section.querySelector("[data-comment-toolbar-toggle]")?.addEventListener("click", (event) => {
     const shell = event.currentTarget.closest("[data-comment-toolbar-shell]");
     const open = !shell.classList.contains("is-open");
@@ -2038,13 +2092,20 @@ const bindPostComments = (postId) => {
     if (editor) await insertCommentLink(editor);
   });
   section.querySelector("[data-comment-color]")?.addEventListener("input", (event) => applyCommentColor(section, event.target.value));
-  section.querySelector("[data-comment-open-quote-manager]")?.addEventListener("click", () => {
-    state.commentQuoteManagerOpenPostId = Number(state.commentQuoteManagerOpenPostId) === Number(postId) ? null : postId;
-    renderComments(postId);
+  section.querySelector("[data-comment-open-quote-manager]")?.addEventListener("click", (event) => {
+    const open = Number(state.commentQuoteManagerOpenPostId) !== Number(postId);
+    state.commentQuoteManagerOpenPostId = open ? postId : null;
+    event.currentTarget.setAttribute("aria-expanded", String(open));
+    const popover = section.querySelector("[data-comment-quote-popover]");
+    popover?.classList.toggle("is-open", open);
+    popover?.setAttribute("aria-hidden", String(!open));
   });
-  section.querySelector("[data-comment-close-quote-manager]")?.addEventListener("click", () => {
+  section.querySelector("[data-comment-close-quote-manager]")?.addEventListener("click", (event) => {
     state.commentQuoteManagerOpenPostId = null;
-    renderComments(postId);
+    const popover = event.currentTarget.closest("[data-comment-quote-popover]");
+    popover?.classList.remove("is-open");
+    popover?.setAttribute("aria-hidden", "true");
+    section.querySelector("[data-comment-open-quote-manager]")?.setAttribute("aria-expanded", "false");
   });
   section.querySelectorAll("[data-comment-quote-move]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -2060,8 +2121,51 @@ const bindPostComments = (postId) => {
       renderComments(postId);
     });
   });
+  section.querySelectorAll("[data-comment-quote-id]").forEach((item) => {
+    item.addEventListener("dragstart", (event) => {
+      event.dataTransfer?.setData("text/plain", item.dataset.commentQuoteId);
+      event.dataTransfer?.setData("application/x-comment-quote-id", item.dataset.commentQuoteId);
+      if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+      item.classList.add("is-dragging");
+    });
+    item.addEventListener("dragend", () => {
+      section.querySelectorAll(".comment-quote-manager-item").forEach((entry) => entry.classList.remove("is-dragging", "is-drag-over"));
+    });
+    item.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+      section.querySelectorAll(".comment-quote-manager-item.is-drag-over").forEach((entry) => {
+        if (entry !== item) entry.classList.remove("is-drag-over");
+      });
+      item.classList.add("is-drag-over");
+    });
+    item.addEventListener("dragleave", () => item.classList.remove("is-drag-over"));
+    item.addEventListener("drop", (event) => {
+      event.preventDefault();
+      const quoteId = event.dataTransfer?.getData("application/x-comment-quote-id") || event.dataTransfer?.getData("text/plain");
+      const rect = item.getBoundingClientRect();
+      const targetIndex = Number(item.dataset.commentQuoteIndex || 0) + (event.clientY > rect.top + rect.height / 2 ? 1 : 0);
+      if (reorderCommentQuoteToIndex(postId, quoteId, targetIndex)) {
+        state.commentQuoteManagerOpenPostId = postId;
+        renderComments(postId);
+      }
+    });
+  });
+  section.querySelector("[data-comment-quote-list]")?.addEventListener("dragover", (event) => {
+    if (!event.target.closest("[data-comment-quote-id]")) event.preventDefault();
+  });
+  section.querySelector("[data-comment-quote-list]")?.addEventListener("drop", (event) => {
+    if (event.target.closest("[data-comment-quote-id]")) return;
+    event.preventDefault();
+    const quoteId = event.dataTransfer?.getData("application/x-comment-quote-id") || event.dataTransfer?.getData("text/plain");
+    if (reorderCommentQuoteToIndex(postId, quoteId, activeCommentQuotes(postId).length)) {
+      state.commentQuoteManagerOpenPostId = postId;
+      renderComments(postId);
+    }
+  });
   section.querySelector("[data-comment-cancel-edit]")?.addEventListener("click", () => {
     state.commentEditing = null;
+    setCommentComposerOpen(postId, false);
     renderComments(postId);
   });
   section.querySelector("[data-comment-composer]")?.addEventListener("submit", async (event) => {
@@ -2093,6 +2197,7 @@ const bindPostComments = (postId) => {
     const result = await api(`/posts/${postId}/comments`, { method: "POST", body: JSON.stringify(body) });
     upsertComment(postId, result.comment);
     removeCommentQuotesForPost(postId);
+    setCommentComposerOpen(postId, false);
     renderComments(postId);
     showToast("回复已发布");
   });
@@ -2296,6 +2401,7 @@ const openReader = (type, id) => {
   openDialog($("#readerDialog"));
   if (type === "post") {
     removeCommentQuotesForPost(id);
+    setCommentComposerOpen(id, false);
     state.commentEditing = null;
     loadPostComments(id).catch((error) => {
       const section = $(`[data-comments-for="${id}"]`);
