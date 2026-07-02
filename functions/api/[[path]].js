@@ -929,12 +929,13 @@ const updateOwnUsername = async (env, request) => {
 
   const user = await env.DB.prepare("SELECT id, username, username_updated_at FROM users WHERE id = ?").bind(actor.id).first();
   if (!user) return json({ error: "请重新登录后再试" }, 401);
+  const canRenameFreely = actor.role === "admin";
   if (String(user.username).toLowerCase() === username.toLowerCase()) {
-    return json({ ok: true, user: await publicUserById(env, actor.id), canRenameAt: nextUsernameChangeIso(user.username_updated_at) });
+    return json({ ok: true, user: await publicUserById(env, actor.id), canRenameAt: canRenameFreely ? "" : nextUsernameChangeIso(user.username_updated_at) });
   }
 
   const nextAllowedAt = timestampMs(user.username_updated_at) + usernameChangeCooldownMs;
-  if (user.username_updated_at && Date.now() < nextAllowedAt) {
+  if (!canRenameFreely && user.username_updated_at && Date.now() < nextAllowedAt) {
     return json({ error: "每周只能修改一次用户名", canRenameAt: new Date(nextAllowedAt).toISOString() }, 429);
   }
 
@@ -943,7 +944,7 @@ const updateOwnUsername = async (env, request) => {
   } catch {
     return json({ error: "用户名已存在" }, 409);
   }
-  return json({ ok: true, user: await publicUserById(env, actor.id), canRenameAt: nextUsernameChangeIso(new Date().toISOString()) });
+  return json({ ok: true, user: await publicUserById(env, actor.id), canRenameAt: canRenameFreely ? "" : nextUsernameChangeIso(new Date().toISOString()) });
 };
 
 const updateOwnCharacter = async (env, request) => {
@@ -990,6 +991,7 @@ const reportPlayer = async (env, request, username) => {
   const target = await env.DB.prepare("SELECT id, username, role FROM users WHERE lower(username) = lower(?)").bind(username).first();
   if (!target) return json({ error: "没有找到这个玩家" }, 404);
   if (Number(target.id) === Number(reporter.id)) return json({ error: "不能举报自己" }, 400);
+  if (owner?.id && Number(target.id) === Number(owner.id)) return json({ error: "不能举报服主" }, 400);
 
   const body = await readBody(request);
   const reason = String(body.reason || "").trim().slice(0, 500);
@@ -1181,6 +1183,7 @@ const reportPost = async (env, request, id) => {
     .first();
   if (!post) return json({ error: "帖子不存在" }, 404);
   if (Number(post.author_id) === Number(user.id)) return json({ error: "不能举报自己的帖子" }, 400);
+  if (owner?.id && Number(post.author_id) === Number(owner.id)) return json({ error: "不能举报服主" }, 400);
   const body = await readBody(request);
   const reason = String(body.reason || "").trim().slice(0, 500);
   if (reason.length < 4) return json({ error: "请填写至少 4 个字的举报原因" }, 400);
@@ -1445,8 +1448,14 @@ const listPostReports = async (env, request) => {
   const owner = await ownerUser(env);
   const { results: postReports } = await env.DB.prepare(
     `SELECT post_reports.id, post_reports.reason, post_reports.status, post_reports.created_at,
-            posts.id AS post_id, posts.title AS post_title,
-            reporters.username AS reporter, authors.id AS target_id, authors.username AS author, authors.role AS target_role
+            posts.id AS post_id, posts.title AS post_title, posts.excerpt AS post_excerpt,
+            posts.content_html AS post_content_html, posts.pinned AS post_pinned,
+            posts.views AS post_views, posts.created_at AS post_created_at,
+            posts.updated_at AS post_updated_at,
+            reporters.username AS reporter,
+            authors.id AS target_id, authors.id AS author_id, authors.username AS author,
+            authors.role AS target_role, authors.minecraft_name AS author_minecraft_name,
+            authors.skin_image AS author_skin_image
      FROM post_reports
      JOIN posts ON posts.id = post_reports.post_id
      JOIN users AS reporters ON reporters.id = post_reports.reporter_id
@@ -1466,10 +1475,15 @@ const listPostReports = async (env, request) => {
      ORDER BY player_reports.created_at DESC
      LIMIT 80`,
   ).all();
-  const normalize = (report) => ({
-    ...report,
-    can_resolve: canResolveReportForTarget(actor, { id: report.target_id, role: report.target_role }, owner?.id),
-  });
+  const normalize = (report) => {
+    const targetAccountType = accountTypeLabel({ id: report.target_id, role: report.target_role }, owner?.id);
+    return {
+      ...report,
+      target_account_type: targetAccountType,
+      author_account_type: targetAccountType,
+      can_resolve: canResolveReportForTarget(actor, { id: report.target_id, role: report.target_role }, owner?.id),
+    };
+  };
   const items = [
     ...(postReports || []).map((report) => ({ ...normalize(report), kind: "post" })),
     ...(playerReports || []).map((report) => ({ ...normalize(report), kind: "player" })),

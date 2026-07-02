@@ -102,10 +102,12 @@ const formatDate = (value) =>
 
 const isAdmin = () => state.me?.role === "admin";
 const isOwner = () => Boolean(state.me?.is_owner);
+const isOwnerAccountType = (value) => value === "服主";
 const isOwnUsername = (username) =>
   Boolean(state.me?.username && String(username || "").toLowerCase() === String(state.me.username).toLowerCase());
 const ownsContent = (item, author) =>
   Boolean(state.me && (Number(item?.author_id) === Number(state.me.id) || isOwnUsername(author || item?.author)));
+const isOwnerContent = (item) => isOwnerAccountType(item?.author_account_type);
 const canManageContentItem = (item, author) => {
   if (!state.me) return false;
   if (ownsContent(item, author)) return true;
@@ -633,7 +635,7 @@ const renderAuth = () => {
   });
 
   if (!state.me) {
-    actions.innerHTML = "";
+    actions.innerHTML = `<a class="button small primary" href="/login.html">登录</a>`;
     return;
   }
 
@@ -688,7 +690,7 @@ const renderMaintenanceGate = () => {
         <img class="user-avatar large" src="${activeAvatarSrc(state.me, 48)}" alt="" />
         <div><strong>${escapeHtml(state.me.username)}</strong><p>你已登录，但网站当前维护中，请稍后再来。</p></div>
       </div>`
-    : `<p>网站正在维护中，暂时仅管理员可登录。</p><a class="button primary" href="/login.html">管理员登录</a>`;
+    : `<p>网站正在维护中，暂时仅管理员可登录。</p><a class="button primary" href="/login.html">登录</a>`;
 };
 
 const cardTemplate = (item, type) => {
@@ -699,7 +701,7 @@ const cardTemplate = (item, type) => {
   const canManagePost = type === "post" && canManageContentItem(item, author);
   const canEditPost = type === "post" && page === "forum" && canManagePost;
   const canDeletePost = type === "post" && canManagePost;
-  const canReportPost = type === "post" && Boolean(state.me) && !ownsContent(item, author);
+  const canReportPost = type === "post" && Boolean(state.me) && !ownsContent(item, author) && !isOwnerContent(item);
   return `
     <article class="post-card ${type === "post" ? "forum-card" : ""} ${type === "post" && item.pinned ? "is-pinned" : ""}">
       ${type === "post" && item.pinned ? `<span class="pinned-ribbon">置顶</span>` : ""}
@@ -1218,8 +1220,13 @@ const nextUsernameChangeDate = (profile) => {
 const profileSettingsTemplate = (profile) => {
   if (!profile?.isSelf) return "";
   const nextRenameAt = nextUsernameChangeDate(profile);
-  const renameLocked = nextRenameAt && Date.now() < nextRenameAt.getTime();
-  const renameHint = renameLocked ? `下次可修改：${formatDate(nextRenameAt.toISOString())}` : "每 7 天可修改一次。";
+  const canRenameFreely = profile.role === "admin" || profile.isOwner;
+  const renameLocked = !canRenameFreely && nextRenameAt && Date.now() < nextRenameAt.getTime();
+  const renameHint = canRenameFreely
+    ? "服主/管理员可随时修改。"
+    : renameLocked
+      ? `下次可修改：${formatDate(nextRenameAt.toISOString())}`
+      : "每 7 天可修改一次。";
   const characterName = profile.minecraft_name || "";
   return `
     <section class="profile-settings">
@@ -1472,8 +1479,8 @@ const bindContentButtons = () => {
 const headingLevelForOutline = (heading) => Math.max(0, Math.min(3, Number(heading.tagName.slice(1)) - 2));
 
 const submitPostReport = async (postId) => {
-  const reason = await showPromptDialog("请简单说明举报原因，管理员会在后台处理。", {
-    title: "举报帖子",
+  const reason = await showPromptDialog("请说明举报原因，管理员会在后台查看内容并处理。", {
+    title: "举报",
     eyebrow: "社区反馈",
     inputLabel: "举报原因",
     placeholder: "例如：广告、恶意内容、违规发言",
@@ -1492,8 +1499,8 @@ const submitPostReport = async (postId) => {
 };
 
 const submitPlayerReport = async (username) => {
-  const reason = await showPromptDialog("请简单说明举报原因，管理员会在后台处理。", {
-    title: "举报玩家",
+  const reason = await showPromptDialog("请说明举报原因，管理员会在后台查看资料并处理。", {
+    title: "举报",
     eyebrow: "社区反馈",
     inputLabel: "举报原因",
     placeholder: "例如：恶意行为、冒充、骚扰",
@@ -1584,7 +1591,7 @@ const openReader = (type, id) => {
   const author = item.author || "管理员";
   const authorUser = authorUserFromItem(item, author);
   const accountType = item.author_account_type || (type === "announcement" ? "管理员" : "成员");
-  const canReportPost = type === "post" && Boolean(state.me) && !ownsContent(item, author);
+  const canReportPost = type === "post" && Boolean(state.me) && !ownsContent(item, author) && !isOwnerContent(item);
   $("#readerContent").innerHTML = `
     <button class="dialog-close-button" type="button" data-reader-close aria-label="关闭阅读页">×</button>
     <div class="reader-layout ${type === "post" || type === "announcement" ? "has-author-panel" : ""}">
@@ -1619,7 +1626,7 @@ const openReader = (type, id) => {
           canReportPost
             ? `
               <div class="reader-actions">
-                <button class="button ghost small" type="button" data-reader-report="${item.id}">举报帖子</button>
+                <button class="button ghost small" type="button" data-reader-report="${item.id}">举报</button>
               </div>
             `
             : ""
@@ -2109,8 +2116,7 @@ const renderForumProfileCard = () => {
     card.innerHTML = `
       <h2>玩家资料</h2>
       <div class="skin-stage"><img src="/assets/unbound-skin.png" alt="" loading="lazy" /></div>
-      <p>论坛当前只允许管理员账号登录与发布管理。</p>
-      <a class="button primary" href="/login.html">管理员登录</a>
+      <a class="button primary" href="/login.html">登录</a>
     `;
     return;
   }
@@ -2155,8 +2161,8 @@ const renderProfilePage = () => {
       </section>`
     : "";
   const reportPanel =
-    !profile.isSelf && state.me
-      ? `<div class="profile-actions"><button class="button danger" type="button" data-report-player="${escapeHtml(profile.username)}">举报玩家</button></div>`
+    !profile.isSelf && state.me && !profile.isOwner
+      ? `<div class="profile-actions"><button class="button danger" type="button" data-report-player="${escapeHtml(profile.username)}">举报</button></div>`
       : "";
   panel.innerHTML = `
     <div class="profile-page-card">
@@ -2589,13 +2595,30 @@ const renderTrash = async ({ force = false } = {}) => {
   renderTrashRows();
 };
 
+const reportPostReaderItem = (report) => ({
+  id: Number(report.post_id),
+  title: report.post_title || "被举报内容",
+  excerpt: report.post_excerpt || "",
+  content_html: report.post_content_html || "<p>暂无可查看内容。</p>",
+  pinned: Boolean(report.post_pinned),
+  views: Number(report.post_views || 0),
+  created_at: report.post_created_at || report.created_at,
+  updated_at: report.post_updated_at || report.created_at,
+  author_id: report.author_id || report.target_id,
+  author: report.author || "未知用户",
+  author_role: report.target_role || "user",
+  author_account_type: report.author_account_type || "成员",
+  author_minecraft_name: report.author_minecraft_name || "",
+  author_skin_image: report.author_skin_image || "",
+});
+
 const renderReports = () => {
   const table = $("#adminReportsTable");
   if (!table) return;
   const view = adminListView("reports", state.reports, (report, query) =>
     adminSearchMatches(
       query,
-      `${report.kind === "player" ? "玩家举报" : "帖子举报"} ${report.post_title || ""} ${report.target_user || ""} ${report.reporter || ""} ${report.author || ""} ${report.reason || ""} ${formatDate(report.created_at)}`,
+      `举报 ${report.post_title || ""} ${report.target_user || ""} ${report.reporter || ""} ${report.author || ""} ${report.reason || ""} ${formatDate(report.created_at)}`,
       report.reporter,
     ),
   );
@@ -2604,7 +2627,7 @@ const renderReports = () => {
         .map(
           (report) => {
             const isPlayerReport = report.kind === "player";
-            const title = isPlayerReport ? `玩家举报 · ${report.target_user}` : report.post_title;
+            const title = isPlayerReport ? `举报 · ${report.target_user}` : `举报 · ${report.post_title}`;
             const target = isPlayerReport ? `被举报玩家 ${report.target_user}` : `作者 ${report.author}`;
             return `
             <div class="table-row report-row">
@@ -2626,10 +2649,17 @@ const renderReports = () => {
         )
         .join("")
     : `<div class="empty">${view.total ? "没有匹配举报。" : "暂无待处理举报。"}</div>`;
-  table.innerHTML = `${adminListToolsHtml("reports", view, "搜索帖子、举报人、作者、原因")}${rows}${adminPaginationHtml("reports", view)}`;
+  table.innerHTML = `${adminListToolsHtml("reports", view, "搜索举报、举报人、作者、原因")}${rows}${adminPaginationHtml("reports", view)}`;
   bindAdminListControls("reports", renderReports);
   $$("[data-open-report-post]").forEach((button) => {
-    button.addEventListener("click", () => openReader("post", Number(button.dataset.openReportPost)));
+    button.addEventListener("click", () => {
+      const postId = Number(button.dataset.openReportPost);
+      if (!state.posts.some((entry) => Number(entry.id) === postId)) {
+        const report = state.reports.find((entry) => entry.kind === "post" && Number(entry.post_id) === postId);
+        if (report) state.posts = [reportPostReaderItem(report), ...state.posts.filter((entry) => Number(entry.id) !== postId)];
+      }
+      openReader("post", postId);
+    });
   });
   $$("[data-resolve-report]").forEach((button) => {
     button.addEventListener("click", async () => {

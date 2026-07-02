@@ -5702,3 +5702,52 @@ body[data-page="admin"] .admin-list-status,
     width: 72px;
   }
 }
+
+/* Links keep a Word-like hyperlink underline in both the editor and reader. */
+.rich-editor a,
+.reader-body a {
+  color: #1d5fd3;
+  text-decoration-line: underline !important;
+  text-decoration-style: dashed;
+  text-decoration-thickness: 1.4px;
+  text-underline-offset: 0.18em;
+}
+
+@media (max-width: 620px) {
+  body[data-page="profile"] {
+    overflow-x: hidden;
+  }
+
+  body[data-page="profile"] main,
+  body[data-page="profile"] .profile-page,
+  body[data-page="profile"] .profile-panel,
+  body[data-page="profile"] .profile-posts,
+  body[data-page="profile"] .profile-page-card,
+  body[data-page="profile"] .profile-post-toolbar,
+  body[data-page="profile"] .profile-post-list {
+    box-sizing: border-box;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  body[data-page="profile"] .profile-page {
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr);
+    padding-inline: 14px;
+    overflow: hidden;
+  }
+
+  body[data-page="profile"] .profile-post-toolbar {
+    overflow: hidden;
+  }
+
+  body[data-page="profile"] .profile-post-toolbar .forum-toolbar-actions.is-search-open {
+    grid-template-columns: minmax(0, 1fr) 36px;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  body[data-page="profile"] .profile-post-toolbar .forum-search-panel.is-open {
+    max-width: 100%;
+  }
+}
