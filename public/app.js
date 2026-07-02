@@ -753,14 +753,26 @@ const adminListToolsHtml = (key, view, placeholder) => {
   const list = adminListState(key);
   const isOpen = list.open || Boolean(list.query);
   const status = view.query ? `已筛选 ${view.filtered.length}/${view.total} 条` : `显示 ${view.start + 1}-${view.end} / ${view.total} 条`;
+  const panelId = `adminSearchPanel-${key}`;
+  const inputId = `adminSearchInput-${key}`;
   return `
-    <div class="admin-list-tools ${isOpen ? "is-open" : ""}">
-      <button class="button small ghost admin-search-toggle" type="button" data-admin-search-toggle="${key}" aria-expanded="${isOpen}">${isOpen ? "收起" : "搜索"}</button>
-      <label class="admin-list-search">
-        <span>搜索</span>
-        <input type="search" data-admin-search="${key}" value="${escapeHtml(list.query)}" placeholder="${escapeHtml(placeholder)}" ${isOpen ? "" : 'tabindex="-1"'} />
-      </label>
+    <div class="admin-list-tools ${isOpen ? "is-open" : ""}" data-admin-search-root="${key}">
       <span class="admin-list-status">${status}</span>
+      <div class="forum-toolbar-actions admin-search-actions ${isOpen ? "is-search-open" : ""} ${list.query ? "has-search-query" : ""}" data-admin-search-actions="${key}">
+        <div class="forum-search-panel admin-search-panel ${isOpen ? "is-open" : ""}" id="${panelId}" data-admin-search-panel="${key}" aria-hidden="${isOpen ? "false" : "true"}">
+          <div class="forum-search-box">
+            <input id="${inputId}" type="search" autocomplete="off" data-admin-search="${key}" value="${escapeHtml(list.query)}" placeholder="${escapeHtml(placeholder)}" aria-label="搜索后台列表" ${isOpen ? "" : 'tabindex="-1"'} />
+            <button class="forum-search-clear" type="button" data-admin-search-clear="${key}" aria-label="清空搜索">×</button>
+          </div>
+          <div class="forum-search-status">${view.query ? status : ""}</div>
+        </div>
+        <button class="forum-search-toggle admin-search-toggle" type="button" data-admin-search-toggle="${key}" aria-controls="${panelId}" aria-expanded="${isOpen}" aria-label="搜索后台列表">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="11" cy="11" r="6.5"></circle>
+            <path d="M16.2 16.2 21 21"></path>
+          </svg>
+        </button>
+      </div>
     </div>
   `;
 };
@@ -777,14 +789,37 @@ const adminPaginationHtml = (key, view) =>
     : "";
 
 const bindAdminListControls = (key, render) => {
-  $$(`[data-admin-search-toggle="${key}"]`).forEach((button) => {
-    button.addEventListener("click", () => {
-      const list = adminListState(key);
-      list.open = !(list.open || list.query);
-      render();
-      if (!list.open) return;
-      window.requestAnimationFrame(() => $(`[data-admin-search="${key}"]`)?.focus({ preventScroll: true }));
+  const syncSearchShell = (open) => {
+    const list = adminListState(key);
+    const hasQuery = Boolean(list.query.trim());
+    list.open = open;
+    $$(`[data-admin-search-root="${key}"]`).forEach((root) => {
+      const expanded = open || hasQuery;
+      root.classList.toggle("is-open", expanded);
+      const actions = root.querySelector(`[data-admin-search-actions="${key}"]`);
+      const panel = root.querySelector(`[data-admin-search-panel="${key}"]`);
+      const toggle = root.querySelector(`[data-admin-search-toggle="${key}"]`);
+      const input = root.querySelector(`[data-admin-search="${key}"]`);
+      actions?.classList.toggle("is-search-open", expanded);
+      actions?.classList.toggle("has-search-query", hasQuery);
+      panel?.classList.toggle("is-open", expanded);
+      panel?.setAttribute("aria-hidden", String(!expanded));
+      toggle?.setAttribute("aria-expanded", String(expanded));
+      if (input) input.tabIndex = expanded ? 0 : -1;
     });
+  };
+
+  $$(`[data-admin-search-toggle="${key}"]`).forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const list = adminListState(key);
+      syncSearchShell(!(list.open || list.query.trim()));
+      if (!(list.open || list.query.trim())) return;
+      window.setTimeout(() => $(`[data-admin-search="${key}"]`)?.focus({ preventScroll: true }), prefersReducedMotion() ? 0 : 40);
+    });
+  });
+  $$(`[data-admin-search-panel="${key}"]`).forEach((panel) => {
+    panel.addEventListener("click", (event) => event.stopPropagation());
   });
   $$(`[data-admin-search="${key}"]`).forEach((input) => {
     input.addEventListener("input", (event) => {
@@ -806,6 +841,15 @@ const bindAdminListControls = (key, render) => {
         list.query = "";
         list.page = 1;
       }
+      list.open = false;
+      render();
+    });
+  });
+  $$(`[data-admin-search-clear="${key}"]`).forEach((button) => {
+    button.addEventListener("click", () => {
+      const list = adminListState(key);
+      list.query = "";
+      list.page = 1;
       list.open = false;
       render();
     });
