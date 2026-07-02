@@ -8,6 +8,12 @@ const state = {
   stats: null,
   admins: [],
   reports: [],
+  comments: {},
+  commentQuote: null,
+  commentEditing: null,
+  commentHighlightId: null,
+  commentUndoItems: [],
+  commentUndoTimers: {},
   profile: null,
   trash: { announcements: [], posts: [] },
   trashLoaded: false,
@@ -1518,6 +1524,356 @@ const submitPlayerReport = async (username) => {
   return true;
 };
 
+const commentToolbarTemplate = () => `
+  <div class="comment-toolbar-shell" data-comment-toolbar-shell>
+    <div class="comment-toolbar-drawer" data-comment-toolbar-drawer aria-hidden="true">
+      <button type="button" data-comment-command="bold" title="粗体"><strong>B</strong></button>
+      <button type="button" data-comment-command="italic" title="斜体"><em>I</em></button>
+      <button type="button" data-comment-command="underline" title="下划线"><u>U</u></button>
+      <button type="button" data-comment-command="insertUnorderedList" title="无序列表">•</button>
+      <button type="button" data-comment-blockquote title="引用块">“”</button>
+      <button type="button" data-comment-link title="链接">链</button>
+      <button type="button" data-comment-command="removeFormat" title="清除格式">清</button>
+    </div>
+    <button class="comment-toolbar-toggle" type="button" data-comment-toolbar-toggle aria-expanded="false" aria-label="展开回复工具栏">工具</button>
+  </div>
+`;
+
+const commentComposerTemplate = (postId) => {
+  if (!state.me) {
+    return `<div class="comment-login"><span>登录后可以回复。</span><a class="button small primary" href="/login.html">登录</a></div>`;
+  }
+  const quote = state.commentQuote?.postId === postId ? state.commentQuote : null;
+  const editing = state.commentEditing?.postId === postId ? state.commentEditing : null;
+  return `
+    <form class="comment-composer" data-comment-composer="${postId}">
+      <div class="comment-composer-head">
+        <strong>${editing ? "编辑回复" : "发表评论"}</strong>
+        ${editing ? `<button class="button small ghost" type="button" data-comment-cancel-edit>取消编辑</button>` : ""}
+      </div>
+      ${
+        quote && !editing
+          ? `<div class="comment-quote-preview">
+              <span>引用 ${escapeHtml(quote.author)}</span>
+              <p>${escapeHtml(quote.excerpt)}</p>
+              <button type="button" data-comment-clear-quote aria-label="取消引用">×</button>
+            </div>`
+          : ""
+      }
+      ${commentToolbarTemplate()}
+      <div class="comment-editor rich-editor" contenteditable="true" role="textbox" data-comment-editor aria-label="回复内容">${editing ? editing.contentHtml : ""}</div>
+      <div class="comment-submit-row">
+        <button class="button primary small" type="submit">${editing ? "保存回复" : "发布回复"}</button>
+      </div>
+    </form>
+  `;
+};
+
+const commentUndoTemplate = (postId) => {
+  const items = state.commentUndoItems.filter((item) => item.postId === postId && item.expiresAt > Date.now());
+  if (!items.length) return "";
+  return `
+    <div class="comment-undo-list">
+      ${items
+        .map(
+          (item) => `
+            <div class="comment-undo" data-comment-undo="${item.id}">
+              <span>${item.type === "delete" ? "回复已删除" : "回复已更新"}，30 秒内可以撤销。</span>
+              <button class="button small ghost" type="button" data-comment-undo-action="${item.id}">撤销</button>
+            </div>
+          `,
+        )
+        .join("")}
+    </div>
+  `;
+};
+
+const commentTemplate = (comment, postId) => {
+  const deleted = Boolean(comment.deleted_at);
+  const authorUser = authorUserFromItem(comment, comment.author);
+  const canQuote = Boolean(state.me && !deleted && !ownsContent(comment, comment.author));
+  const canReport = Boolean(state.me && comment.can_report && !isOwnerContent(comment));
+  return `
+    <article class="comment-card ${deleted ? "is-deleted" : ""} ${Number(state.commentHighlightId) === Number(comment.id) ? "is-highlighted" : ""}" id="comment-${comment.id}" data-comment-id="${comment.id}">
+      <div class="comment-avatar">
+        <img src="${activeAvatarSrc(authorUser, 32)}" alt="" loading="lazy" />
+      </div>
+      <div class="comment-main">
+        <div class="comment-meta">
+          <a class="author-link" href="${profileHref(comment.author)}">${escapeHtml(comment.author)}</a>
+          <span>${escapeHtml(comment.author_account_type || "成员")}</span>
+          <time>${formatDate(comment.created_at)}</time>
+          ${comment.updated_at && comment.updated_at !== comment.created_at ? `<em>已编辑</em>` : ""}
+        </div>
+        ${
+          deleted
+            ? `<p class="comment-deleted">这条回复已删除。</p>`
+            : `
+              ${
+                comment.quote_excerpt
+                  ? `<blockquote class="comment-quote"><strong>${escapeHtml(comment.quote_author || "被引用回复")}</strong><span>${escapeHtml(comment.quote_excerpt)}</span></blockquote>`
+                  : ""
+              }
+              <div class="comment-body reader-body">${comment.content_html}</div>
+            `
+        }
+      </div>
+      <div class="comment-actions">
+        ${canQuote ? `<button class="comment-icon-button" type="button" data-comment-quote="${comment.id}" title="引用回复" aria-label="引用回复"><span aria-hidden="true">引</span></button>` : ""}
+        ${canReport ? `<button class="comment-icon-button danger" type="button" data-comment-report="${comment.id}" title="举报回复" aria-label="举报回复"><span aria-hidden="true">!</span></button>` : ""}
+        ${comment.can_edit ? `<button class="button small ghost" type="button" data-comment-edit="${comment.id}">编辑</button>` : ""}
+        ${comment.can_delete ? `<button class="button small danger" type="button" data-comment-delete="${comment.id}">删除</button>` : ""}
+      </div>
+    </article>
+  `;
+};
+
+const renderComments = (postId) => {
+  const section = $(`[data-comments-for="${postId}"]`);
+  if (!section) return;
+  const comments = state.comments[postId] || [];
+  const visibleCount = comments.filter((comment) => !comment.deleted_at).length;
+  section.innerHTML = `
+    <div class="comments-head">
+      <div>
+        <h2>回复</h2>
+        <span>${visibleCount} 条回复</span>
+      </div>
+    </div>
+    ${commentUndoTemplate(postId)}
+    ${commentComposerTemplate(postId)}
+    <div class="comments-list">
+      ${comments.length ? comments.map((comment) => commentTemplate(comment, postId)).join("") : `<div class="empty">还没有回复。</div>`}
+    </div>
+  `;
+  bindPostComments(postId);
+  if (state.commentHighlightId) {
+    const highlighted = section.querySelector(`#comment-${state.commentHighlightId}`);
+    highlighted?.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "center" });
+  }
+};
+
+const loadPostComments = async (postId) => {
+  const section = $(`[data-comments-for="${postId}"]`);
+  if (section) section.innerHTML = `<div class="empty">正在加载回复...</div>`;
+  const result = await api(`/posts/${postId}/comments`);
+  state.comments[postId] = result.items || [];
+  renderComments(postId);
+};
+
+const commentById = (postId, commentId) => (state.comments[postId] || []).find((comment) => Number(comment.id) === Number(commentId));
+const upsertComment = (postId, comment) => {
+  const list = state.comments[postId] || [];
+  state.comments[postId] = [comment, ...list.filter((entry) => Number(entry.id) !== Number(comment.id))].sort(
+    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+  );
+};
+
+const removeCommentUndo = (undoId, rerenderPostId = null) => {
+  window.clearTimeout(state.commentUndoTimers[undoId]);
+  delete state.commentUndoTimers[undoId];
+  state.commentUndoItems = state.commentUndoItems.filter((item) => item.id !== undoId);
+  if (rerenderPostId) renderComments(rerenderPostId);
+};
+
+const startCommentUndo = (item) => {
+  state.commentUndoItems = [...state.commentUndoItems, item];
+  window.clearTimeout(state.commentUndoTimers[item.id]);
+  state.commentUndoTimers[item.id] = window.setTimeout(() => removeCommentUndo(item.id, item.postId), 30000);
+};
+
+const focusCommentComposer = (postId) => {
+  renderComments(postId);
+  const editor = $(`[data-comments-for="${postId}"] [data-comment-editor]`);
+  editor?.focus({ preventScroll: true });
+  editor?.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "center" });
+};
+
+const insertCommentLink = async (editor) => {
+  const selection = window.getSelection?.();
+  const savedRange = selection?.rangeCount ? selection.getRangeAt(0).cloneRange() : null;
+  const url = await showPromptDialog("输入需要插入的链接地址。", {
+    title: "插入链接",
+    eyebrow: "回复工具",
+    inputLabel: "链接地址",
+    placeholder: "https://example.com",
+    confirmLabel: "插入链接",
+    normalize: (value) => value.trim(),
+  });
+  const href = normalizeEditorLinkHref(url);
+  if (!href) {
+    if (url) showToast("链接地址格式不正确");
+    return;
+  }
+  editor.focus({ preventScroll: true });
+  if (rangeBelongsToEditor(savedRange, editor)) {
+    const range = savedRange.cloneRange();
+    const link = document.createElement("a");
+    link.href = href;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    if (range.collapsed) {
+      link.textContent = url;
+    } else {
+      link.append(range.extractContents());
+    }
+    range.insertNode(link);
+    range.setStartAfter(link);
+    range.collapse(true);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    editor.normalize();
+    return;
+  }
+  document.execCommand("createLink", false, href);
+};
+
+const submitCommentReport = async (commentId) => {
+  const reason = await showPromptDialog("请说明举报原因，管理员会在后台查看回复并处理。", {
+    title: "举报",
+    eyebrow: "社区反馈",
+    inputLabel: "举报原因",
+    placeholder: "例如：恶意攻击、广告、违规内容",
+    maxLength: 500,
+    confirmLabel: "提交举报",
+    normalize: (value) => value.trim(),
+    validate: (value) => (value.length >= 4 ? "" : "请填写至少 4 个字"),
+  });
+  if (!reason) return false;
+  const result = await api(`/comments/${commentId}/reports`, { method: "POST", body: JSON.stringify({ reason }) });
+  showToast(result.ownerOnly ? "举报已提交，将由服主处理" : "举报已提交，管理员会处理");
+  return true;
+};
+
+const bindPostComments = (postId) => {
+  const section = $(`[data-comments-for="${postId}"]`);
+  if (!section) return;
+  section.querySelector("[data-comment-toolbar-toggle]")?.addEventListener("click", (event) => {
+    const shell = event.currentTarget.closest("[data-comment-toolbar-shell]");
+    const open = !shell.classList.contains("is-open");
+    shell.classList.toggle("is-open", open);
+    event.currentTarget.setAttribute("aria-expanded", String(open));
+    event.currentTarget.setAttribute("aria-label", open ? "收回回复工具栏" : "展开回复工具栏");
+    shell.querySelector("[data-comment-toolbar-drawer]")?.setAttribute("aria-hidden", String(!open));
+  });
+  section.querySelectorAll("[data-comment-command], [data-comment-blockquote], [data-comment-link]").forEach((button) => {
+    button.addEventListener("pointerdown", (event) => event.preventDefault());
+  });
+  section.querySelectorAll("[data-comment-command]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const editor = section.querySelector("[data-comment-editor]");
+      editor?.focus({ preventScroll: true });
+      document.execCommand(button.dataset.commentCommand, false, null);
+    });
+  });
+  section.querySelector("[data-comment-blockquote]")?.addEventListener("click", () => {
+    const editor = section.querySelector("[data-comment-editor]");
+    editor?.focus({ preventScroll: true });
+    document.execCommand("formatBlock", false, "BLOCKQUOTE");
+  });
+  section.querySelector("[data-comment-link]")?.addEventListener("click", async () => {
+    const editor = section.querySelector("[data-comment-editor]");
+    if (editor) await insertCommentLink(editor);
+  });
+  section.querySelector("[data-comment-clear-quote]")?.addEventListener("click", () => {
+    state.commentQuote = null;
+    renderComments(postId);
+  });
+  section.querySelector("[data-comment-cancel-edit]")?.addEventListener("click", () => {
+    state.commentEditing = null;
+    renderComments(postId);
+  });
+  section.querySelector("[data-comment-composer]")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const editor = section.querySelector("[data-comment-editor]");
+    const contentHtml = editor?.innerHTML.trim() || "";
+    if (!textFromHtml(contentHtml)) {
+      showToast("回复内容不能为空");
+      return;
+    }
+    if (state.commentEditing?.postId === postId) {
+      const editing = state.commentEditing;
+      const result = await api(`/comments/${editing.id}`, { method: "PUT", body: JSON.stringify({ contentHtml }) });
+      upsertComment(postId, result.comment);
+      state.commentEditing = null;
+      startCommentUndo({
+        id: `edit-${result.comment.id}-${Date.now()}`,
+        type: "edit",
+        postId,
+        commentId: result.comment.id,
+        previousHtml: editing.previousHtml,
+        expiresAt: Date.now() + 30000,
+      });
+      renderComments(postId);
+      showToast("回复已更新，可在 30 秒内撤销");
+      return;
+    }
+    const body = { contentHtml };
+    if (state.commentQuote?.postId === postId) body.quoteCommentId = state.commentQuote.id;
+    const result = await api(`/posts/${postId}/comments`, { method: "POST", body: JSON.stringify(body) });
+    upsertComment(postId, result.comment);
+    state.commentQuote = null;
+    renderComments(postId);
+    showToast("回复已发布");
+  });
+  section.querySelectorAll("[data-comment-quote]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const comment = commentById(postId, button.dataset.commentQuote);
+      if (!comment) return;
+      state.commentEditing = null;
+      state.commentQuote = { postId, id: comment.id, author: comment.author, excerpt: textFromHtml(comment.content_html).slice(0, 120) };
+      focusCommentComposer(postId);
+    });
+  });
+  section.querySelectorAll("[data-comment-report]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      await submitCommentReport(button.dataset.commentReport);
+    });
+  });
+  section.querySelectorAll("[data-comment-edit]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const comment = commentById(postId, button.dataset.commentEdit);
+      if (!comment) return;
+      state.commentQuote = null;
+      state.commentEditing = { postId, id: comment.id, contentHtml: comment.content_html, previousHtml: comment.content_html };
+      focusCommentComposer(postId);
+    });
+  });
+  section.querySelectorAll("[data-comment-delete]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const comment = commentById(postId, button.dataset.commentDelete);
+      if (!comment) return;
+      await api(`/comments/${comment.id}`, { method: "DELETE" });
+      upsertComment(postId, { ...comment, content_html: "", deleted_at: new Date().toISOString(), can_edit: false, can_delete: false, can_report: false });
+      startCommentUndo({
+        id: `delete-${comment.id}-${Date.now()}`,
+        type: "delete",
+        postId,
+        commentId: comment.id,
+        expiresAt: Date.now() + 30000,
+      });
+      renderComments(postId);
+      showToast("回复已删除，可在 30 秒内撤销");
+    });
+  });
+  section.querySelectorAll("[data-comment-undo-action]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const undo = state.commentUndoItems.find((item) => item.id === button.dataset.commentUndoAction);
+      if (!undo) return;
+      if (undo.type === "edit") {
+        const result = await api(`/comments/${undo.commentId}`, { method: "PUT", body: JSON.stringify({ contentHtml: undo.previousHtml }) });
+        upsertComment(postId, result.comment);
+      } else {
+        const result = await api(`/comments/${undo.commentId}/restore`, { method: "POST" });
+        upsertComment(postId, result.comment);
+      }
+      removeCommentUndo(undo.id);
+      renderComments(postId);
+      showToast("已撤销");
+    });
+  });
+};
+
 const setupReaderOutline = (readerContent) => {
   const main = readerContent?.querySelector(".reader-main");
   const body = readerContent?.querySelector(".reader-body");
@@ -1641,6 +1997,7 @@ const openReader = (type, id) => {
           </aside>
           <div class="reader-body">${item.content_html}</div>
         </div>
+        ${type === "post" ? `<section class="comments-panel" data-comments-for="${item.id}" aria-label="帖子回复"></section>` : ""}
       </div>
     </div>
   `;
@@ -1652,6 +2009,14 @@ const openReader = (type, id) => {
   const serverStatusBinder = globalThis.bindServerStatusCardActions;
   if (typeof serverStatusBinder === "function") serverStatusBinder($("#readerContent"));
   openDialog($("#readerDialog"));
+  if (type === "post") {
+    state.commentQuote = null;
+    state.commentEditing = null;
+    loadPostComments(id).catch((error) => {
+      const section = $(`[data-comments-for="${id}"]`);
+      if (section) section.innerHTML = `<div class="empty">${escapeHtml(error.message || "回复加载失败")}</div>`;
+    });
+  }
 };
 
 const command = (name, value = null) => {
@@ -2604,12 +2969,12 @@ const reportPostReaderItem = (report) => ({
   views: Number(report.post_views || 0),
   created_at: report.post_created_at || report.created_at,
   updated_at: report.post_updated_at || report.created_at,
-  author_id: report.author_id || report.target_id,
-  author: report.author || "未知用户",
-  author_role: report.target_role || "user",
-  author_account_type: report.author_account_type || "成员",
-  author_minecraft_name: report.author_minecraft_name || "",
-  author_skin_image: report.author_skin_image || "",
+  author_id: report.kind === "comment" ? report.post_author_id || report.author_id || report.target_id : report.author_id || report.target_id,
+  author: report.kind === "comment" ? report.post_author || report.author || "未知用户" : report.author || "未知用户",
+  author_role: report.kind === "comment" ? report.post_author_role || report.target_role || "user" : report.target_role || "user",
+  author_account_type: report.kind === "comment" ? report.post_author_account_type || report.author_account_type || "成员" : report.author_account_type || "成员",
+  author_minecraft_name: report.kind === "comment" ? report.post_author_minecraft_name || report.author_minecraft_name || "" : report.author_minecraft_name || "",
+  author_skin_image: report.kind === "comment" ? report.post_author_skin_image || report.author_skin_image || "" : report.author_skin_image || "",
 });
 
 const renderReports = () => {
@@ -2618,7 +2983,7 @@ const renderReports = () => {
   const view = adminListView("reports", state.reports, (report, query) =>
     adminSearchMatches(
       query,
-      `举报 ${report.post_title || ""} ${report.target_user || ""} ${report.reporter || ""} ${report.author || ""} ${report.reason || ""} ${formatDate(report.created_at)}`,
+      `举报 ${report.post_title || ""} ${report.target_user || ""} ${report.reporter || ""} ${report.author || ""} ${report.reason || ""} ${textFromHtml(report.comment_content_html)} ${formatDate(report.created_at)}`,
       report.reporter,
     ),
   );
@@ -2627,22 +2992,26 @@ const renderReports = () => {
         .map(
           (report) => {
             const isPlayerReport = report.kind === "player";
-            const title = isPlayerReport ? `举报 · ${report.target_user}` : `举报 · ${report.post_title}`;
+            const isCommentReport = report.kind === "comment";
+            const title = isPlayerReport ? `举报 · ${report.target_user}` : isCommentReport ? `举报 · 回复 · ${report.post_title}` : `举报 · ${report.post_title}`;
             const target = isPlayerReport ? `被举报玩家 ${report.target_user}` : `作者 ${report.author}`;
             return `
             <div class="table-row report-row">
               <div>
                 <strong>${escapeHtml(title)}</strong>
                 <span>举报人 ${escapeHtml(report.reporter)} · ${escapeHtml(target)} · ${formatDate(report.created_at)}</span>
+                ${isCommentReport ? `<p class="report-reason">${escapeHtml(textFromHtml(report.comment_content_html).slice(0, 120))}</p>` : ""}
                 <p class="report-reason">${escapeHtml(report.reason)}</p>
               </div>
               <div class="row-actions">
                 ${
                   isPlayerReport
                     ? `<a class="button small ghost" href="${profileHref(report.target_user)}">查看资料</a>`
-                    : `<button class="button small ghost" type="button" data-open-report-post="${report.post_id}">查看帖子</button>`
+                    : isCommentReport
+                      ? `<button class="button small ghost" type="button" data-open-report-comment="${report.comment_id}" data-open-report-post="${report.post_id}">查看回复</button>`
+                      : `<button class="button small ghost" type="button" data-open-report-post="${report.post_id}">查看帖子</button>`
                 }
-                <button class="button small primary" type="button" data-resolve-report="${report.id}" data-resolve-report-kind="${isPlayerReport ? "player" : "post"}">标记已处理</button>
+                <button class="button small primary" type="button" data-resolve-report="${report.id}" data-resolve-report-kind="${isPlayerReport ? "player" : isCommentReport ? "comment" : "post"}">标记已处理</button>
               </div>
             </div>`;
           },
@@ -2655,9 +3024,10 @@ const renderReports = () => {
     button.addEventListener("click", () => {
       const postId = Number(button.dataset.openReportPost);
       if (!state.posts.some((entry) => Number(entry.id) === postId)) {
-        const report = state.reports.find((entry) => entry.kind === "post" && Number(entry.post_id) === postId);
+        const report = state.reports.find((entry) => (entry.kind === "post" || entry.kind === "comment") && Number(entry.post_id) === postId);
         if (report) state.posts = [reportPostReaderItem(report), ...state.posts.filter((entry) => Number(entry.id) !== postId)];
       }
+      state.commentHighlightId = button.dataset.openReportComment ? Number(button.dataset.openReportComment) : null;
       openReader("post", postId);
     });
   });

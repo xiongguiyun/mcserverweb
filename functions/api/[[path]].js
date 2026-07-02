@@ -6,6 +6,7 @@ const json = (data, status = 200, headers = {}) =>
 
 const textEncoder = new TextEncoder();
 const usernameChangeCooldownMs = 7 * 24 * 60 * 60 * 1000;
+const commentUndoWindowMs = 30 * 1000;
 const maxSkinImageBytes = 256 * 1024;
 const maxSkinImageDataUrlLength = Math.ceil(maxSkinImageBytes * 1.4) + 64;
 
@@ -136,6 +137,36 @@ const ensureForumAdminSchema = async (env) => {
   ).run();
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_post_reports_status ON post_reports(status, created_at DESC)").run();
   await env.DB.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_post_reports_unique_open ON post_reports(post_id, reporter_id) WHERE status = 'open'").run();
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS comments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+      author_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      content_html TEXT NOT NULL,
+      quote_comment_id INTEGER REFERENCES comments(id) ON DELETE SET NULL,
+      quote_author TEXT,
+      quote_excerpt TEXT,
+      deleted_at TEXT,
+      deleted_by INTEGER REFERENCES users(id),
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`,
+  ).run();
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS comment_reports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      comment_id INTEGER NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
+      reporter_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      reason TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'resolved')),
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      resolved_at TEXT
+    )`,
+  ).run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_comments_post_created_at ON comments(post_id, created_at DESC)").run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_comments_deleted_at ON comments(deleted_at)").run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_comment_reports_status ON comment_reports(status, created_at DESC)").run();
+  await env.DB.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_comment_reports_unique_open ON comment_reports(comment_id, reporter_id) WHERE status = 'open'").run();
   try {
     await env.DB.prepare("ALTER TABLE posts ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0").run();
   } catch (error) {
@@ -712,6 +743,18 @@ const canResolveReportForTarget = (actor, target, ownerId) => {
   return !targetNeedsOwnerReview(target, ownerId);
 };
 
+const canManageAuthoredSnapshot = (actor, author, ownerId) => {
+  if (!actor || !author) return false;
+  if (Number(actor.id) === Number(author.id)) return true;
+  if (actor.role !== "admin") return false;
+  if (ownerId && Number(actor.id) === Number(ownerId)) return true;
+  if (ownerId && Number(author.id) === Number(ownerId)) return false;
+  return author.role !== "admin";
+};
+
+const canReportAuthoredSnapshot = (actor, author, ownerId) =>
+  Boolean(actor && author && Number(actor.id) !== Number(author.id) && !(ownerId && Number(author.id) === Number(ownerId)));
+
 const me = async (env, request) => {
   const user = await currentUser(env, request);
   const owner = await ownerUser(env);
@@ -1197,6 +1240,155 @@ const reportPost = async (env, request, id) => {
   return json({ ok: true, ownerOnly: user.role === "admin" && targetNeedsOwnerReview({ id: post.author_id, role: post.author_role }, owner?.id) }, 201);
 };
 
+const commentPayload = async (request) => {
+  const body = await readBody(request);
+  const contentHtml = sanitizeHtml(body.contentHtml).slice(0, 12000);
+  const excerpt = excerptFromHtml(contentHtml);
+  if (!excerpt) throw new Response(JSON.stringify({ error: "回复内容不能为空" }), { status: 400 });
+  return { contentHtml, quoteCommentId: Number(body.quoteCommentId || 0) || null };
+};
+
+const commentSelect = `
+  SELECT comments.id, comments.post_id, comments.author_id, comments.content_html,
+         comments.quote_comment_id, comments.quote_author, comments.quote_excerpt,
+         comments.deleted_at, comments.deleted_by, comments.created_at, comments.updated_at,
+         users.username AS author, users.role AS author_role,
+         users.minecraft_name AS author_minecraft_name, users.skin_image AS author_skin_image
+  FROM comments
+  JOIN users ON users.id = comments.author_id
+`;
+
+const publicComment = (comment, actor, ownerId) => {
+  const author = { id: comment.author_id, role: comment.author_role };
+  const deleted = Boolean(comment.deleted_at);
+  return {
+    id: comment.id,
+    post_id: comment.post_id,
+    author_id: comment.author_id,
+    author: comment.author,
+    author_role: comment.author_role,
+    author_account_type: accountTypeLabel(author, ownerId),
+    author_minecraft_name: comment.author_minecraft_name || "",
+    author_skin_image: comment.author_skin_image || "",
+    content_html: deleted ? "" : comment.content_html,
+    quote_comment_id: comment.quote_comment_id || null,
+    quote_author: comment.quote_author || "",
+    quote_excerpt: comment.quote_excerpt || "",
+    deleted_at: comment.deleted_at || "",
+    deleted_by: comment.deleted_by || null,
+    created_at: comment.created_at,
+    updated_at: comment.updated_at,
+    can_edit: !deleted && canManageAuthoredSnapshot(actor, author, ownerId),
+    can_delete: !deleted && canManageAuthoredSnapshot(actor, author, ownerId),
+    can_report: !deleted && canReportAuthoredSnapshot(actor, author, ownerId),
+  };
+};
+
+const commentById = async (env, id) => env.DB.prepare(`${commentSelect} WHERE comments.id = ?`).bind(id).first();
+
+const listPostComments = async (env, request, postId) => {
+  await ensureForumAdminSchema(env);
+  const actor = await currentUser(env, request);
+  const post = await env.DB.prepare("SELECT id FROM posts WHERE id = ? AND deleted_at IS NULL").bind(postId).first();
+  if (!post) return json({ error: "帖子不存在" }, 404);
+  const owner = await ownerUser(env);
+  const { results } = await env.DB.prepare(`${commentSelect} WHERE comments.post_id = ? ORDER BY comments.created_at ASC LIMIT 200`).bind(postId).all();
+  return json({ items: (results || []).map((comment) => publicComment(comment, actor, owner?.id)) });
+};
+
+const createComment = async (env, request, postId) => {
+  await ensureForumAdminSchema(env);
+  const user = await requireUser(env, request);
+  const post = await env.DB.prepare("SELECT id FROM posts WHERE id = ? AND deleted_at IS NULL").bind(postId).first();
+  if (!post) return json({ error: "帖子不存在" }, 404);
+  const { contentHtml, quoteCommentId } = await commentPayload(request);
+  let quoteAuthor = "";
+  let quoteExcerpt = "";
+  if (quoteCommentId) {
+    const quote = await env.DB.prepare(
+      `${commentSelect} WHERE comments.id = ? AND comments.post_id = ? AND comments.deleted_at IS NULL`,
+    )
+      .bind(quoteCommentId, postId)
+      .first();
+    if (!quote) return json({ error: "引用的回复不存在" }, 404);
+    if (Number(quote.author_id) === Number(user.id)) return json({ error: "请引用其他玩家的回复" }, 400);
+    quoteAuthor = quote.author;
+    quoteExcerpt = excerptFromHtml(quote.content_html).slice(0, 120);
+  }
+  const result = await env.DB.prepare(
+    `INSERT INTO comments (post_id, author_id, content_html, quote_comment_id, quote_author, quote_excerpt)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  )
+    .bind(postId, user.id, contentHtml, quoteCommentId, quoteAuthor || null, quoteExcerpt || null)
+    .run();
+  const owner = await ownerUser(env);
+  const comment =
+    (result.meta?.last_row_id ? await commentById(env, result.meta.last_row_id) : null) ||
+    (await env.DB.prepare(`${commentSelect} WHERE comments.post_id = ? AND comments.author_id = ? ORDER BY comments.id DESC LIMIT 1`).bind(postId, user.id).first());
+  return json({ ok: true, comment: publicComment(comment, user, owner?.id) }, 201);
+};
+
+const updateComment = async (env, request, id) => {
+  await ensureForumAdminSchema(env);
+  const user = await requireUser(env, request);
+  const owner = await ownerUser(env);
+  const comment = await commentById(env, id);
+  if (!comment || comment.deleted_at) return json({ error: "回复不存在" }, 404);
+  if (!canManageAuthoredSnapshot(user, { id: comment.author_id, role: comment.author_role }, owner?.id)) {
+    return json({ error: "不能编辑这个回复" }, 403);
+  }
+  const { contentHtml } = await commentPayload(request);
+  await env.DB.prepare("UPDATE comments SET content_html = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(contentHtml, id).run();
+  return json({ ok: true, comment: publicComment(await commentById(env, id), user, owner?.id) });
+};
+
+const deleteComment = async (env, request, id) => {
+  await ensureForumAdminSchema(env);
+  const user = await requireUser(env, request);
+  const owner = await ownerUser(env);
+  const comment = await commentById(env, id);
+  if (!comment || comment.deleted_at) return json({ error: "回复不存在" }, 404);
+  if (!canManageAuthoredSnapshot(user, { id: comment.author_id, role: comment.author_role }, owner?.id)) {
+    return json({ error: "不能删除这个回复" }, 403);
+  }
+  await env.DB.prepare("UPDATE comments SET deleted_at = CURRENT_TIMESTAMP, deleted_by = ? WHERE id = ?").bind(user.id, id).run();
+  return json({ ok: true, undoExpiresAt: new Date(Date.now() + commentUndoWindowMs).toISOString() });
+};
+
+const restoreComment = async (env, request, id) => {
+  await ensureForumAdminSchema(env);
+  const user = await requireUser(env, request);
+  const owner = await ownerUser(env);
+  const comment = await commentById(env, id);
+  if (!comment) return json({ error: "回复不存在" }, 404);
+  if (!comment.deleted_at) return json({ ok: true, comment: publicComment(comment, user, owner?.id) });
+  const deletedAt = timestampMs(comment.deleted_at);
+  const canUndo = Number(comment.deleted_by) === Number(user.id) && deletedAt && Date.now() - deletedAt <= commentUndoWindowMs;
+  if (!canUndo) return json({ error: "撤销时间已过" }, 403);
+  await env.DB.prepare("UPDATE comments SET deleted_at = NULL, deleted_by = NULL WHERE id = ?").bind(id).run();
+  return json({ ok: true, comment: publicComment(await commentById(env, id), user, owner?.id) });
+};
+
+const reportComment = async (env, request, id) => {
+  await ensureForumAdminSchema(env);
+  const reporter = await requireUser(env, request);
+  const owner = await ownerUser(env);
+  const comment = await commentById(env, id);
+  if (!comment || comment.deleted_at) return json({ error: "回复不存在" }, 404);
+  const target = { id: comment.author_id, role: comment.author_role };
+  if (Number(target.id) === Number(reporter.id)) return json({ error: "不能举报自己的回复" }, 400);
+  if (owner?.id && Number(target.id) === Number(owner.id)) return json({ error: "不能举报服主" }, 400);
+  const body = await readBody(request);
+  const reason = String(body.reason || "").trim().slice(0, 500);
+  if (reason.length < 4) return json({ error: "请填写至少 4 个字的举报原因" }, 400);
+  try {
+    await env.DB.prepare("INSERT INTO comment_reports (comment_id, reporter_id, reason) VALUES (?, ?, ?)").bind(id, reporter.id, reason).run();
+  } catch {
+    return json({ error: "你已经举报过这个回复，管理员会处理" }, 409);
+  }
+  return json({ ok: true, ownerOnly: reporter.role === "admin" && targetNeedsOwnerReview(target, owner?.id) }, 201);
+};
+
 const deletePost = async (env, request, id) => {
   await ensureForumAdminSchema(env);
   const user = await requireUser(env, request);
@@ -1286,6 +1478,7 @@ const stats = async (env, request) => {
       ? await env.DB.prepare(
           `SELECT
              (SELECT COUNT(*) FROM post_reports WHERE status = 'open') +
+             (SELECT COUNT(*) FROM comment_reports WHERE status = 'open') +
              (SELECT COUNT(*) FROM player_reports WHERE status = 'open') AS total`,
         ).first()
       : await env.DB.prepare(
@@ -1296,11 +1489,16 @@ const stats = async (env, request) => {
               JOIN users AS authors ON authors.id = posts.author_id
               WHERE post_reports.status = 'open' AND authors.role <> 'admin' AND authors.id <> ?) +
              (SELECT COUNT(*)
+              FROM comment_reports
+              JOIN comments ON comments.id = comment_reports.comment_id
+              JOIN users AS authors ON authors.id = comments.author_id
+              WHERE comment_reports.status = 'open' AND authors.role <> 'admin' AND authors.id <> ?) +
+             (SELECT COUNT(*)
               FROM player_reports
               JOIN users AS reported ON reported.id = player_reports.reported_user_id
               WHERE player_reports.status = 'open' AND reported.role <> 'admin' AND reported.id <> ?) AS total`,
         )
-          .bind(ownerId, ownerId)
+          .bind(ownerId, ownerId, ownerId)
           .first();
   const trashCount = await env.DB.prepare(
     "SELECT (SELECT COUNT(*) FROM posts WHERE deleted_at IS NOT NULL) + (SELECT COUNT(*) FROM announcements WHERE deleted_at IS NOT NULL) AS total",
@@ -1475,17 +1673,43 @@ const listPostReports = async (env, request) => {
      ORDER BY player_reports.created_at DESC
      LIMIT 80`,
   ).all();
+  const { results: commentReports } = await env.DB.prepare(
+    `SELECT comment_reports.id, comment_reports.reason, comment_reports.status, comment_reports.created_at,
+            comments.id AS comment_id, comments.content_html AS comment_content_html,
+            posts.id AS post_id, posts.title AS post_title, posts.excerpt AS post_excerpt,
+            posts.content_html AS post_content_html, posts.pinned AS post_pinned,
+            posts.views AS post_views, posts.created_at AS post_created_at,
+            posts.updated_at AS post_updated_at,
+            reporters.username AS reporter,
+            post_authors.id AS post_author_id, post_authors.username AS post_author,
+            post_authors.role AS post_author_role, post_authors.minecraft_name AS post_author_minecraft_name,
+            post_authors.skin_image AS post_author_skin_image,
+            authors.id AS target_id, authors.id AS author_id, authors.username AS author,
+            authors.role AS target_role, authors.minecraft_name AS author_minecraft_name,
+            authors.skin_image AS author_skin_image
+     FROM comment_reports
+     JOIN comments ON comments.id = comment_reports.comment_id
+     JOIN posts ON posts.id = comments.post_id
+     JOIN users AS post_authors ON post_authors.id = posts.author_id
+     JOIN users AS reporters ON reporters.id = comment_reports.reporter_id
+     JOIN users AS authors ON authors.id = comments.author_id
+     WHERE comment_reports.status = 'open'
+     ORDER BY comment_reports.created_at DESC
+     LIMIT 80`,
+  ).all();
   const normalize = (report) => {
     const targetAccountType = accountTypeLabel({ id: report.target_id, role: report.target_role }, owner?.id);
     return {
       ...report,
       target_account_type: targetAccountType,
       author_account_type: targetAccountType,
+      post_author_account_type: report.post_author_id ? accountTypeLabel({ id: report.post_author_id, role: report.post_author_role }, owner?.id) : "",
       can_resolve: canResolveReportForTarget(actor, { id: report.target_id, role: report.target_role }, owner?.id),
     };
   };
   const items = [
     ...(postReports || []).map((report) => ({ ...normalize(report), kind: "post" })),
+    ...(commentReports || []).map((report) => ({ ...normalize(report), kind: "comment" })),
     ...(playerReports || []).map((report) => ({ ...normalize(report), kind: "player" })),
   ]
     .filter((report) => report.can_resolve)
@@ -1512,6 +1736,30 @@ const resolvePostReport = async (env, request, id) => {
     return json({ error: "管理员相关举报只能由服主处理" }, 403);
   }
   const result = await env.DB.prepare("UPDATE post_reports SET status = 'resolved', resolved_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'open'")
+    .bind(id)
+    .run();
+  if (!result.meta?.changes) return json({ error: "举报不存在或已处理" }, 404);
+  return json({ ok: true });
+};
+
+const resolveCommentReport = async (env, request, id) => {
+  await ensureForumAdminSchema(env);
+  const actor = await requireAdmin(env, request);
+  const owner = await ownerUser(env);
+  const report = await env.DB.prepare(
+    `SELECT comment_reports.id, authors.id AS target_id, authors.role AS target_role
+     FROM comment_reports
+     JOIN comments ON comments.id = comment_reports.comment_id
+     JOIN users AS authors ON authors.id = comments.author_id
+     WHERE comment_reports.id = ? AND comment_reports.status = 'open'`,
+  )
+    .bind(id)
+    .first();
+  if (!report) return json({ error: "举报不存在或已处理" }, 404);
+  if (!canResolveReportForTarget(actor, { id: report.target_id, role: report.target_role }, owner?.id)) {
+    return json({ error: "管理员相关举报只能由服主处理" }, 403);
+  }
+  const result = await env.DB.prepare("UPDATE comment_reports SET status = 'resolved', resolved_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'open'")
     .bind(id)
     .run();
   if (!result.meta?.changes) return json({ error: "举报不存在或已处理" }, 404);
@@ -1595,6 +1843,8 @@ export async function onRequest(context) {
 
     if (method === "GET" && pathname === "/posts") return listPosts(env);
     if (method === "POST" && pathname === "/posts") return createPost(env, request);
+    if (method === "GET" && /^\/posts\/\d+\/comments$/.test(pathname)) return listPostComments(env, request, pathname.split("/").at(-2));
+    if (method === "POST" && /^\/posts\/\d+\/comments$/.test(pathname)) return createComment(env, request, pathname.split("/").at(-2));
     if (method === "PUT" && /^\/posts\/\d+$/.test(pathname)) return updatePost(env, request, pathname.split("/").at(-1));
     if (method === "PUT" && /^\/posts\/\d+\/pin$/.test(pathname)) return updatePostPinned(env, request, pathname.split("/").at(-2));
     if (method === "POST" && /^\/posts\/\d+\/reports$/.test(pathname)) return reportPost(env, request, pathname.split("/").at(-2));
@@ -1608,6 +1858,10 @@ export async function onRequest(context) {
     if (method === "POST" && /^\/profiles\/[^/]+\/reports$/.test(pathname)) {
       return reportPlayer(env, request, decodeURIComponent(pathname.split("/").at(-2)));
     }
+    if (method === "PUT" && /^\/comments\/\d+$/.test(pathname)) return updateComment(env, request, pathname.split("/").at(-1));
+    if (method === "DELETE" && /^\/comments\/\d+$/.test(pathname)) return deleteComment(env, request, pathname.split("/").at(-1));
+    if (method === "POST" && /^\/comments\/\d+\/restore$/.test(pathname)) return restoreComment(env, request, pathname.split("/").at(-2));
+    if (method === "POST" && /^\/comments\/\d+\/reports$/.test(pathname)) return reportComment(env, request, pathname.split("/").at(-2));
 
     if (method === "GET" && /^\/minecraft-image\/(avatar|body)\/[^/]+\/\d+$/.test(pathname)) {
       const [, , kind, username, size] = pathname.split("/");
@@ -1643,6 +1897,9 @@ export async function onRequest(context) {
     if (method === "GET" && pathname === "/admin/reports") return listPostReports(env, request);
     if (method === "POST" && /^\/admin\/reports\/post\/\d+\/resolve$/.test(pathname)) {
       return resolvePostReport(env, request, pathname.split("/").at(-2));
+    }
+    if (method === "POST" && /^\/admin\/reports\/comment\/\d+\/resolve$/.test(pathname)) {
+      return resolveCommentReport(env, request, pathname.split("/").at(-2));
     }
     if (method === "POST" && /^\/admin\/reports\/player\/\d+\/resolve$/.test(pathname)) {
       return resolvePlayerReport(env, request, pathname.split("/").at(-2));
