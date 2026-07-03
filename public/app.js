@@ -2556,6 +2556,7 @@ const setupReaderOutline = (readerContent) => {
     });
   });
 
+  let syncActiveLinkFrame = 0;
   const syncActiveLink = () => {
     const mainTop = main.getBoundingClientRect().top;
     let activeIndex = 0;
@@ -2564,9 +2565,16 @@ const setupReaderOutline = (readerContent) => {
     });
     links.forEach((link, index) => link.classList.toggle("is-active", index === activeIndex));
   };
+  const scheduleSyncActiveLink = () => {
+    if (syncActiveLinkFrame) return;
+    syncActiveLinkFrame = window.requestAnimationFrame(() => {
+      syncActiveLinkFrame = 0;
+      syncActiveLink();
+    });
+  };
 
   toggle.addEventListener("click", () => setCollapsed(!outline.classList.contains("is-collapsed")));
-  main.addEventListener("scroll", () => window.requestAnimationFrame(syncActiveLink), { passive: true });
+  main.addEventListener("scroll", scheduleSyncActiveLink, { passive: true });
   setCollapsed(false);
   syncActiveLink();
 };

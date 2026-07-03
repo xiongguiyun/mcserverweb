@@ -6786,3 +6786,337 @@ body[data-page="forum"] #forumSearchStatus:empty,
     flex-direction: column;
   }
 }
+
+/* Motion tuning pass: smoother UI movement while preserving the blocky Minecraft style. */
+:root {
+  --motion-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --motion-ease-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --motion-ease-press: cubic-bezier(0.3, 0, 0.2, 1);
+  --motion-fast: 160ms;
+  --motion-base: 240ms;
+  --motion-slow: 420ms;
+}
+
+.site-header {
+  transition:
+    background-color var(--motion-base) var(--motion-ease),
+    border-color var(--motion-base) var(--motion-ease),
+    box-shadow var(--motion-base) var(--motion-ease);
+}
+
+.brand,
+.user-entry,
+.top-nav a {
+  transform: translate3d(0, 0, 0);
+  transition:
+    color var(--motion-fast) ease,
+    background-color var(--motion-fast) ease,
+    transform var(--motion-base) var(--motion-ease);
+}
+
+.top-nav a {
+  position: relative;
+}
+
+.top-nav a::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 2px;
+  height: 2px;
+  background: var(--accent-2);
+  opacity: 0;
+  transform: scaleX(0.36);
+  transform-origin: center;
+  transition:
+    opacity var(--motion-fast) ease,
+    transform var(--motion-base) var(--motion-ease);
+}
+
+.top-nav a.active::after,
+.top-nav a:hover::after {
+  opacity: 1;
+  transform: scaleX(1);
+}
+
+.brand:hover,
+.user-entry:hover,
+.top-nav a:hover {
+  transform: translate3d(0, -1px, 0);
+}
+
+.button,
+.site-modal-option,
+.dialog-close-button,
+.comment-composer-toggle,
+.comment-toolbar-drawer button,
+.comment-toolbar-toggle,
+.comment-color-tool,
+.forum-search-toggle,
+.forum-search-clear,
+body[data-page="admin"] .admin-mobile-toggle {
+  backface-visibility: hidden;
+  transform: translate3d(0, 0, 0);
+  transition:
+    transform var(--motion-base) var(--motion-ease),
+    box-shadow var(--motion-base) var(--motion-ease),
+    filter var(--motion-fast) ease,
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease,
+    color var(--motion-fast) ease;
+  will-change: transform;
+}
+
+.button:hover,
+.site-modal-option:hover,
+.dialog-close-button:hover,
+.comment-composer-toggle:hover,
+.comment-toolbar-drawer button:hover,
+.comment-toolbar-toggle:hover,
+.comment-color-tool:hover,
+.forum-search-toggle:hover,
+.forum-search-clear:hover {
+  transform: translate3d(0, -2px, 0);
+}
+
+.button:active,
+.site-modal-option:active,
+.dialog-close-button:active,
+.comment-composer-toggle:active,
+.comment-toolbar-drawer button:active,
+.comment-toolbar-toggle:active,
+.comment-color-tool:active,
+.forum-search-toggle:active,
+.forum-search-clear:active {
+  transform: translate3d(0, 2px, 0) scale(0.985);
+  transition-duration: 90ms;
+}
+
+.button:disabled {
+  will-change: auto;
+}
+
+.hero-bg {
+  transform: scale(1.018) translate3d(-0.35%, -0.15%, 0);
+  animation: hero-bg-drift 22s var(--motion-ease-soft) infinite alternate;
+  backface-visibility: hidden;
+  will-change: transform;
+}
+
+.hero-copy,
+.page-hero > * {
+  animation: page-copy-in 560ms var(--motion-ease) both;
+}
+
+@keyframes hero-bg-drift {
+  from {
+    transform: scale(1.018) translate3d(-0.35%, -0.15%, 0);
+  }
+  to {
+    transform: scale(1.04) translate3d(0.35%, 0.2%, 0);
+  }
+}
+
+@keyframes page-copy-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 18px, 0) scale(0.992);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.feature-band article,
+.post-card,
+.editor-card,
+.admin-panel,
+.stat-card,
+.profile-card,
+.profile-page-card,
+.forum-main,
+.mc-status-card,
+.comment-card,
+.comment-login,
+.comment-undo {
+  backface-visibility: hidden;
+  transition:
+    transform var(--motion-base) var(--motion-ease),
+    box-shadow var(--motion-base) var(--motion-ease),
+    border-color var(--motion-fast) ease,
+    filter var(--motion-fast) ease;
+}
+
+.skin-figure,
+.profile-card .skin-stage img,
+.profile-page-card .skin-stage.large img,
+.user-avatar,
+.mc-status-icon {
+  backface-visibility: hidden;
+  transition:
+    transform var(--motion-slow) var(--motion-ease),
+    filter var(--motion-base) var(--motion-ease);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .feature-band article:hover,
+  .post-card:hover,
+  .editor-card:hover,
+  .admin-panel:hover,
+  .stat-card:hover,
+  .profile-page-card:hover,
+  .mc-status-card:hover,
+  .comment-card:hover {
+    transform: translate3d(0, -3px, 0);
+    filter: saturate(1.02);
+  }
+
+  .post-card:hover .skin-figure,
+  .profile-card:hover .skin-stage img,
+  .profile-page-card:hover .skin-stage.large img {
+    transform: translate3d(0, -3px, 0);
+  }
+}
+
+dialog {
+  animation: dialog-open var(--motion-base) var(--motion-ease) both;
+  transition:
+    opacity var(--motion-base) var(--motion-ease),
+    transform var(--motion-base) var(--motion-ease);
+  will-change: transform, opacity;
+}
+
+dialog.is-closing {
+  animation: dialog-close var(--motion-base) var(--motion-ease-press) both;
+}
+
+dialog::backdrop {
+  animation: backdrop-open var(--motion-fast) ease both;
+}
+
+dialog.is-closing::backdrop {
+  animation: backdrop-close var(--motion-fast) ease both;
+}
+
+.profile-trash-overlay,
+.profile-trash-backdrop,
+body[data-page="admin"] .admin-sidebar-backdrop {
+  transition: opacity var(--motion-base) ease;
+}
+
+.profile-trash-popover,
+body[data-page="admin"] .admin-sidebar-drawer,
+.comment-quote-popover,
+.forum-search-tip-bubble,
+.table-picker,
+.toolbar-more-menu,
+.toolbar-color-panel,
+.tox-menu {
+  backface-visibility: hidden;
+  transition:
+    opacity var(--motion-base) ease,
+    transform var(--motion-slow) var(--motion-ease),
+    visibility var(--motion-base) ease,
+    box-shadow var(--motion-base) var(--motion-ease);
+  will-change: transform, opacity;
+}
+
+body[data-page="admin"] .admin-sidebar-drawer {
+  transition: transform var(--motion-slow) var(--motion-ease);
+}
+
+.forum-toolbar-actions {
+  transition:
+    transform var(--motion-base) var(--forum-search-ease, var(--motion-ease)),
+    grid-template-columns var(--motion-base) var(--forum-search-ease, var(--motion-ease)),
+    gap var(--motion-base) var(--forum-search-ease, var(--motion-ease));
+}
+
+.forum-search-panel {
+  contain: layout paint;
+  transform: translate3d(10px, 0, 0) scaleX(0.975);
+  transform-origin: right center;
+  transition:
+    opacity 180ms ease,
+    transform 300ms var(--forum-search-ease, var(--motion-ease)),
+    clip-path 300ms var(--forum-search-ease, var(--motion-ease)),
+    box-shadow 240ms var(--forum-search-ease, var(--motion-ease)),
+    padding 240ms var(--forum-search-ease, var(--motion-ease)),
+    min-width 300ms var(--forum-search-ease, var(--motion-ease)),
+    max-width 300ms var(--forum-search-ease, var(--motion-ease));
+  will-change: opacity, transform, clip-path;
+}
+
+.forum-search-panel.is-open {
+  transform: translate3d(0, 0, 0) scaleX(1);
+}
+
+.forum-search-panel > * {
+  transition:
+    opacity var(--motion-fast) ease 50ms,
+    transform var(--motion-base) var(--forum-search-ease, var(--motion-ease)) 30ms;
+}
+
+.comment-composer {
+  transition:
+    background-color var(--motion-base) ease,
+    border-color var(--motion-base) ease,
+    box-shadow var(--motion-base) var(--motion-ease),
+    padding var(--motion-base) var(--motion-ease);
+}
+
+.comment-composer-panel {
+  transition:
+    grid-template-rows var(--motion-slow) var(--motion-ease),
+    opacity var(--motion-base) ease,
+    transform var(--motion-slow) var(--motion-ease);
+  will-change: transform, opacity;
+}
+
+.comment-toolbar-drawer {
+  transition:
+    max-width var(--motion-slow) var(--motion-ease),
+    opacity var(--motion-base) ease,
+    transform var(--motion-slow) var(--motion-ease);
+  will-change: transform, opacity;
+}
+
+.toast {
+  transition:
+    opacity var(--motion-base) ease,
+    transform var(--motion-slow) var(--motion-ease);
+  will-change: transform, opacity;
+}
+
+@media (max-width: 620px) {
+  body[data-page="admin"] .admin-mobile-toggle {
+    transform: translate3d(0, -50%, 0);
+  }
+
+  body[data-page="admin"] .admin-mobile-toggle:active {
+    transform: translate3d(0, calc(-50% + 3px), 0) scale(0.97);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .hero-bg,
+  .hero-copy,
+  .page-hero > *,
+  .forum-search-panel,
+  .forum-search-panel > *,
+  .comment-composer-panel,
+  .comment-toolbar-drawer {
+    transform: none !important;
+  }
+}
