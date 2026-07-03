@@ -1,6 +1,4 @@
-﻿import { renderQrSvg } from "./qrcode-local.js";
-
-const state = {
+﻿const state = {
   me: null,
   site: { maintenanceMode: false },
   announcements: [],
@@ -161,6 +159,7 @@ const highlightColorPresets = ["#5fa86f", "#f5a43a", "#2f7dd1", "#c74332", "#735
 let editorSavedRange = null;
 let profilePostSearchOutsideBound = false;
 let adminSearchOutsideBound = false;
+let commentUndoTicker = 0;
 
 const searchTipText = "支持标题、内容和发布者搜索。输入 #发布者名 可以直接按发布者筛选，例如 #Steve。";
 
@@ -320,8 +319,16 @@ const renderTotpQrFallback = (result) => `
   </div>
 `;
 
-const safeRenderQrSvg = (result) => {
+let qrRendererPromise = null;
+
+const loadQrRenderer = () => {
+  qrRendererPromise ||= import("./qrcode-local.js").then((module) => module.renderQrSvg);
+  return qrRendererPromise;
+};
+
+const safeRenderQrSvg = async (result) => {
   try {
+    const renderQrSvg = await loadQrRenderer();
     return renderQrSvg(result.uri);
   } catch {
     return renderTotpQrFallback(result);
@@ -966,6 +973,15 @@ const renderLists = () => {
   bindContentButtons();
 };
 
+let renderListsFrame = 0;
+const queueRenderLists = () => {
+  window.cancelAnimationFrame(renderListsFrame);
+  renderListsFrame = window.requestAnimationFrame(() => {
+    renderListsFrame = 0;
+    renderLists();
+  });
+};
+
 const normalizeSearchTerms = (value) =>
   String(value || "")
     .trim()
@@ -1303,10 +1319,7 @@ const bindProfilePostSearch = () => {
     state.profilePostSearch = event.target.value;
     state.profilePostSearchOpen = true;
     state.profilePostPage = 1;
-    renderProfilePage();
-    const input = $("#profilePostSearchInput");
-    input?.focus({ preventScroll: true });
-    input?.setSelectionRange?.(cursor, cursor);
+    queueRenderProfilePage(cursor);
   });
   $("#profilePostSearchInput")?.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
@@ -1347,15 +1360,16 @@ const totpPanelTemplate = (profile) => {
   `;
 };
 
-const renderTotpSetupPanel = (setupPanel, result) => {
+const renderTotpSetupPanel = async (setupPanel, result) => {
   const mobileLayout = shouldUseMobileTotpLayout();
   const qrResult = { ...result, uri: totpQrUri(result) };
+  const qrMarkup = await safeRenderQrSvg(qrResult);
   setupPanel.hidden = false;
   setupPanel.innerHTML = `
     <p>${mobileLayout ? "可以直接跳转验证器，也可以扫描二维码或手动输入密钥。" : "在电脑上扫码添加，也可以切换成手动输入密钥。"}</p>
-    ${mobileLayout ? `<a class="button ghost small mobile-authenticator-link" href="${escapeHtml(result.uri)}">打开验证器</a>` : ""}
+    ${mobileLayout ? `<a class="button ghost small mobile-authenticator-link" href="${escapeHtml(qrResult.uri)}">打开验证器</a>` : ""}
     <div class="totp-visual-card" id="totpVisualCard">
-      <div class="totp-qr-shell" id="totpQrShell" aria-label="2FA 二维码">${safeRenderQrSvg(qrResult)}</div>
+      <div class="totp-qr-shell" id="totpQrShell" aria-label="2FA 二维码">${qrMarkup}</div>
     </div>
     <button class="totp-text-toggle" type="button" id="totpSecretToggle">切换成密钥</button>
     <div class="totp-secret-card" id="totpSecretCard" hidden>
@@ -1395,7 +1409,9 @@ const bindTotpSecurity = () => {
   beginButton?.addEventListener("click", async () => {
     const result = await api("/me/totp/begin", { method: "POST" });
     if (!setupPanel) return;
-    renderTotpSetupPanel(setupPanel, result);
+    setupPanel.hidden = false;
+    setupPanel.innerHTML = `<p>正在生成二维码...</p>`;
+    await renderTotpSetupPanel(setupPanel, result);
   });
 
   disableButton?.addEventListener("click", async () => {
@@ -2035,14 +2051,15 @@ const commentUndoTemplate = (postId) => {
   return `
     <div class="comment-undo-list">
       ${items
-        .map(
-          (item) => `
+        .map((item) => {
+          const secondsLeft = Math.max(1, Math.ceil((item.expiresAt - Date.now()) / 1000));
+          return `
             <div class="comment-undo" data-comment-undo="${item.id}">
-              <span>${item.type === "delete" ? "回复已删除" : "回复已更新"}，30 秒内可以撤销。</span>
+              <span>${item.type === "delete" ? "回复已删除" : "回复已更新"}，还剩 <strong class="comment-undo-count">${secondsLeft}</strong> 秒可以撤销。</span>
               <button class="button small ghost" type="button" data-comment-undo-action="${item.id}">撤销</button>
             </div>
-          `,
-        )
+          `;
+        })
         .join("")}
     </div>
   `;
@@ -2109,7 +2126,8 @@ const renderComments = (postId) => {
   const section = $(`[data-comments-for="${postId}"]`);
   if (!section) return;
   const comments = state.comments[postId] || [];
-  const visibleCount = comments.filter((comment) => !comment.deleted_at).length;
+  const visibleComments = comments.filter((comment) => !comment.deleted_at);
+  const visibleCount = visibleComments.length;
   section.innerHTML = `
     <div class="comments-head">
       <div>
@@ -2120,7 +2138,7 @@ const renderComments = (postId) => {
     ${commentUndoTemplate(postId)}
     ${commentComposerTemplate(postId)}
     <div class="comments-list">
-      ${comments.length ? comments.map((comment) => commentTemplate(comment, postId)).join("") : `<div class="empty">还没有回复。</div>`}
+      ${visibleComments.length ? visibleComments.map((comment) => commentTemplate(comment, postId)).join("") : `<div class="empty">还没有回复。</div>`}
     </div>
   `;
   bindPostComments(postId);
@@ -2150,6 +2168,7 @@ const removeCommentUndo = (undoId, rerenderPostId = null) => {
   window.clearTimeout(state.commentUndoTimers[undoId]);
   delete state.commentUndoTimers[undoId];
   state.commentUndoItems = state.commentUndoItems.filter((item) => item.id !== undoId);
+  syncCommentUndoTicker();
   if (rerenderPostId) renderComments(rerenderPostId);
 };
 
@@ -2157,6 +2176,36 @@ const startCommentUndo = (item) => {
   state.commentUndoItems = [...state.commentUndoItems, item];
   window.clearTimeout(state.commentUndoTimers[item.id]);
   state.commentUndoTimers[item.id] = window.setTimeout(() => removeCommentUndo(item.id, item.postId), 30000);
+  syncCommentUndoTicker();
+};
+
+const tickCommentUndoCountdowns = () => {
+  const now = Date.now();
+  const expiredItems = state.commentUndoItems.filter((item) => item.expiresAt <= now);
+  state.commentUndoItems
+    .filter((item) => item.expiresAt > now)
+    .forEach((item) => {
+      const count = document.querySelector(`[data-comment-undo="${item.id}"] .comment-undo-count`);
+      if (count) count.textContent = String(Math.max(1, Math.ceil((item.expiresAt - now) / 1000)));
+    });
+  expiredItems.forEach((item) => {
+    window.clearTimeout(state.commentUndoTimers[item.id]);
+    delete state.commentUndoTimers[item.id];
+  });
+  if (expiredItems.length) state.commentUndoItems = state.commentUndoItems.filter((item) => item.expiresAt > now);
+  [...new Set(expiredItems.map((item) => item.postId))].forEach((postId) => renderComments(postId));
+  syncCommentUndoTicker();
+};
+
+const syncCommentUndoTicker = () => {
+  const hasActiveUndo = state.commentUndoItems.some((item) => item.expiresAt > Date.now());
+  if (hasActiveUndo && !commentUndoTicker) {
+    commentUndoTicker = window.setInterval(tickCommentUndoCountdowns, 1000);
+  }
+  if (!hasActiveUndo && commentUndoTicker) {
+    window.clearInterval(commentUndoTicker);
+    commentUndoTicker = 0;
+  }
 };
 
 const focusCommentComposer = (postId) => {
@@ -3235,6 +3284,23 @@ const renderProfilePage = () => {
   bindProfileReportsToggle();
 };
 
+let profilePageRenderFrame = 0;
+let pendingProfileSearchCursor = null;
+const queueRenderProfilePage = (searchCursor = null) => {
+  pendingProfileSearchCursor = searchCursor;
+  window.cancelAnimationFrame(profilePageRenderFrame);
+  profilePageRenderFrame = window.requestAnimationFrame(() => {
+    profilePageRenderFrame = 0;
+    renderProfilePage();
+    if (pendingProfileSearchCursor !== null) {
+      const input = $("#profilePostSearchInput");
+      input?.focus({ preventScroll: true });
+      input?.setSelectionRange?.(pendingProfileSearchCursor, pendingProfileSearchCursor);
+      pendingProfileSearchCursor = null;
+    }
+  });
+};
+
 const bindProfileInviteCopy = () => {
   $("#copyInviteCodeButton")?.addEventListener("click", async (event) => {
     const inviteCode = event.currentTarget.dataset.inviteCode;
@@ -3375,7 +3441,7 @@ const setupForumPost = () => {
   searchPanel?.addEventListener("click", (event) => event.stopPropagation());
   searchInput?.addEventListener("input", (event) => {
     state.forumSearch = event.target.value;
-    renderLists();
+    queueRenderLists();
   });
   searchInput?.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
@@ -4295,14 +4361,27 @@ const loadBaseState = async () => {
 };
 
 const loadPublicData = async () => {
-  await loadBaseState();
-  if (page === "home") {
-    state.announcements = (await api("/announcements").catch(() => ({ items: [] }))).items;
-  }
-  if (page === "forum") state.posts = (await api("/posts").catch(() => ({ items: [] }))).items;
+  const baseStatePromise = loadBaseState();
+  let pageDataPromise = Promise.resolve(null);
+
+  if (page === "home") pageDataPromise = api("/announcements").catch(() => ({ items: [] }));
+  if (page === "forum") pageDataPromise = api("/posts").catch(() => ({ items: [] }));
   if (page === "profile") {
-    const username = currentProfileQuery();
-    state.profile = username ? (await api(`/profiles/${encodeURIComponent(username)}`).catch(() => ({ profile: null }))).profile : null;
+    const profileQuery = new URL(window.location.href).searchParams.get("user");
+    pageDataPromise = profileQuery
+      ? api(`/profiles/${encodeURIComponent(profileQuery)}`).catch(() => ({ profile: null }))
+      : baseStatePromise.then(() => {
+          const username = currentProfileQuery();
+          return username ? api(`/profiles/${encodeURIComponent(username)}`).catch(() => ({ profile: null })) : { profile: null };
+        });
+  }
+
+  const [, pageData] = await Promise.all([baseStatePromise, pageDataPromise]);
+
+  if (page === "home") state.announcements = pageData?.items || [];
+  if (page === "forum") state.posts = pageData?.items || [];
+  if (page === "profile") {
+    state.profile = pageData?.profile || null;
     state.posts = state.profile?.posts || [];
   }
   renderAll();
@@ -4340,9 +4419,9 @@ const renderAll = () => {
   renderAuth();
   renderMaintenanceBanner();
   renderMaintenanceGate();
-  renderLists();
-  renderForumProfileCard();
-  renderProfilePage();
+  if (page === "home" || page === "forum") renderLists();
+  if (page === "forum") renderForumProfileCard();
+  if (page === "profile") renderProfilePage();
   if (page === "admin") renderAdminGate();
 };
 
@@ -4353,18 +4432,29 @@ $("#toast")?.addEventListener("click", async (event) => {
 });
 
 setupDialogDismiss();
-setupLoginPage();
-setupEditor();
-setupForumPost();
-setupPublish();
-setupAdminUsers();
-setupMaintenanceToggle();
-setupAdminNavigation();
-setupAdminMobileDrawer();
-setupAdminSidebarFollow();
-setupHomeActions();
-setupAnnouncementAnchorFix();
-setupHeroTyping();
+
+if (page === "login") setupLoginPage();
+
+if (page === "home") {
+  setupHomeActions();
+  setupAnnouncementAnchorFix();
+  setupHeroTyping();
+}
+
+if (page === "forum") {
+  setupEditor();
+  setupForumPost();
+}
+
+if (page === "admin") {
+  setupEditor();
+  setupPublish();
+  setupAdminUsers();
+  setupMaintenanceToggle();
+  setupAdminNavigation();
+  setupAdminMobileDrawer();
+  setupAdminSidebarFollow();
+}
 
 const pendingToast = window.sessionStorage?.getItem("siteToast");
 if (pendingToast) {

@@ -1633,7 +1633,7 @@ body[data-page="login"] {
   inset: 0;
   background:
     linear-gradient(rgba(26, 15, 9, 0.32), rgba(26, 15, 9, 0.72)),
-    url("/assets/group-photo.png") center / cover no-repeat;
+    image-set(url("/assets/group-photo.jpg") type("image/jpeg"), url("/assets/group-photo.png") type("image/png")) center / cover no-repeat;
 }
 
 .login-page::after {
@@ -4693,7 +4693,7 @@ dialog.is-closing::backdrop {
   background:
     linear-gradient(180deg, rgba(24, 16, 12, 0.2), rgba(24, 16, 12, 0.72)),
     linear-gradient(90deg, rgba(24, 16, 12, 0.44), rgba(24, 16, 12, 0.08), rgba(24, 16, 12, 0.44)),
-    url("/assets/group-photo.png") center 44% / cover no-repeat;
+    image-set(url("/assets/group-photo.jpg") type("image/jpeg"), url("/assets/group-photo.png") type("image/png")) center 44% / cover no-repeat;
   transform: none;
 }
 
@@ -6137,10 +6137,64 @@ body[data-page="admin"] .admin-list-tools {
     height: 26px;
   }
 
-  body[data-page="forum"] #forumSearchStatus:empty,
+body[data-page="forum"] #forumSearchStatus:empty,
   body[data-page="forum"] #forumSearchStatus[hidden] {
     display: none;
     min-width: 0;
+  }
+}
+
+/* Performance pass: keep the search reveal on compositor-friendly properties. */
+:root {
+  --forum-search-ease: cubic-bezier(0.2, 0.82, 0.2, 1);
+  --forum-search-duration: 240ms;
+}
+
+.forum-toolbar-actions {
+  transition:
+    transform 180ms var(--forum-search-ease),
+    gap 180ms var(--forum-search-ease);
+}
+
+.forum-search-panel {
+  clip-path: inset(0 100% 0 0 round 999px);
+  transform: translate3d(10px, 0, 0) scale(0.98);
+  transition:
+    opacity 150ms ease,
+    transform var(--forum-search-duration) var(--forum-search-ease),
+    clip-path var(--forum-search-duration) var(--forum-search-ease),
+    box-shadow var(--forum-search-duration) var(--forum-search-ease);
+  will-change: opacity, transform, clip-path;
+  backface-visibility: hidden;
+}
+
+.forum-search-panel.is-open {
+  clip-path: inset(0 0 0 0 round 999px);
+}
+
+.forum-search-panel > * {
+  transform: translate3d(8px, 0, 0);
+  transition:
+    opacity 140ms ease 60ms,
+    transform 200ms var(--forum-search-ease) 40ms;
+}
+
+.forum-search-panel.is-open > * {
+  transform: translate3d(0, 0, 0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .forum-toolbar-actions,
+  .forum-search-panel,
+  .forum-search-panel > * {
+    transition: none !important;
+  }
+
+  .forum-search-panel,
+  .forum-search-panel.is-open,
+  .forum-search-panel > *,
+  .forum-search-panel.is-open > * {
+    transform: none;
   }
 }
 
