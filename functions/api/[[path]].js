@@ -9,6 +9,7 @@ const usernameChangeCooldownMs = 7 * 24 * 60 * 60 * 1000;
 const commentUndoWindowMs = 30 * 1000;
 const maxSkinImageBytes = 256 * 1024;
 const maxSkinImageDataUrlLength = Math.ceil(maxSkinImageBytes * 1.4) + 64;
+const accountDeletionDelaySql = "+3 days";
 
 const messageFromError = (error, fallback = "服务器错误") => {
   if (!error) return fallback;
@@ -125,7 +126,16 @@ const readBody = async (request) => {
 
 const isMissingColumnError = (error) => /no such column|duplicate column/i.test(messageFromError(error));
 
-const ownerUser = async (env) => env.DB.prepare("SELECT id, username FROM users WHERE role = 'admin' ORDER BY id ASC LIMIT 1").first();
+const ownerUser = async (env) => {
+  try {
+    return await env.DB.prepare(
+      "SELECT id, username FROM users WHERE role = 'admin' AND deleted_at IS NULL ORDER BY id ASC LIMIT 1",
+    ).first();
+  } catch (error) {
+    if (!/no such column/i.test(messageFromError(error))) throw error;
+    return env.DB.prepare("SELECT id, username FROM users WHERE role = 'admin' ORDER BY id ASC LIMIT 1").first();
+  }
+};
 
 const ensureForumAdminSchema = async (env) => {
   await ensurePlayerProfileSchema(env);
@@ -227,10 +237,34 @@ const addTableColumnIfMissing = async (env, table, definition) => {
   }
 };
 
+const ensureAccountDeletionSchema = async (env) => {
+  await addUserColumnIfMissing(env, "deleted_at TEXT");
+  await addUserColumnIfMissing(env, "deleted_by INTEGER");
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS account_deletion_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      requester_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      status TEXT NOT NULL DEFAULT 'pending_approval' CHECK (status IN ('pending_approval', 'cooling', 'cancelled', 'completed')),
+      requested_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      approved_at TEXT,
+      approved_by INTEGER REFERENCES users(id),
+      scheduled_at TEXT,
+      cancelled_at TEXT,
+      completed_at TEXT
+    )`,
+  ).run();
+  await env.DB.prepare(
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_account_deletion_active ON account_deletion_requests(user_id) WHERE status IN ('pending_approval', 'cooling')",
+  ).run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_account_deletion_due ON account_deletion_requests(status, scheduled_at)").run();
+};
+
 const ensurePlayerProfileSchema = async (env) => {
   await addUserColumnIfMissing(env, "minecraft_name TEXT");
   await addUserColumnIfMissing(env, "skin_image TEXT");
   await addUserColumnIfMissing(env, "username_updated_at TEXT");
+  await ensureAccountDeletionSchema(env);
   await env.DB.prepare(
     `CREATE TABLE IF NOT EXISTS player_reports (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -606,12 +640,20 @@ const activeInviteCode = async (env, ownerId) => {
 };
 
 const createUserWithInvite = async (env, username, password, inviteCode, duplicateMessage) => {
+  await ensureAccountDeletionSchema(env);
   await ensureInviteCodeSchema(env);
   const code = normalizeInviteCode(inviteCode);
   if (!code) return { response: json({ error: "请填写邀请码" }, 400) };
   if (!/^[A-Z0-9]{6,24}$/.test(code)) return { response: json({ error: inviteCodeError }, 400) };
 
-  const invite = await env.DB.prepare("SELECT id, owner_id FROM invite_codes WHERE code = ? AND used_at IS NULL").bind(code).first();
+  const invite = await env.DB.prepare(
+    `SELECT invite_codes.id, invite_codes.owner_id
+     FROM invite_codes
+     JOIN users AS owners ON owners.id = invite_codes.owner_id
+     WHERE invite_codes.code = ? AND invite_codes.used_at IS NULL AND owners.deleted_at IS NULL`,
+  )
+    .bind(code)
+    .first();
   if (!invite) return { response: json({ error: inviteCodeError }, 400) };
 
   try {
@@ -704,7 +746,7 @@ const currentUser = async (env, request) => {
             users.username_updated_at, users.totp_enabled, users.created_at, users.last_seen_at
      FROM sessions
      JOIN users ON users.id = sessions.user_id
-     WHERE sessions.token = ? AND sessions.expires_at > datetime('now')`,
+     WHERE sessions.token = ? AND sessions.expires_at > datetime('now') AND users.deleted_at IS NULL`,
   )
     .bind(token)
     .first();
@@ -765,11 +807,176 @@ const publicUserById = async (env, id) => {
     `SELECT id, username, role, minecraft_name, skin_image, username_updated_at,
             totp_enabled, created_at, last_seen_at
      FROM users
-     WHERE id = ?`,
+     WHERE id = ? AND deleted_at IS NULL`,
   )
     .bind(id)
     .first();
   return publicUser(user, owner?.id);
+};
+
+const activeAccountDeletionRequest = async (env, userId) => {
+  await ensureAccountDeletionSchema(env);
+  return env.DB.prepare(
+    `SELECT id, user_id, requester_id, status, requested_at, approved_at, approved_by, scheduled_at, cancelled_at, completed_at
+     FROM account_deletion_requests
+     WHERE user_id = ? AND status IN ('pending_approval', 'cooling')
+     ORDER BY id DESC
+     LIMIT 1`,
+  )
+    .bind(userId)
+    .first();
+};
+
+const publicAccountDeletionRequest = (request) =>
+  request
+    ? {
+        id: request.id,
+        status: request.status,
+        requested_at: request.requested_at,
+        approved_at: request.approved_at || "",
+        scheduled_at: request.scheduled_at || "",
+        requires_owner_approval: request.status === "pending_approval",
+      }
+    : null;
+
+const cancelAccountDeletionOnLogin = async (env, userId) => {
+  await ensureAccountDeletionSchema(env);
+  const active = await activeAccountDeletionRequest(env, userId);
+  if (!active) return null;
+  const result = await env.DB.prepare(
+    `UPDATE account_deletion_requests
+     SET status = 'cancelled', cancelled_at = CURRENT_TIMESTAMP
+     WHERE user_id = ?
+       AND status IN ('pending_approval', 'cooling')
+       AND (scheduled_at IS NULL OR scheduled_at > CURRENT_TIMESTAMP)`,
+  )
+    .bind(userId)
+    .run();
+  return result.meta?.changes ? active : null;
+};
+
+const softDeleteAccount = async (env, targetId, deletedBy = null) => {
+  await ensureAccountDeletionSchema(env);
+  await ensureInviteCodeSchema(env);
+  const deletedUsername = `已注销用户${targetId}`;
+  const passwordHash = `deleted:${crypto.randomUUID()}`;
+  const runUpdate = (username) =>
+    env.DB.prepare(
+      `UPDATE users
+       SET username = ?,
+           password_hash = ?,
+           role = 'user',
+           minecraft_name = NULL,
+           skin_image = NULL,
+           username_updated_at = NULL,
+           totp_secret = NULL,
+           totp_enabled = 0,
+           last_seen_at = NULL,
+           deleted_at = CURRENT_TIMESTAMP,
+           deleted_by = ?
+       WHERE id = ? AND deleted_at IS NULL`,
+    )
+      .bind(username, passwordHash, deletedBy, targetId)
+      .run();
+
+  let result;
+  try {
+    result = await runUpdate(deletedUsername);
+  } catch (error) {
+    if (!isUniqueConstraintError(error)) throw error;
+    result = await runUpdate(`已注销${targetId}${Date.now().toString(36)}`);
+  }
+  if (!result.meta?.changes) return result;
+
+  await Promise.all([
+    env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(targetId).run(),
+    env.DB.prepare("UPDATE invite_codes SET used_at = COALESCE(used_at, CURRENT_TIMESTAMP) WHERE owner_id = ? AND used_at IS NULL")
+      .bind(targetId)
+      .run(),
+    env.DB.prepare(
+      `UPDATE account_deletion_requests
+       SET status = 'completed', completed_at = CURRENT_TIMESTAMP
+       WHERE user_id = ? AND status IN ('pending_approval', 'cooling')`,
+    )
+      .bind(targetId)
+      .run(),
+  ]);
+  return result;
+};
+
+const completeMaturedAccountDeletions = async (env) => {
+  await ensureAccountDeletionSchema(env);
+  const { results } = await env.DB.prepare(
+    `SELECT user_id, requester_id, approved_by
+     FROM account_deletion_requests
+     WHERE status = 'cooling' AND scheduled_at <= CURRENT_TIMESTAMP
+     ORDER BY scheduled_at ASC
+     LIMIT 25`,
+  ).all();
+  for (const request of results || []) {
+    await softDeleteAccount(env, request.user_id, request.approved_by || request.requester_id || request.user_id);
+  }
+};
+
+const requestOwnAccountDeletion = async (env, request) => {
+  await ensurePlayerProfileSchema(env);
+  const actor = await requireUser(env, request);
+  const owner = await ownerUser(env);
+  if (owner?.id && Number(owner.id) === Number(actor.id)) {
+    return json({ error: "服主账号不能注销" }, 400);
+  }
+
+  const existing = await activeAccountDeletionRequest(env, actor.id);
+  if (existing) {
+    return json({ ok: true, request: publicAccountDeletionRequest(existing), alreadyActive: true }, 200);
+  }
+
+  if (actor.role === "admin") {
+    await env.DB.prepare(
+      "INSERT INTO account_deletion_requests (user_id, requester_id, status) VALUES (?, ?, 'pending_approval')",
+    )
+      .bind(actor.id, actor.id)
+      .run();
+    return json(
+      { ok: true, approvalRequired: true, request: publicAccountDeletionRequest(await activeAccountDeletionRequest(env, actor.id)) },
+      202,
+    );
+  }
+
+  await env.DB.prepare(
+    `INSERT INTO account_deletion_requests (user_id, requester_id, status, approved_at, scheduled_at)
+     VALUES (?, ?, 'cooling', CURRENT_TIMESTAMP, datetime('now', ?))`,
+  )
+    .bind(actor.id, actor.id, accountDeletionDelaySql)
+    .run();
+  await env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(actor.id).run();
+  return json(
+    { ok: true, scheduled: true, request: publicAccountDeletionRequest(await activeAccountDeletionRequest(env, actor.id)) },
+    202,
+    { "Set-Cookie": "session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0" },
+  );
+};
+
+const approveManagedAccountDeletion = async (env, request, id) => {
+  const actor = await requireOwnerAdmin(env, request);
+  const targetId = Number(id);
+  const owner = await ownerUser(env);
+  if (owner?.id && Number(owner.id) === targetId) return json({ error: "服主账号不能注销" }, 400);
+  const target = await env.DB.prepare("SELECT id, username, role FROM users WHERE id = ? AND deleted_at IS NULL").bind(targetId).first();
+  if (!target) return json({ error: "没有找到这个用户" }, 404);
+  const result = await env.DB.prepare(
+    `UPDATE account_deletion_requests
+     SET status = 'cooling',
+         approved_at = CURRENT_TIMESTAMP,
+         approved_by = ?,
+         scheduled_at = datetime('now', ?)
+     WHERE user_id = ? AND status = 'pending_approval'`,
+  )
+    .bind(actor.id, accountDeletionDelaySql, targetId)
+    .run();
+  if (!result.meta?.changes) return json({ error: "这个账号没有待批准的注销申请" }, 404);
+  await env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(targetId).run();
+  return json({ ok: true, request: publicAccountDeletionRequest(await activeAccountDeletionRequest(env, targetId)) });
 };
 
 const timestampMs = (value) => {
@@ -988,7 +1195,7 @@ const profile = async (env, request, username) => {
   const user = await env.DB.prepare(
     `SELECT id, username, role, minecraft_name, skin_image, username_updated_at, totp_enabled, last_seen_at, created_at
      FROM users
-     WHERE lower(username) = lower(?)`,
+     WHERE lower(username) = lower(?) AND deleted_at IS NULL`,
   )
     .bind(username)
     .first();
@@ -1009,6 +1216,7 @@ const profile = async (env, request, username) => {
   const inviteCode = isSelf ? await activeInviteCode(env, user.id) : "";
   const trash = isSelf ? (await listPosts(env, { trash: true, authorId: user.id, limit: 50 })).json() : Promise.resolve({ items: [] });
   const reportHistory = isSelf ? await ownReportHistory(env, user.id) : [];
+  const accountDeletion = isSelf ? publicAccountDeletionRequest(await activeAccountDeletionRequest(env, user.id)) : null;
   return json({
     profile: {
       id: user.id,
@@ -1026,6 +1234,7 @@ const profile = async (env, request, username) => {
       trashPosts: (await trash).items || [],
       reportHistory,
       inviteCode,
+      accountDeletion,
       isSelf,
       isOwner: owner?.id ? Number(owner.id) === Number(user.id) : false,
     },
@@ -1045,7 +1254,7 @@ const login = async (env, request) => {
     `SELECT id, username, password_hash, role, minecraft_name, skin_image, username_updated_at,
             totp_secret, totp_enabled, created_at, last_seen_at
      FROM users
-     WHERE username = ?`,
+     WHERE username = ? AND deleted_at IS NULL`,
   )
     .bind(username)
     .first();
@@ -1055,12 +1264,13 @@ const login = async (env, request) => {
   if (user.totp_enabled && !(await verifyTotpAsync(user.totp_secret, totpCode))) {
     return json({ error: "请输入正确的双重验证码", needsTotp: true }, 401);
   }
+  const cancelledDeletion = await cancelAccountDeletionOnLogin(env, user.id);
   await assertNoPunishment(env, user, ["site_ban", "account_ban"]);
   const token = await createSession(env, user);
   await env.DB.prepare("UPDATE users SET last_seen_at = CURRENT_TIMESTAMP WHERE id = ?").bind(user.id).run();
   const owner = await ownerUser(env);
   return json(
-    { user: publicUser(user, owner?.id) },
+    { user: publicUser(user, owner?.id), accountDeletionCancelled: Boolean(cancelledDeletion) },
     200,
     { "Set-Cookie": `session=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=1209600` },
   );
@@ -1111,7 +1321,7 @@ const account = async (env, request) => {
     `SELECT id, username, password_hash, role, minecraft_name, skin_image, username_updated_at,
             totp_secret, totp_enabled, created_at, last_seen_at
      FROM users
-     WHERE lower(username) = lower(?)`,
+     WHERE lower(username) = lower(?) AND deleted_at IS NULL`,
   )
     .bind(username)
     .first();
@@ -1123,9 +1333,10 @@ const account = async (env, request) => {
     if (existingUser.totp_enabled && !(await verifyTotpAsync(existingUser.totp_secret, totpCode))) {
       return json({ error: "请输入正确的双重验证码", needsTotp: true }, 401);
     }
+    const cancelledDeletion = await cancelAccountDeletionOnLogin(env, existingUser.id);
     await assertNoPunishment(env, existingUser, ["site_ban", "account_ban"]);
     await env.DB.prepare("UPDATE users SET last_seen_at = CURRENT_TIMESTAMP WHERE id = ?").bind(existingUser.id).run();
-    return createAuthResponse(env, existingUser, 200, { mode: "login" });
+    return createAuthResponse(env, existingUser, 200, { mode: "login", accountDeletionCancelled: Boolean(cancelledDeletion) });
   }
 
   const created = await createUserWithInvite(env, username, password, body.inviteCode, "用户名已存在，请直接登录");
@@ -1201,7 +1412,7 @@ const reportPlayer = async (env, request, username) => {
   await ensurePlayerProfileSchema(env);
   const reporter = await requireUser(env, request);
   const owner = await ownerUser(env);
-  const target = await env.DB.prepare("SELECT id, username, role FROM users WHERE lower(username) = lower(?)").bind(username).first();
+  const target = await env.DB.prepare("SELECT id, username, role FROM users WHERE lower(username) = lower(?) AND deleted_at IS NULL").bind(username).first();
   if (!target) return json({ error: "没有找到这个玩家" }, 404);
   if (Number(target.id) === Number(reporter.id)) return json({ error: "不能举报自己" }, 400);
   if (owner?.id && Number(target.id) === Number(owner.id)) return json({ error: "不能举报服主" }, 400);
@@ -1806,8 +2017,8 @@ const stats = async (env, request) => {
   const site = await getSiteSettings(env);
   const announcementViews = await env.DB.prepare("SELECT COALESCE(SUM(views), 0) AS total FROM announcements WHERE deleted_at IS NULL").first();
   const postViews = await env.DB.prepare("SELECT COALESCE(SUM(views), 0) AS total FROM posts WHERE deleted_at IS NULL").first();
-  const userCount = await env.DB.prepare("SELECT COUNT(*) AS total FROM users").first();
-  const adminCount = await env.DB.prepare("SELECT COUNT(*) AS total FROM users WHERE role = 'admin'").first();
+  const userCount = await env.DB.prepare("SELECT COUNT(*) AS total FROM users WHERE deleted_at IS NULL").first();
+  const adminCount = await env.DB.prepare("SELECT COUNT(*) AS total FROM users WHERE role = 'admin' AND deleted_at IS NULL").first();
   const ownerId = owner?.id || 0;
   const reportCount =
     ownerId && Number(actor.id) === Number(ownerId)
@@ -1912,15 +2123,34 @@ const listAdminUsers = async (env, request) => {
   await requireAdmin(env, request);
   const owner = await ownerUser(env);
   const { results } = await env.DB.prepare(
-    `SELECT id, username, role, created_at, last_seen_at
+    `SELECT users.id, users.username, users.role, users.created_at, users.last_seen_at,
+            account_deletion_requests.status AS deletion_status,
+            account_deletion_requests.requested_at AS deletion_requested_at,
+            account_deletion_requests.approved_at AS deletion_approved_at,
+            account_deletion_requests.scheduled_at AS deletion_scheduled_at
      FROM users
-     ORDER BY role = 'admin' DESC, id ASC`,
+     LEFT JOIN account_deletion_requests
+       ON account_deletion_requests.user_id = users.id
+      AND account_deletion_requests.status IN ('pending_approval', 'cooling')
+     WHERE users.deleted_at IS NULL
+     ORDER BY users.role = 'admin' DESC, users.id ASC`,
   ).all();
   return json({
     items: (results || []).map((user) => ({
       ...user,
       is_owner: owner?.id ? Number(owner.id) === Number(user.id) : false,
       account_type: accountTypeLabel(user, owner?.id),
+      account_deletion: publicAccountDeletionRequest(
+        user.deletion_status
+          ? {
+              id: 0,
+              status: user.deletion_status,
+              requested_at: user.deletion_requested_at,
+              approved_at: user.deletion_approved_at,
+              scheduled_at: user.deletion_scheduled_at,
+            }
+          : null,
+      ),
     })),
   });
 };
@@ -1946,7 +2176,7 @@ const updateManagedUser = async (env, request, id) => {
   const actor = await requireOwnerAdmin(env, request);
   const targetId = Number(id);
   const owner = await ownerUser(env);
-  const target = await env.DB.prepare("SELECT id, username, role FROM users WHERE id = ?").bind(targetId).first();
+  const target = await env.DB.prepare("SELECT id, username, role FROM users WHERE id = ? AND deleted_at IS NULL").bind(targetId).first();
   if (!target) return json({ error: "没有找到这个用户" }, 404);
   const body = await readBody(request);
   const nextUsername = body.username === undefined ? target.username : String(body.username || "").trim();
@@ -1964,15 +2194,16 @@ const updateManagedUser = async (env, request, id) => {
   return json({ ok: true });
 };
 
-const removeManagedAdmin = async (env, request, id) => {
+const removeManagedUser = async (env, request, id) => {
   const user = await requireOwnerAdmin(env, request);
   const targetId = Number(id);
   const owner = await ownerUser(env);
   if (owner?.id && Number(owner.id) === targetId) return json({ error: "服主账号不能删除" }, 400);
   if (Number(user.id) === targetId) return json({ error: "不能删除自己的账号" }, 400);
-  const result = await env.DB.prepare("DELETE FROM users WHERE id = ? AND role = 'admin'").bind(targetId).run();
-  if (!result.meta?.changes) return json({ error: "没有找到这个管理员" }, 404);
-  await env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(targetId).run();
+  const target = await env.DB.prepare("SELECT id FROM users WHERE id = ? AND deleted_at IS NULL").bind(targetId).first();
+  if (!target) return json({ error: "没有找到这个用户" }, 404);
+  const result = await softDeleteAccount(env, targetId, user.id);
+  if (!result.meta?.changes) return json({ error: "没有找到这个用户" }, 404);
   return json({ ok: true });
 };
 
@@ -2129,7 +2360,7 @@ const resetManagedUserPassword = async (env, request, id) => {
   const body = await readBody(request);
   const password = String(body.password || "");
   if (password.length < 6) return json({ error: "密码至少 6 位" }, 400);
-  const result = await env.DB.prepare("UPDATE users SET password_hash = ? WHERE id = ?")
+  const result = await env.DB.prepare("UPDATE users SET password_hash = ? WHERE id = ? AND deleted_at IS NULL")
     .bind(await hashPassword(password), targetId)
     .run();
   if (!result.meta?.changes) return json({ error: "没有找到这个用户" }, 404);
@@ -2151,6 +2382,7 @@ export async function onRequest(context) {
   const method = request.method;
 
   try {
+    await completeMaturedAccountDeletions(env);
     if (pathname !== "/logout") {
       const sessionUser = await currentUser(env, request);
       if (sessionUser) await assertNoPunishment(env, sessionUser, ["site_ban", "account_ban"]);
@@ -2165,6 +2397,7 @@ export async function onRequest(context) {
     if (method === "PUT" && pathname === "/me/username") return updateOwnUsername(env, request);
     if (method === "PUT" && pathname === "/me/character") return updateOwnCharacter(env, request);
     if (method === "PUT" && pathname === "/me/password") return updateOwnPassword(env, request);
+    if (method === "POST" && pathname === "/me/deletion") return await requestOwnAccountDeletion(env, request);
     if (method === "POST" && pathname === "/me/totp/begin") return beginTotp(env, request);
     if (method === "POST" && pathname === "/me/totp/confirm") return confirmTotp(env, request);
     if (method === "DELETE" && pathname === "/me/totp") return disableTotp(env, request);
@@ -2223,8 +2456,11 @@ export async function onRequest(context) {
     if (method === "PUT" && /^\/admin\/users\/\d+\/password$/.test(pathname)) {
       return resetManagedUserPassword(env, request, pathname.split("/").at(-2));
     }
+    if (method === "POST" && /^\/admin\/users\/\d+\/deletion\/approve$/.test(pathname)) {
+      return await approveManagedAccountDeletion(env, request, pathname.split("/").at(-3));
+    }
     if (method === "DELETE" && /^\/admin\/users\/\d+$/.test(pathname)) {
-      return removeManagedAdmin(env, request, pathname.split("/").at(-1));
+      return await removeManagedUser(env, request, pathname.split("/").at(-1));
     }
     if (method === "GET" && pathname === "/admin/trash") {
       await requireAdmin(env, request);

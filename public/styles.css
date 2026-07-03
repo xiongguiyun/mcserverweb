@@ -886,12 +886,27 @@ button {
   padding: 0 14px 14px;
 }
 
+.profile-setting-form p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.65;
+  font-weight: 750;
+}
+
 .profile-setting-form label {
   display: grid;
   gap: 6px;
   color: #4c3525;
   font-size: 13px;
   font-weight: 900;
+}
+
+.profile-setting.danger-zone {
+  border-color: rgba(199, 67, 50, 0.42);
+}
+
+.profile-setting.danger-zone summary {
+  color: #8e2f22;
 }
 
 .profile-setting-actions {
@@ -1057,7 +1072,42 @@ button {
   border-color: var(--post-highlight-color, #5fa86f);
   box-shadow:
     0 7px 0 rgba(106, 69, 35, 0.2),
-    inset 0 0 0 2px var(--post-highlight-color, #5fa86f);
+    inset 0 0 0 2px var(--post-highlight-color, #5fa86f),
+    0 0 22px var(--post-highlight-color, #5fa86f);
+  box-shadow:
+    0 7px 0 rgba(106, 69, 35, 0.2),
+    inset 0 0 0 2px var(--post-highlight-color, #5fa86f),
+    0 0 0 3px color-mix(in srgb, var(--post-highlight-color, #5fa86f) 22%, transparent),
+    0 0 24px color-mix(in srgb, var(--post-highlight-color, #5fa86f) 42%, transparent),
+    0 0 54px color-mix(in srgb, var(--post-highlight-color, #5fa86f) 22%, transparent);
+  animation: post-highlight-glow 2.8s ease-in-out infinite;
+}
+
+@keyframes post-highlight-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 7px 0 rgba(106, 69, 35, 0.2),
+      inset 0 0 0 2px var(--post-highlight-color, #5fa86f),
+      0 0 0 3px color-mix(in srgb, var(--post-highlight-color, #5fa86f) 18%, transparent),
+      0 0 18px color-mix(in srgb, var(--post-highlight-color, #5fa86f) 34%, transparent),
+      0 0 40px color-mix(in srgb, var(--post-highlight-color, #5fa86f) 18%, transparent);
+  }
+
+  50% {
+    box-shadow:
+      0 7px 0 rgba(106, 69, 35, 0.2),
+      inset 0 0 0 2px var(--post-highlight-color, #5fa86f),
+      0 0 0 4px color-mix(in srgb, var(--post-highlight-color, #5fa86f) 28%, transparent),
+      0 0 30px color-mix(in srgb, var(--post-highlight-color, #5fa86f) 52%, transparent),
+      0 0 66px color-mix(in srgb, var(--post-highlight-color, #5fa86f) 28%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .post-card.is-highlighted-post {
+    animation: none;
+  }
 }
 
 .pinned-ribbon {
@@ -1414,7 +1464,13 @@ body[data-page="admin"] .admin-locked {
 .table-row.is-highlighted-row {
   background: #fffaf0;
   border-color: var(--post-highlight-color, #5fa86f);
-  box-shadow: inset 0 0 0 2px var(--post-highlight-color, #5fa86f);
+  box-shadow:
+    inset 0 0 0 2px var(--post-highlight-color, #5fa86f),
+    0 0 18px var(--post-highlight-color, #5fa86f);
+  box-shadow:
+    inset 0 0 0 2px var(--post-highlight-color, #5fa86f),
+    0 0 18px color-mix(in srgb, var(--post-highlight-color, #5fa86f) 36%, transparent),
+    0 0 34px color-mix(in srgb, var(--post-highlight-color, #5fa86f) 18%, transparent);
 }
 
 .report-resolution-dialog,
@@ -2100,6 +2156,13 @@ dialog.is-closing {
   color: #201713;
   background: #ffefbd;
   border-color: #b9813e;
+}
+
+.site-modal-option:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+  transform: none;
+  filter: grayscale(0.12);
 }
 
 .site-modal-option.is-primary {

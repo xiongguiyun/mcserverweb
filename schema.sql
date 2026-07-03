@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS users (
   totp_secret TEXT,
   totp_enabled INTEGER NOT NULL DEFAULT 0,
   last_seen_at TEXT,
+  deleted_at TEXT,
+  deleted_by INTEGER,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -157,6 +159,19 @@ CREATE TABLE IF NOT EXISTS invite_codes (
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS account_deletion_requests (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  requester_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'pending_approval' CHECK (status IN ('pending_approval', 'cooling', 'cancelled', 'completed')),
+  requested_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  approved_at TEXT,
+  approved_by INTEGER REFERENCES users(id),
+  scheduled_at TEXT,
+  cancelled_at TEXT,
+  completed_at TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_announcements_created_at ON announcements(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_posts_created_at ON posts(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_posts_pinned_created_at ON posts(pinned DESC, created_at DESC);
@@ -177,3 +192,5 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_player_reports_unique_open ON player_repor
 CREATE INDEX IF NOT EXISTS idx_user_punishments_active ON user_punishments(user_id, type, expires_at, revoked_at);
 CREATE INDEX IF NOT EXISTS idx_invite_codes_used_by ON invite_codes(used_by);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_invite_codes_one_active_per_owner ON invite_codes(owner_id) WHERE used_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_account_deletion_active ON account_deletion_requests(user_id) WHERE status IN ('pending_approval', 'cooling');
+CREATE INDEX IF NOT EXISTS idx_account_deletion_due ON account_deletion_requests(status, scheduled_at);

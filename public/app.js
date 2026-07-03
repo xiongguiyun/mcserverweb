@@ -385,6 +385,7 @@ const ensureSiteActionDialog = () => {
 const resolveSiteActionDialog = (value) => {
   const dialog = $("#siteActionDialog");
   if (!dialog) return;
+  window.clearInterval(dialog._confirmDelayTimer);
   const resolver = dialog._resolver;
   dialog._resolver = null;
   closeDialogAnimated(dialog);
@@ -442,6 +443,7 @@ const showSiteActionDialog = (config) =>
     const hint = $("#siteModalHint");
     const confirmButton = dialog.querySelector("[data-site-modal-confirm]");
     const actions = $("#siteModalActions");
+    window.clearInterval(dialog._confirmDelayTimer);
 
     if (eyebrow) eyebrow.textContent = config.eyebrow || (config.mode === "confirm" ? "操作确认" : "输入内容");
     if (title) title.textContent = config.title || (config.mode === "confirm" ? "请确认这一步操作" : "请输入内容");
@@ -464,9 +466,30 @@ const showSiteActionDialog = (config) =>
       button.textContent = config.cancelLabel || "取消";
     });
     if (confirmButton) {
-      confirmButton.textContent = config.confirmLabel || "确认";
+      const confirmLabel = config.confirmLabel || "确认";
+      confirmButton.textContent = confirmLabel;
+      confirmButton.disabled = false;
       confirmButton.classList.toggle("is-primary", config.confirmTone !== "danger");
       confirmButton.classList.toggle("is-danger", config.confirmTone === "danger");
+      const delaySeconds = Math.max(0, Number(config.confirmDelaySeconds || 0));
+      if (delaySeconds) {
+        let remaining = Math.ceil(delaySeconds);
+        confirmButton.disabled = true;
+        const syncConfirmDelay = () => {
+          confirmButton.textContent = remaining > 0 ? `${confirmLabel} (${remaining})` : confirmLabel;
+        };
+        syncConfirmDelay();
+        dialog._confirmDelayTimer = window.setInterval(() => {
+          remaining -= 1;
+          if (remaining <= 0) {
+            window.clearInterval(dialog._confirmDelayTimer);
+            confirmButton.disabled = false;
+            confirmButton.textContent = confirmLabel;
+            return;
+          }
+          syncConfirmDelay();
+        }, 1000);
+      }
     }
     actions?.classList.toggle("is-danger", config.confirmTone === "danger");
 
@@ -475,6 +498,10 @@ const showSiteActionDialog = (config) =>
       if (config.mode === "prompt") {
         input?.focus();
         input?.select();
+        return;
+      }
+      if (confirmButton?.disabled) {
+        dialog.querySelector("[data-site-modal-cancel]")?.focus();
         return;
       }
       confirmButton?.focus();
@@ -1343,6 +1370,13 @@ const nextUsernameChangeDate = (profile) => {
   return new Date(lastChanged.getTime() + 7 * 24 * 60 * 60 * 1000);
 };
 
+const accountDeletionStatusText = (request) => {
+  if (!request) return "";
+  if (request.status === "pending_approval") return "等待服主批准";
+  if (request.status === "cooling") return request.scheduled_at ? `冷静期至 ${formatDate(request.scheduled_at)}` : "注销冷静期中";
+  return "";
+};
+
 const profileSettingsTemplate = (profile) => {
   if (!profile?.isSelf) return "";
   const nextRenameAt = nextUsernameChangeDate(profile);
@@ -1354,6 +1388,8 @@ const profileSettingsTemplate = (profile) => {
       ? `下次可修改：${formatDate(nextRenameAt.toISOString())}`
       : "每 7 天可修改一次。";
   const characterName = profile.minecraft_name || "";
+  const deletionStatus = accountDeletionStatusText(profile.accountDeletion);
+  const deletionLocked = Boolean(profile.accountDeletion);
   return `
     <section class="profile-settings">
       <h3>账号设置</h3>
@@ -1404,6 +1440,20 @@ const profileSettingsTemplate = (profile) => {
           </label>
           <button class="button primary" type="submit">保存密码</button>
         </form>
+      </details>
+      <details class="profile-setting danger-zone">
+        <summary><span>注销账户</span><small>${escapeHtml(deletionStatus || "10 秒确认，3 天冷静期")}</small></summary>
+        <div class="profile-setting-form">
+          <p>${escapeHtml(
+            deletionStatus ||
+              (profile.role === "admin"
+                ? "管理员提交后需要服主批准，批准后进入 3 天冷静期。冷静期内重新登录会取消注销。"
+                : "发起后账号会退出登录并进入 3 天冷静期。冷静期内重新登录会取消注销，到期后账号会注销。"),
+          )}</p>
+          <button class="button danger" type="button" id="requestAccountDeletionButton" ${deletionLocked || profile.isOwner ? "disabled" : ""}>
+            ${deletionLocked ? "注销已开启" : profile.isOwner ? "服主账号不可注销" : "注销账户"}
+          </button>
+        </div>
       </details>
     </section>
   `;
@@ -1489,6 +1539,34 @@ const bindProfileSettings = () => {
     await api("/me/password", { method: "PUT", body: JSON.stringify({ oldPassword, newPassword }) });
     event.target.reset();
     showToast("密码已更新");
+  });
+
+  $("#requestAccountDeletionButton")?.addEventListener("click", async () => {
+    const isAdminDeletion = state.profile?.role === "admin";
+    const confirmed = await showConfirmDialog(
+      isAdminDeletion
+        ? "确定提交管理员账号注销申请吗？服主批准后会进入 3 天冷静期，冷静期内重新登录可取消。"
+        : "确定开启账号注销吗？开启后会退出登录并进入 3 天冷静期，冷静期内重新登录可取消。",
+      {
+        title: "注销账户",
+        eyebrow: "账号安全",
+        cancelLabel: "再想想",
+        confirmLabel: "开启注销",
+        confirmTone: "danger",
+        confirmDelaySeconds: 10,
+      },
+    );
+    if (!confirmed) return;
+    const result = await api("/me/deletion", { method: "POST" });
+    if (result.approvalRequired) {
+      await refreshPageData();
+      showToast("注销申请已提交，等待服主批准");
+      return;
+    }
+    showToast("注销已开启，3 天内重新登录可取消");
+    window.setTimeout(() => {
+      window.location.href = "/login.html";
+    }, 900);
   });
 
   $$("[data-report-player]").forEach((button) => {
@@ -3715,7 +3793,7 @@ const renderReports = () => {
 
 const renderAdmins = () => {
   if (!$("#adminUsers")) return;
-  const normalUsers = state.admins.filter((user) => user.role !== "admin");
+  const normalUsers = state.admins.filter((user) => user.role !== "admin" && !user.account_deletion);
   const promoteSelect = $("#promoteUserSelect");
   if (promoteSelect) {
     promoteSelect.innerHTML = normalUsers.length
@@ -3731,16 +3809,20 @@ const renderAdmins = () => {
   const view = adminListView("users", state.admins, (user, query) =>
     adminSearchMatches(
       query,
-      `${user.username || ""} ${user.account_type || ""} ${user.role === "admin" ? "管理员" : "成员"} ${user.is_owner ? "服主" : ""} ${formatDate(user.created_at)} ${user.last_seen_at ? formatDate(user.last_seen_at) : ""}`,
+      `${user.username || ""} ${user.account_type || ""} ${user.role === "admin" ? "管理员" : "成员"} ${user.is_owner ? "服主" : ""} ${accountDeletionStatusText(user.account_deletion)} ${formatDate(user.created_at)} ${user.last_seen_at ? formatDate(user.last_seen_at) : ""}`,
       user.username,
     ),
   );
   const rows = view.pageItems.length
     ? view.pageItems
-        .map(
-          (user) => `
+        .map((user) => {
+          const deletionStatus = accountDeletionStatusText(user.account_deletion);
+          return `
             <div class="table-row user-row">
-              <div><strong>${escapeHtml(user.username)}</strong><span>${escapeHtml(user.account_type)} ${formatDate(user.created_at)}${user.last_seen_at ? ` · 最近在线 ${formatDate(user.last_seen_at)}` : ""}</span></div>
+              <div>
+                <strong>${escapeHtml(user.username)}</strong>
+                <span>${escapeHtml(user.account_type)} ${formatDate(user.created_at)}${user.last_seen_at ? ` · 最近在线 ${formatDate(user.last_seen_at)}` : ""}${deletionStatus ? ` · ${escapeHtml(deletionStatus)}` : ""}</span>
+              </div>
               <div class="row-actions">
                 ${
                   isOwner() && !user.is_owner
@@ -3748,13 +3830,18 @@ const renderAdmins = () => {
                       <button class="button small ghost" type="button" data-rename-user="${user.id}" data-name="${escapeHtml(user.username)}">改名</button>
                       <button class="button small ghost" type="button" data-role-user="${user.id}" data-role="${user.role}" data-name="${escapeHtml(user.username)}">${user.role === "admin" ? "降为成员" : "设为管理员"}</button>
                       <button class="button small ghost" type="button" data-reset-user-password="${user.id}" data-name="${escapeHtml(user.username)}">改密码</button>
-                      ${user.role === "admin" ? `<button class="button small danger" type="button" data-remove-admin="${user.id}">删除</button>` : ""}
+                      ${
+                        user.account_deletion?.status === "pending_approval"
+                          ? `<button class="button small danger" type="button" data-approve-user-deletion="${user.id}" data-name="${escapeHtml(user.username)}">批准注销</button>`
+                          : ""
+                      }
+                      <button class="button small danger" type="button" data-remove-user="${user.id}" data-name="${escapeHtml(user.username)}">删除账号</button>
                     `
                     : `<button class="button small ghost" type="button" disabled>${user.is_owner ? "服主账号" : "仅服主可操作"}</button>`
                 }
               </div>
-            </div>`,
-        )
+            </div>`;
+        })
         .join("")
     : `<div class="empty">${view.total ? "没有匹配账号。" : "暂无注册用户。"}</div>`;
   $("#adminUsers").innerHTML = `${adminListToolsHtml("users", view, "搜索用户名、账号类型、角色")}${rows}${adminPaginationHtml("users", view)}`;
@@ -3799,18 +3886,32 @@ const renderAdmins = () => {
       showToast(nextRole === "admin" ? "用户已设为管理员" : "用户已降为成员");
     });
   });
-  $$("[data-remove-admin]").forEach((button) => {
+  $$("[data-approve-user-deletion]").forEach((button) => {
     button.addEventListener("click", async () => {
-      const confirmed = await showConfirmDialog("确定删除这个管理员账号吗？", {
-        title: "删除管理员",
+      const confirmed = await showConfirmDialog(`批准 ${button.dataset.name} 的注销申请吗？批准后会进入 3 天冷静期，期间重新登录会取消注销。`, {
+        title: "批准注销",
         eyebrow: "权限管理",
+        confirmLabel: "批准注销",
+        confirmTone: "danger",
+      });
+      if (!confirmed) return;
+      await api(`/admin/users/${button.dataset.approveUserDeletion}/deletion/approve`, { method: "POST" });
+      await loadAdminData();
+      showToast("已批准注销，账号进入 3 天冷静期");
+    });
+  });
+  $$("[data-remove-user]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const confirmed = await showConfirmDialog(`确定删除 ${button.dataset.name} 的账号吗？这会立即注销账号并踢下线。`, {
+        title: "删除账号",
+        eyebrow: "用户管理",
         confirmLabel: "删除账号",
         confirmTone: "danger",
       });
       if (!confirmed) return;
-      await api(`/admin/users/${button.dataset.removeAdmin}`, { method: "DELETE" });
+      await api(`/admin/users/${button.dataset.removeUser}`, { method: "DELETE" });
       await loadAdminData();
-      showToast("管理员已删除");
+      showToast("账号已删除");
     });
   });
   $$("[data-reset-user-password]").forEach((button) => {
@@ -4006,8 +4107,11 @@ const setupLoginPage = () => {
   if (page !== "login") return;
   const loginForm = $("#loginForm");
   const registerForm = $("#registerForm");
-  const redirectAfterAuth = (user) => {
+  const redirectAfterAuth = (user, result = {}) => {
     state.me = user;
+    if (result.accountDeletionCancelled) {
+      window.sessionStorage?.setItem("siteToast", "注销已取消，账号已恢复正常登录");
+    }
     window.location.href = user?.role === "admin" ? "/admin.html" : "/forum.html";
   };
   const openAuthDialog = (dialog, focusTarget) => {
@@ -4027,7 +4131,7 @@ const setupLoginPage = () => {
           totpCode: $("#loginTotpCode")?.value.trim(),
         }),
       });
-      redirectAfterAuth(result.user);
+      redirectAfterAuth(result.user, result);
     } catch (error) {
       if (error.payload?.needsTotp) $("#loginTotpCode")?.focus();
     }
@@ -4042,7 +4146,7 @@ const setupLoginPage = () => {
         inviteCode: $("#registerInviteCode").value.trim(),
       }),
     });
-    redirectAfterAuth(result.user);
+    redirectAfterAuth(result.user, result);
   });
 };
 
@@ -4123,5 +4227,11 @@ setupAdminSidebarFollow();
 setupHomeActions();
 setupAnnouncementAnchorFix();
 setupHeroTyping();
+
+const pendingToast = window.sessionStorage?.getItem("siteToast");
+if (pendingToast) {
+  window.sessionStorage?.removeItem("siteToast");
+  window.setTimeout(() => showToast(pendingToast), 300);
+}
 
 refreshPageData().catch((error) => showToast(error.message));
