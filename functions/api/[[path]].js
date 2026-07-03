@@ -208,9 +208,11 @@ const ensureForumAdminSchema = async (env) => {
   await addTableColumnIfMissing(env, "post_reports", "resolution_reason TEXT");
   await addTableColumnIfMissing(env, "post_reports", "punishment_type TEXT");
   await addTableColumnIfMissing(env, "post_reports", "punishment_expires_at TEXT");
+  await addTableColumnIfMissing(env, "post_reports", "reporter_read_at TEXT");
   await addTableColumnIfMissing(env, "comment_reports", "resolution_reason TEXT");
   await addTableColumnIfMissing(env, "comment_reports", "punishment_type TEXT");
   await addTableColumnIfMissing(env, "comment_reports", "punishment_expires_at TEXT");
+  await addTableColumnIfMissing(env, "comment_reports", "reporter_read_at TEXT");
   try {
     await env.DB.prepare("ALTER TABLE posts ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0").run();
   } catch (error) {
@@ -281,6 +283,7 @@ const ensurePlayerProfileSchema = async (env) => {
   await addTableColumnIfMissing(env, "player_reports", "resolution_reason TEXT");
   await addTableColumnIfMissing(env, "player_reports", "punishment_type TEXT");
   await addTableColumnIfMissing(env, "player_reports", "punishment_expires_at TEXT");
+  await addTableColumnIfMissing(env, "player_reports", "reporter_read_at TEXT");
   await env.DB.prepare(
     `CREATE TABLE IF NOT EXISTS user_punishments (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1155,6 +1158,7 @@ const ownReportHistory = async (env, userId) => {
   const { results: postReports } = await env.DB.prepare(
     `SELECT 'post' AS kind, post_reports.id, post_reports.reason, post_reports.status, post_reports.created_at,
             post_reports.resolved_at, post_reports.resolution_reason, post_reports.punishment_type, post_reports.punishment_expires_at,
+            post_reports.reporter_read_at,
             posts.title AS target_title
      FROM post_reports
      JOIN posts ON posts.id = post_reports.post_id
@@ -1165,6 +1169,7 @@ const ownReportHistory = async (env, userId) => {
   const { results: commentReports } = await env.DB.prepare(
     `SELECT 'comment' AS kind, comment_reports.id, comment_reports.reason, comment_reports.status, comment_reports.created_at,
             comment_reports.resolved_at, comment_reports.resolution_reason, comment_reports.punishment_type, comment_reports.punishment_expires_at,
+            comment_reports.reporter_read_at,
             posts.title AS target_title
      FROM comment_reports
      JOIN comments ON comments.id = comment_reports.comment_id
@@ -1176,6 +1181,7 @@ const ownReportHistory = async (env, userId) => {
   const { results: playerReports } = await env.DB.prepare(
     `SELECT 'player' AS kind, player_reports.id, player_reports.reason, player_reports.status, player_reports.created_at,
             player_reports.resolved_at, player_reports.resolution_reason, player_reports.punishment_type, player_reports.punishment_expires_at,
+            player_reports.reporter_read_at,
             reported.username AS target_title
      FROM player_reports
      JOIN users AS reported ON reported.id = player_reports.reported_user_id
@@ -1186,6 +1192,42 @@ const ownReportHistory = async (env, userId) => {
   return [...(postReports || []), ...(commentReports || []), ...(playerReports || [])]
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
     .slice(0, 50);
+};
+
+const reportHistoryTableMap = {
+  post: "post_reports",
+  comment: "comment_reports",
+  player: "player_reports",
+};
+
+const markOwnReportRead = async (env, request, kind, id) => {
+  await ensureForumAdminSchema(env);
+  const actor = await requireUser(env, request);
+  const table = reportHistoryTableMap[kind];
+  if (!table) return json({ error: "举报类型不存在" }, 404);
+  const result = await env.DB.prepare(`UPDATE ${table} SET reporter_read_at = CURRENT_TIMESTAMP WHERE id = ? AND reporter_id = ?`)
+    .bind(Number(id), actor.id)
+    .run();
+  if (!result.meta?.changes) return json({ error: "举报不存在" }, 404);
+  return json({ ok: true });
+};
+
+const markAllOwnReportsRead = async (env, request) => {
+  await ensureForumAdminSchema(env);
+  const actor = await requireUser(env, request);
+  await Promise.all(
+    Object.values(reportHistoryTableMap).map((table) =>
+      env.DB.prepare(
+        `UPDATE ${table}
+         SET reporter_read_at = CURRENT_TIMESTAMP
+         WHERE reporter_id = ?
+           AND (reporter_read_at IS NULL OR reporter_read_at < COALESCE(resolved_at, created_at))`,
+      )
+        .bind(actor.id)
+        .run(),
+    ),
+  );
+  return json({ ok: true });
 };
 
 const profile = async (env, request, username) => {
@@ -2398,6 +2440,11 @@ export async function onRequest(context) {
     if (method === "PUT" && pathname === "/me/character") return updateOwnCharacter(env, request);
     if (method === "PUT" && pathname === "/me/password") return updateOwnPassword(env, request);
     if (method === "POST" && pathname === "/me/deletion") return await requestOwnAccountDeletion(env, request);
+    if (method === "POST" && pathname === "/me/reports/read-all") return markAllOwnReportsRead(env, request);
+    if (method === "POST" && /^\/me\/reports\/(post|comment|player)\/\d+\/read$/.test(pathname)) {
+      const [, , , kind, id] = pathname.split("/");
+      return markOwnReportRead(env, request, kind, id);
+    }
     if (method === "POST" && pathname === "/me/totp/begin") return beginTotp(env, request);
     if (method === "POST" && pathname === "/me/totp/confirm") return confirmTotp(env, request);
     if (method === "DELETE" && pathname === "/me/totp") return disableTotp(env, request);

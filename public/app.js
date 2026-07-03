@@ -1377,6 +1377,15 @@ const accountDeletionStatusText = (request) => {
   return "";
 };
 
+const reportHistoryUpdatedAt = (report) => parseServerDate(report?.resolved_at || report?.created_at)?.getTime() || 0;
+
+const reportHistoryIsRead = (report) => {
+  const readAt = parseServerDate(report?.reporter_read_at);
+  return Boolean(readAt && readAt.getTime() >= reportHistoryUpdatedAt(report));
+};
+
+const unreadReportHistoryCount = (reports = []) => reports.filter((report) => !reportHistoryIsRead(report)).length;
+
 const profileSettingsTemplate = (profile) => {
   if (!profile?.isSelf) return "";
   const nextRenameAt = nextUsernameChangeDate(profile);
@@ -1390,6 +1399,24 @@ const profileSettingsTemplate = (profile) => {
   const characterName = profile.minecraft_name || "";
   const deletionStatus = accountDeletionStatusText(profile.accountDeletion);
   const deletionLocked = Boolean(profile.accountDeletion);
+  const deletionSection = profile.isOwner
+    ? ""
+    : `
+      <details class="profile-setting danger-zone">
+        <summary><span>注销账户</span><small>${escapeHtml(deletionStatus || "10 秒确认，3 天冷静期")}</small></summary>
+        <div class="profile-setting-form">
+          <p>${escapeHtml(
+            deletionStatus ||
+              (profile.role === "admin"
+                ? "管理员提交后需要服主批准，批准后进入 3 天冷静期。冷静期内重新登录会取消注销。"
+                : "发起后账号会退出登录并进入 3 天冷静期。冷静期内重新登录会取消注销，到期后账号会注销。"),
+          )}</p>
+          <button class="button danger" type="button" id="requestAccountDeletionButton" ${deletionLocked ? "disabled" : ""}>
+            ${deletionLocked ? "注销已开启" : "注销账户"}
+          </button>
+        </div>
+      </details>
+    `;
   return `
     <section class="profile-settings">
       <h3>账号设置</h3>
@@ -1441,20 +1468,7 @@ const profileSettingsTemplate = (profile) => {
           <button class="button primary" type="submit">保存密码</button>
         </form>
       </details>
-      <details class="profile-setting danger-zone">
-        <summary><span>注销账户</span><small>${escapeHtml(deletionStatus || "10 秒确认，3 天冷静期")}</small></summary>
-        <div class="profile-setting-form">
-          <p>${escapeHtml(
-            deletionStatus ||
-              (profile.role === "admin"
-                ? "管理员提交后需要服主批准，批准后进入 3 天冷静期。冷静期内重新登录会取消注销。"
-                : "发起后账号会退出登录并进入 3 天冷静期。冷静期内重新登录会取消注销，到期后账号会注销。"),
-          )}</p>
-          <button class="button danger" type="button" id="requestAccountDeletionButton" ${deletionLocked || profile.isOwner ? "disabled" : ""}>
-            ${deletionLocked ? "注销已开启" : profile.isOwner ? "服主账号不可注销" : "注销账户"}
-          </button>
-        </div>
-      </details>
+      ${deletionSection}
     </section>
   `;
 };
@@ -1659,6 +1673,33 @@ const bindProfileReportsToggle = () =>
     stateKey: "profileReportsOpen",
     boundKey: "reportsBound",
   });
+
+const bindProfileReportButtons = () => {
+  $("#profileMarkAllReportsReadButton")?.addEventListener("click", async () => {
+    await api("/me/reports/read-all", { method: "POST" });
+    if (state.profile?.reportHistory) {
+      const now = new Date().toISOString();
+      state.profile.reportHistory = state.profile.reportHistory.map((report) => ({ ...report, reporter_read_at: now }));
+    }
+    renderProfilePage();
+    showToast("我的举报已全部标记为已读");
+  });
+  $$("[data-mark-report-read]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      await api(`/me/reports/${button.dataset.markReportReadKind}/${button.dataset.markReportRead}/read`, { method: "POST" });
+      if (state.profile?.reportHistory) {
+        const now = new Date().toISOString();
+        state.profile.reportHistory = state.profile.reportHistory.map((report) =>
+          report.kind === button.dataset.markReportReadKind && Number(report.id) === Number(button.dataset.markReportRead)
+            ? { ...report, reporter_read_at: now }
+            : report,
+        );
+      }
+      renderProfilePage();
+      showToast("举报已标记为已读");
+    });
+  });
+};
 
 const bindContentButtons = () => {
   $$(".read-button").forEach((button) => {
@@ -2965,6 +3006,7 @@ const renderProfilePage = () => {
   }
   const trashPosts = profile.trashPosts || [];
   const reportHistory = profile.reportHistory || [];
+  const unreadReportCount = unreadReportHistoryCount(reportHistory);
   const inviteCode = String(profile.inviteCode || "");
   const invitePanel = profile.isSelf
     ? `
@@ -2998,7 +3040,7 @@ const renderProfilePage = () => {
       ${
         profile.isSelf
           ? `<div class="profile-actions profile-floating-actions">
-              <button class="button danger" type="button" id="profileReportHistoryButton">我的举报 <span class="profile-trash-count" ${reportHistory.length ? "" : "hidden"}>${reportHistory.length}</span></button>
+              <button class="button danger" type="button" id="profileReportHistoryButton">我的举报 <span class="profile-trash-count" ${unreadReportCount ? "" : "hidden"}>${unreadReportCount}</span></button>
               <button class="button danger" type="button" id="profileTrashButton">回收站 <span class="profile-trash-count" ${trashPosts.length ? "" : "hidden"}>${trashPosts.length}</span></button>
             </div>`
           : ""
@@ -3047,6 +3089,13 @@ const renderProfilePage = () => {
             <h2 id="profileReportHistoryTitle">我的举报</h2>
             <p>查看你提交过的举报处理情况。</p>
           </div>
+          ${
+            reportHistory.length
+              ? `<div class="row-actions profile-report-actions">
+                  <button class="button small ghost" type="button" id="profileMarkAllReportsReadButton" ${unreadReportCount ? "" : "disabled"}>标记全部已读</button>
+                </div>`
+              : ""
+          }
           <div class="admin-table profile-report-table">
             ${
               reportHistory.length
@@ -3054,11 +3103,15 @@ const renderProfilePage = () => {
                     .map((report) => {
                       const kind = report.kind === "player" ? "玩家" : report.kind === "comment" ? "回复" : "帖子";
                       const punishment = report.punishment_type ? ` · ${punishmentLabels[report.punishment_type] || "处罚"} 至 ${report.punishment_expires_at || "到期"}` : "";
-                      return `<div class="table-row">
+                      const isRead = reportHistoryIsRead(report);
+                      return `<div class="table-row report-row ${isRead ? "is-read" : "is-unread"}">
                         <div>
-                          <strong>${kind} · ${escapeHtml(report.target_title || "被举报内容")}</strong>
+                          <strong>${kind} · ${escapeHtml(report.target_title || "被举报内容")}${isRead ? "" : '<span class="profile-report-unread">未读</span>'}</strong>
                           <span>${report.status === "resolved" ? "已处理" : "待处理"} · ${formatDate(report.created_at)}${punishment}</span>
                           ${report.resolution_reason ? `<p class="report-reason">${escapeHtml(report.resolution_reason)}</p>` : ""}
+                        </div>
+                        <div class="row-actions">
+                          <button class="button small ghost" type="button" data-mark-report-read="${report.id}" data-mark-report-read-kind="${report.kind}" ${isRead ? "disabled" : ""}>${isRead ? "已读" : "标记已读"}</button>
                         </div>
                       </div>`;
                     })
@@ -3092,6 +3145,7 @@ const renderProfilePage = () => {
   bindProfileInviteCopy();
   bindContentButtons();
   bindProfilePostSearch();
+  bindProfileReportButtons();
   bindProfileTrashButtons();
   bindProfileTrashToggle();
   bindProfileReportsToggle();

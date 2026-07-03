@@ -2432,6 +2432,29 @@ dialog.is-closing::backdrop {
   gap: 14px;
 }
 
+.profile-report-actions {
+  justify-content: flex-end;
+}
+
+.profile-report-unread {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #b33a3a;
+  color: #fffaf0;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}
+
+.profile-report-table .report-row.is-unread {
+  border-color: #d77a5f;
+  box-shadow: 0 0 0 1px rgba(215, 122, 95, 0.18);
+}
+
 .profile-trash-overlay[hidden] {
   display: none;
 }
@@ -5926,6 +5949,39 @@ body[data-page="admin"] .admin-list-status,
   body[data-page="profile"] .profile-post-toolbar .forum-search-panel.is-open {
     max-width: 100%;
   }
+}
+
+/* Keep all search example popovers above cards, drawers, and mobile toolbars. */
+.forum-toolbar,
+.profile-post-toolbar,
+body[data-page="admin"] .admin-list-tools,
+body[data-page="admin"] .admin-search-actions,
+.forum-toolbar-actions,
+.forum-search-panel,
+.forum-search-panel.is-open {
+  overflow: visible;
+}
+
+.forum-toolbar,
+.profile-post-toolbar,
+body[data-page="admin"] .admin-list-tools {
+  position: relative;
+  z-index: 20;
+}
+
+.forum-search-tip {
+  position: relative;
+  z-index: 220;
+}
+
+.forum-search-tip.is-open,
+.forum-search-tip:hover,
+.forum-search-tip:focus-visible {
+  z-index: 221;
+}
+
+.forum-search-tip-bubble {
+  z-index: 260;
 }
 
 .comments-panel {

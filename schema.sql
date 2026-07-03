@@ -75,7 +75,8 @@ CREATE TABLE IF NOT EXISTS post_reports (
   resolved_at TEXT,
   resolution_reason TEXT,
   punishment_type TEXT,
-  punishment_expires_at TEXT
+  punishment_expires_at TEXT,
+  reporter_read_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS comment_reports (
@@ -88,7 +89,8 @@ CREATE TABLE IF NOT EXISTS comment_reports (
   resolved_at TEXT,
   resolution_reason TEXT,
   punishment_type TEXT,
-  punishment_expires_at TEXT
+  punishment_expires_at TEXT,
+  reporter_read_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS comment_reactions (
@@ -120,7 +122,8 @@ CREATE TABLE IF NOT EXISTS player_reports (
   resolved_at TEXT,
   resolution_reason TEXT,
   punishment_type TEXT,
-  punishment_expires_at TEXT
+  punishment_expires_at TEXT,
+  reporter_read_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS user_punishments (
