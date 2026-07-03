@@ -69,6 +69,23 @@ const verifyPassword = async (password, stored) => {
   return (await hashPassword(password, salt)) === stored;
 };
 
+const clampMediaSize = (value, min, max, fallback) => {
+  const number = Math.round(Number(value));
+  if (!Number.isFinite(number)) return fallback;
+  return Math.max(min, Math.min(max, number));
+};
+
+const iframeMediaSize = (iframe) => {
+  const widthAttr = iframe.match(/\swidth=["']?(\d+)/i)?.[1];
+  const heightAttr = iframe.match(/\sheight=["']?(\d+)/i)?.[1];
+  const style = iframe.match(/\sstyle=["']([^"']+)["']/i)?.[1] || "";
+  const styleWidth = style.match(/width:\s*(?:min\([^,]+,\s*)?(\d+)px/i)?.[1];
+  const styleHeight = style.match(/(?:height|aspect-ratio):\s*(\d+)(?:px|\s*\/)/i)?.[1];
+  const width = clampMediaSize(widthAttr || styleWidth, 120, 1600, 720);
+  const height = clampMediaSize(heightAttr || styleHeight, 90, 1200, Math.round(width * 9 / 16));
+  return { width, height };
+};
+
 const sanitizeHtml = (html) => {
   let output = String(html || "");
   output = output.replace(/<script[\s\S]*?<\/script>/gi, "");
@@ -81,17 +98,22 @@ const sanitizeHtml = (html) => {
     if (!/^https:\/\/player\.bilibili\.com\/player\.html\?(bvid=BV[a-zA-Z0-9]{8,12}|aid=\d+)/.test(src)) {
       return "";
     }
-    return `<iframe src="${src}" sandbox="allow-scripts allow-same-origin allow-presentation" allowfullscreen loading="lazy"></iframe>`;
+    const { width, height } = iframeMediaSize(iframe);
+    return `<iframe src="${src}" width="${width}" height="${height}" style="width: min(100%, ${width}px); height: auto; aspect-ratio: ${width} / ${height};" sandbox="allow-scripts allow-same-origin allow-presentation" allowfullscreen loading="lazy"></iframe>`;
   });
   return output.slice(0, 60000);
 };
 
-const excerptFromHtml = (html) =>
-  sanitizeHtml(html)
+const excerptFromHtml = (html) => {
+  const clean = sanitizeHtml(html);
+  const mediaLabel = clean.match(/<iframe\b/i) ? "Bilibili 视频" : clean.match(/<img\b/i) ? "图片" : "";
+  const text = clean
     .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 120);
+  return text || mediaLabel;
+};
 
 const normalizeHexColor = (value, fallback = "#5fa86f") => {
   const color = String(value || "").trim();
@@ -1113,8 +1135,14 @@ const withAuthorAccountTypes = async (env, rows = []) => {
   }));
 };
 
-const listAnnouncements = async (env, { trash = false } = {}) => {
+const listAnnouncements = async (env, { trash = false, deletedBy = null } = {}) => {
   await ensurePlayerProfileSchema(env);
+  const where = [trash ? "announcements.deleted_at IS NOT NULL" : "announcements.deleted_at IS NULL"];
+  const bindings = [];
+  if (trash && deletedBy !== null) {
+    where.push("announcements.deleted_by = ?");
+    bindings.push(deletedBy);
+  }
   const { results } = await env.DB.prepare(
     `SELECT announcements.id, announcements.title, announcements.content_html, announcements.pinned,
             announcements.views, announcements.deleted_at, announcements.created_at, announcements.updated_at,
@@ -1122,14 +1150,16 @@ const listAnnouncements = async (env, { trash = false } = {}) => {
             users.minecraft_name AS author_minecraft_name, users.skin_image AS author_skin_image
      FROM announcements
      JOIN users ON users.id = announcements.author_id
-     WHERE ${trash ? "announcements.deleted_at IS NOT NULL" : "announcements.deleted_at IS NULL"}
+     WHERE ${where.join(" AND ")}
      ORDER BY announcements.pinned DESC, announcements.created_at DESC
      LIMIT 50`,
-  ).all();
+  )
+    .bind(...bindings)
+    .all();
   return json({ items: await withAuthorAccountTypes(env, results || []) });
 };
 
-const listPosts = async (env, { trash = false, authorId = null, limit = 100 } = {}) => {
+const listPosts = async (env, { trash = false, authorId = null, deletedBy = null, limit = 100 } = {}) => {
   await ensureForumAdminSchema(env);
   await purgeExpiredDeletedPosts(env);
   const where = [trash ? "posts.deleted_at IS NOT NULL" : "posts.deleted_at IS NULL"];
@@ -1137,6 +1167,10 @@ const listPosts = async (env, { trash = false, authorId = null, limit = 100 } = 
   if (authorId !== null) {
     where.push("posts.author_id = ?");
     bindings.push(authorId);
+  }
+  if (trash && deletedBy !== null) {
+    where.push("posts.deleted_by = ?");
+    bindings.push(deletedBy);
   }
   bindings.push(limit);
   const { results } = await env.DB.prepare(
@@ -1592,7 +1626,7 @@ const createPost = async (env, request) => {
 
 const updateAnnouncement = async (env, request, id) => {
   const user = await requireAdmin(env, request);
-  const announcement = await env.DB.prepare("SELECT id, author_id FROM announcements WHERE id = ? AND deleted_at IS NULL").bind(id).first();
+  const announcement = await env.DB.prepare("SELECT id, author_id FROM announcements WHERE id = ?").bind(id).first();
   if (!announcement) return json({ error: "公告不存在" }, 404);
   if (!(await canManageAuthoredContent(env, user, announcement.author_id))) {
     return json({ error: "不能编辑服主或其他管理员发布的公告" }, 403);
@@ -2019,7 +2053,7 @@ const deleteAnnouncement = async (env, request, id) => {
   if (!(await canManageAuthoredContent(env, user, announcement.author_id))) {
     return json({ error: "不能删除服主或其他管理员发布的公告" }, 403);
   }
-  await env.DB.prepare("UPDATE announcements SET deleted_at = CURRENT_TIMESTAMP WHERE id = ?").bind(id).run();
+  await env.DB.prepare("UPDATE announcements SET deleted_at = CURRENT_TIMESTAMP, deleted_by = ? WHERE id = ?").bind(user.id, id).run();
   return json({ ok: true });
 };
 
@@ -2030,7 +2064,7 @@ const restoreAnnouncement = async (env, request, id) => {
   if (!(await canManageAuthoredContent(env, user, announcement.author_id))) {
     return json({ error: "不能恢复服主或其他管理员发布的公告" }, 403);
   }
-  await env.DB.prepare("UPDATE announcements SET deleted_at = NULL WHERE id = ?").bind(id).run();
+  await env.DB.prepare("UPDATE announcements SET deleted_at = NULL, deleted_by = NULL WHERE id = ?").bind(id).run();
   return json({ ok: true });
 };
 
@@ -2321,7 +2355,6 @@ const listPostReports = async (env, request) => {
     ...(commentReports || []).map((report) => ({ ...normalize(report), kind: "comment" })),
     ...(playerReports || []).map((report) => ({ ...normalize(report), kind: "player" })),
   ]
-    .filter((report) => report.can_resolve)
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
     .slice(0, 80);
   return json({ items });
@@ -2510,8 +2543,8 @@ export async function onRequest(context) {
       return await removeManagedUser(env, request, pathname.split("/").at(-1));
     }
     if (method === "GET" && pathname === "/admin/trash") {
-      await requireAdmin(env, request);
-      const [announcements, posts] = await Promise.all([listAnnouncements(env, { trash: true }), listPosts(env, { trash: true })]);
+      const actor = await requireAdmin(env, request);
+      const [announcements, posts] = await Promise.all([listAnnouncements(env, { trash: true, deletedBy: actor.id }), listPosts(env, { trash: true, deletedBy: actor.id })]);
       return json({ announcements: (await announcements.json()).items, posts: (await posts.json()).items });
     }
     if (method === "GET" && pathname === "/admin/reports") return listPostReports(env, request);

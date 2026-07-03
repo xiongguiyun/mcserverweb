@@ -106,6 +106,15 @@ const textFromHtml = (html) => {
   return div.textContent.replace(/\s+/g, " ").trim();
 };
 
+const contentHasMeaningfulBody = (html) => {
+  const div = document.createElement("div");
+  div.innerHTML = html || "";
+  return Boolean(
+    div.textContent.replace(/\s+/g, " ").trim() ||
+      div.querySelector("img.inline-image, iframe[src*='player.bilibili.com/player.html']")
+  );
+};
+
 const formatDate = (value) =>
   new Intl.DateTimeFormat("zh-CN", {
     year: "numeric",
@@ -118,6 +127,18 @@ const formatDate = (value) =>
 const isAdmin = () => state.me?.role === "admin";
 const isOwner = () => Boolean(state.me?.is_owner);
 const isOwnerAccountType = (value) => value === "服主";
+const syncOwnerOnlyAdminUi = () => {
+  const owner = isOwner();
+  document.body.classList.toggle("is-owner", owner);
+  $$('a[href="#adminUsersPanel"]').forEach((link) => {
+    link.hidden = !owner;
+  });
+  const usersPanel = $("#adminUsersPanel");
+  if (usersPanel) usersPanel.hidden = !owner;
+  if (!owner && window.location.hash === "#adminUsersPanel") {
+    window.history.replaceState(null, "", "#adminOverview");
+  }
+};
 const isOwnUsername = (username) =>
   Boolean(state.me?.username && String(username || "").toLowerCase() === String(state.me.username).toLowerCase());
 const ownsContent = (item, author) =>
@@ -394,7 +415,12 @@ const closeDialogAnimated = (dialog) => {
 
 const openPostDialog = () => openDialog($("#postDialog"));
 const closePostDialog = () => closeDialogAnimated($("#postDialog"));
-const openPreviewDialog = () => openDialog($("#previewDialog"));
+const openPreviewDialog = () => {
+  const scrollX = window.scrollX;
+  const scrollY = window.scrollY;
+  openDialog($("#previewDialog"));
+  window.requestAnimationFrame(() => window.scrollTo(scrollX, scrollY));
+};
 const closePreviewDialog = () => closeDialogAnimated($("#previewDialog"));
 
 const ensureSiteActionDialog = () => {
@@ -845,6 +871,7 @@ const enhanceColorTool = () => {
 const renderAuth = () => {
   const actions = $("#authActions");
   if (!actions) return;
+  syncOwnerOnlyAdminUi();
   $$("[data-admin-link]").forEach((link) => {
     link.hidden = !isAdmin();
   });
@@ -917,12 +944,13 @@ const cardTemplate = (item, type) => {
   const canEditPost = type === "post" && page === "forum" && canManagePost;
   const canDeletePost = type === "post" && canManagePost;
   const canReportPost = type === "post" && Boolean(state.me) && !ownsContent(item, author) && !isOwnerContent(item);
+  const metaRole = type === "announcement" ? "公告" : item.highlighted ? "高亮帖子" : item.pinned ? "置顶帖子" : "";
   return `
     <article class="post-card ${type === "post" ? "forum-card" : ""} ${type === "post" && item.pinned ? "is-pinned" : ""} ${type === "post" && item.highlighted ? "is-highlighted-post" : ""}"${type === "post" ? postHighlightStyle(item) : ""}>
       ${type === "post" && item.pinned ? `<span class="pinned-ribbon">置顶</span>` : ""}
       <h3>${escapeHtml(item.title)}</h3>
       <div class="meta">
-        <span class="meta-role">${type === "announcement" ? "公告" : item.highlighted ? "高亮帖子" : item.pinned ? "置顶帖子" : "玩家论坛"}</span>
+        ${metaRole ? `<span class="meta-role">${metaRole}</span>` : ""}
         <span class="meta-author">
           <span class="meta-author-badge">
             <img class="meta-author-icon" src="${activeAvatarSrc(authorUser, 32)}" alt="" loading="lazy" />
@@ -2014,9 +2042,6 @@ const commentComposerTemplate = (postId) => {
   const quoteManagerOpen = Number(state.commentQuoteManagerOpenPostId) === Number(postId);
   return `
     <form class="comment-composer ${composerOpen ? "is-expanded" : "is-collapsed"}" data-comment-composer="${postId}">
-      <button class="comment-composer-toggle" type="button" data-comment-composer-toggle aria-expanded="${composerOpen}">
-        ${composerOpen ? (editing ? "收起编辑" : "收起评论") : "+ 发表评论"}
-      </button>
       <div class="comment-composer-panel" aria-hidden="${!composerOpen}">
         <div class="comment-composer-panel-inner">
           <div class="comment-composer-head">
@@ -2128,12 +2153,20 @@ const renderComments = (postId) => {
   const comments = state.comments[postId] || [];
   const visibleComments = comments.filter((comment) => !comment.deleted_at);
   const visibleCount = visibleComments.length;
+  const editing = state.commentEditing?.postId === postId;
+  const composerOpen = isCommentComposerOpen(postId);
+  const composerToggleLabel = composerOpen ? (editing ? "收起编辑" : "收起评论") : "+ 发表评论";
   section.innerHTML = `
     <div class="comments-head">
       <div>
         <h2>回复</h2>
         <span>${visibleCount} 条回复</span>
       </div>
+      ${
+        state.me
+          ? `<button class="comment-composer-toggle" type="button" data-comment-composer-toggle aria-expanded="${composerOpen}">${composerToggleLabel}</button>`
+          : ""
+      }
     </div>
     ${commentUndoTemplate(postId)}
     ${commentComposerTemplate(postId)}
@@ -2291,7 +2324,8 @@ const bindPostComments = (postId) => {
   const section = $(`[data-comments-for="${postId}"]`);
   if (!section) return;
   section.querySelector("[data-comment-composer-toggle]")?.addEventListener("click", (event) => {
-    const form = event.currentTarget.closest("[data-comment-composer]");
+    const form = section.querySelector("[data-comment-composer]");
+    if (!form) return;
     const open = !form.classList.contains("is-expanded");
     setCommentComposerOpen(postId, open);
     form.classList.toggle("is-expanded", open);
@@ -2415,7 +2449,7 @@ const bindPostComments = (postId) => {
     event.preventDefault();
     const editor = section.querySelector("[data-comment-editor]");
     const contentHtml = editor?.innerHTML.trim() || "";
-    if (!textFromHtml(contentHtml)) {
+    if (!contentHasMeaningfulBody(contentHtml)) {
       showToast("回复内容不能为空");
       return;
     }
@@ -2724,6 +2758,123 @@ const applyEditorAlignment = (name) => {
 
 const insertHtmlBlock = (html) => command("insertHTML", html);
 
+const mediaSizeDefaults = {
+  image: { width: 720 },
+  video: { width: 720, height: 405 },
+};
+
+const clampMediaSize = (value, min, max) => {
+  const number = Math.round(Number(value));
+  if (!Number.isFinite(number)) return null;
+  return Math.max(min, Math.min(max, number));
+};
+
+const parseMediaSizeInput = (value, defaults = mediaSizeDefaults.image) => {
+  const input = String(value || "").trim();
+  if (!input) return { ...defaults };
+  const parts = input.match(/\d+/g)?.map(Number) || [];
+  const width = clampMediaSize(parts[0], 120, 1600) || defaults.width;
+  const height = defaults.height ? clampMediaSize(parts[1], 90, 1200) || defaults.height : null;
+  return height ? { width, height } : { width };
+};
+
+const mediaSizeStyle = ({ width, height } = {}) => {
+  const safeWidth = clampMediaSize(width, 120, 1600);
+  const safeHeight = height ? clampMediaSize(height, 90, 1200) : null;
+  const ratio = safeWidth && safeHeight ? ` aspect-ratio: ${safeWidth} / ${safeHeight};` : "";
+  return safeWidth ? `width: min(100%, ${safeWidth}px); height: auto;${ratio}` : "";
+};
+
+const mediaSizeAttrs = (size) => {
+  const width = clampMediaSize(size?.width, 120, 1600);
+  const height = clampMediaSize(size?.height, 90, 1200);
+  return {
+    width: width ? String(width) : "",
+    height: height ? String(height) : "",
+  };
+};
+
+const insertEditorNode = (node) => {
+  const editor = $("#editor");
+  if (!editor || !node) return false;
+  if (!restoreEditorSelection()) editor.focus({ preventScroll: true });
+  const selection = window.getSelection?.();
+  const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+  if (!rangeBelongsToEditor(range, editor)) return false;
+  const cursorTarget = node.nodeType === Node.DOCUMENT_FRAGMENT_NODE ? node.lastChild : node;
+  range.deleteContents();
+  range.insertNode(node);
+  if (cursorTarget?.parentNode) range.setStartAfter(cursorTarget);
+  range.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  editorSavedRange = range.cloneRange();
+  editor.normalize();
+  return true;
+};
+
+const createParagraphWithMedia = (media) => {
+  const paragraph = document.createElement("p");
+  paragraph.append(media);
+  return paragraph;
+};
+
+const insertEditorImage = (url, size) => {
+  const img = document.createElement("img");
+  img.src = url;
+  img.alt = "";
+  img.className = "inline-image";
+  img.loading = "lazy";
+  img.style.cssText = mediaSizeStyle(size);
+  const attrs = mediaSizeAttrs(size);
+  if (attrs.width) img.setAttribute("width", attrs.width);
+  return insertEditorNode(createParagraphWithMedia(img));
+};
+
+const insertEditorBilibili = (src, size) => {
+  const iframe = document.createElement("iframe");
+  iframe.src = src;
+  iframe.loading = "lazy";
+  iframe.allowFullscreen = true;
+  iframe.sandbox = "allow-scripts allow-same-origin allow-presentation";
+  iframe.style.cssText = mediaSizeStyle(size);
+  const attrs = mediaSizeAttrs(size);
+  if (attrs.width) iframe.setAttribute("width", attrs.width);
+  if (attrs.height) iframe.setAttribute("height", attrs.height);
+  const paragraph = createParagraphWithMedia(iframe);
+  const spacer = document.createElement("p");
+  spacer.append(document.createElement("br"));
+  const fragment = document.createDocumentFragment();
+  fragment.append(paragraph, spacer);
+  return insertEditorNode(fragment);
+};
+
+const insertEditorSpoiler = () => {
+  const editor = $("#editor");
+  if (!editor) return;
+  if (!restoreEditorSelection()) editor.focus({ preventScroll: true });
+  const selection = window.getSelection?.();
+  const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+  if (!rangeBelongsToEditor(range, editor)) {
+    insertHtmlBlock(`<span class="spoiler-inline">隐藏内容</span>`);
+    return;
+  }
+  const spoiler = document.createElement("span");
+  spoiler.className = "spoiler-inline";
+  if (range.collapsed) {
+    spoiler.textContent = "隐藏内容";
+  } else {
+    spoiler.append(range.extractContents());
+  }
+  range.insertNode(spoiler);
+  range.setStartAfter(spoiler);
+  range.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  editorSavedRange = range.cloneRange();
+  editor.normalize();
+};
+
 const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const findEditorMatch = (query) => {
@@ -3023,7 +3174,18 @@ const setupEditor = () => {
       confirmLabel: "插入图片",
       normalize: (value) => value.trim(),
     });
-    if (url) insertHtmlBlock(`<p><img src="${escapeHtml(url)}" alt="" class="inline-image" /></p>`);
+    if (!url) return;
+    const sizeInput = await showPromptDialog("设置图片显示宽度（像素）。留空使用默认宽度。", {
+      title: "图片显示大小",
+      eyebrow: "编辑工具",
+      inputLabel: "宽度",
+      placeholder: "720",
+      confirmLabel: "应用大小",
+      inputMode: "numeric",
+      normalize: (value) => value.trim(),
+    });
+    if (sizeInput === null) return;
+    insertEditorImage(url, parseMediaSizeInput(sizeInput, mediaSizeDefaults.image));
   });
   $("#tableButton")?.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -3031,7 +3193,7 @@ const setupEditor = () => {
     closeColorTool();
     openTablePicker(event.currentTarget);
   });
-  $("#spoilerButton")?.addEventListener("click", () => insertHtmlBlock(`<span class="spoiler-inline">隐藏内容</span>`));
+  $("#spoilerButton")?.addEventListener("click", () => insertEditorSpoiler());
   $("#hrButton")?.addEventListener("click", () => insertHtmlBlock(`<hr class="inline-rule" />`));
   $("#detailsButton")?.addEventListener("click", () => insertHtmlBlock(`<details class="inline-details"><summary>点击展开</summary><p>折叠内容</p></details><p><br></p>`));
   $("#codeButton")?.addEventListener("click", () => insertHtmlBlock(`<pre class="inline-code"><code>// code</code></pre><p><br></p>`));
@@ -3050,7 +3212,40 @@ const setupEditor = () => {
     const av = input?.match(/(?:av|aid=)(\d+)/i)?.[1];
     const src = bv ? `https://player.bilibili.com/player.html?bvid=${encodeURIComponent(bv)}` : av ? `https://player.bilibili.com/player.html?aid=${encodeURIComponent(av)}` : null;
     if (!src) return showToast("没有识别到有效的 Bilibili 视频 ID");
-    insertHtmlBlock(`<p><iframe src="${src}" allowfullscreen loading="lazy"></iframe></p><p><br></p>`);
+    const sizeInput = await showPromptDialog("设置视频显示大小，格式为 宽×高。留空使用 720×405。", {
+      title: "视频显示大小",
+      eyebrow: "编辑工具",
+      inputLabel: "宽度×高度",
+      placeholder: "720x405",
+      confirmLabel: "应用大小",
+      normalize: (value) => value.trim(),
+    });
+    if (sizeInput === null) return;
+    insertEditorBilibili(src, parseMediaSizeInput(sizeInput, mediaSizeDefaults.video));
+  });
+  editor.addEventListener("dblclick", async (event) => {
+    const media = event.target?.closest?.("img.inline-image, iframe");
+    if (!media || !editor.contains(media)) return;
+    const isVideo = media.tagName === "IFRAME";
+    const defaults = isVideo ? mediaSizeDefaults.video : mediaSizeDefaults.image;
+    const currentWidth = media.getAttribute("width") || defaults.width;
+    const currentHeight = media.getAttribute("height") || defaults.height || "";
+    const sizeInput = await showPromptDialog(isVideo ? "修改视频显示大小，格式为 宽×高。" : "修改图片显示宽度（像素）。", {
+      title: isVideo ? "视频显示大小" : "图片显示大小",
+      eyebrow: "编辑工具",
+      inputLabel: isVideo ? "宽度×高度" : "宽度",
+      defaultValue: isVideo ? `${currentWidth}x${currentHeight}` : String(currentWidth),
+      placeholder: isVideo ? "720x405" : "720",
+      confirmLabel: "保存大小",
+      normalize: (value) => value.trim(),
+    });
+    if (sizeInput === null) return;
+    const size = parseMediaSizeInput(sizeInput, defaults);
+    media.style.cssText = mediaSizeStyle(size);
+    const attrs = mediaSizeAttrs(size);
+    if (attrs.width) media.setAttribute("width", attrs.width);
+    if (attrs.height) media.setAttribute("height", attrs.height);
+    if (!isVideo) media.removeAttribute("height");
   });
   $("#moreButton")?.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -3218,15 +3413,21 @@ const renderProfilePage = () => {
         <div class="profile-trash-backdrop" data-profile-report-close></div>
         <div class="profile-trash-popover profile-report-popover" role="dialog" aria-modal="true" aria-labelledby="profileReportHistoryTitle">
           <button class="dialog-close-button" type="button" data-profile-report-close aria-label="关闭我的举报">×</button>
-          <div class="section-title compact">
-            <h2 id="profileReportHistoryTitle">我的举报</h2>
-            <p>${reportHistory.length ? `共 ${reportHistory.length} 条记录，${unreadReportCount ? `${unreadReportCount} 条未读更新。` : "全部已读。"}` : "查看你提交过的举报处理情况。"}</p>
+          <div class="section-title compact profile-report-head">
+            <div>
+              <h2 id="profileReportHistoryTitle">我的举报</h2>
+              <p>${reportHistory.length ? `共 ${reportHistory.length} 条记录，${unreadReportCount ? `${unreadReportCount} 条未读更新。` : "全部已读。"}` : "查看你提交过的举报处理情况。"}</p>
+            </div>
+            ${
+              reportHistory.length > 3
+                ? `<button class="button small ${unreadReportCount ? "primary" : "ghost"}" type="button" id="profileMarkAllReportsReadButton" ${unreadReportCount ? "" : "disabled"}>${unreadReportCount ? "标记全部已读" : "全部已读"}</button>`
+                : ""
+            }
           </div>
           ${
             reportHistory.length
               ? `<div class="profile-report-actions">
                   <span class="profile-report-count ${unreadReportCount ? "has-unread" : ""}">${unreadReportCount ? `${unreadReportCount} 条未读` : "全部已读"}</span>
-                  <button class="button small ${unreadReportCount ? "primary" : "ghost"}" type="button" id="profileMarkAllReportsReadButton" ${unreadReportCount ? "" : "disabled"}>${unreadReportCount ? "标记全部已读" : "全部已读"}</button>
                 </div>`
               : ""
           }
@@ -3328,8 +3529,8 @@ const ensureTrashPostEditDialog = () => {
     <div class="site-modal-shell">
       <div class="site-modal-copy">
         <span class="site-modal-eyebrow">回收站</span>
-        <h2>编辑帖子</h2>
-        <p>保存后帖子仍留在回收站，恢复后才会重新公开。</p>
+        <h2 id="trashPostEditHeading">编辑回收站内容</h2>
+        <p>保存后内容仍留在回收站，恢复后才会重新公开。</p>
       </div>
       <label class="site-modal-field">
         <span>标题</span>
@@ -3349,20 +3550,28 @@ const ensureTrashPostEditDialog = () => {
     closeDialogAnimated(dialog);
   });
   dialog.querySelector("[data-trash-edit-save]")?.addEventListener("click", async () => {
-    const id = Number(dialog.dataset.postId);
+    const id = Number(dialog.dataset.itemId || dialog.dataset.postId);
+    const type = dialog.dataset.itemType || "post";
     const title = dialog.querySelector("#trashPostEditTitle")?.value.trim() || "";
     const contentHtml = dialog.querySelector("#trashPostEditBody")?.innerHTML.trim() || "";
-    if (!title || !textFromHtml(contentHtml)) {
+    if (!title || !contentHasMeaningfulBody(contentHtml)) {
       showToast("标题和正文都要填写");
       return;
     }
-    await api(`/posts/${id}`, { method: "PUT", body: JSON.stringify({ title, contentHtml }) });
+    await api(`/${type === "announcement" ? "announcements" : "posts"}/${id}`, { method: "PUT", body: JSON.stringify({ title, contentHtml }) });
+    if (state.trashLoaded) {
+      const collection = type === "announcement" ? "announcements" : "posts";
+      state.trash[collection] = (state.trash[collection] || []).map((item) =>
+        item.id === id ? { ...item, title, content_html: contentHtml, excerpt: textFromHtml(contentHtml).slice(0, 140) } : item,
+      );
+    }
     if (state.profile) {
       state.profile.trashPosts = (state.profile.trashPosts || []).map((item) =>
         item.id === id ? { ...item, title, content_html: contentHtml, excerpt: textFromHtml(contentHtml).slice(0, 140) } : item,
       );
     }
     closeDialogAnimated(dialog);
+    if (page === "admin") renderTrashRows();
     renderProfilePage();
     showToast("回收站帖子已保存");
   });
@@ -3461,10 +3670,11 @@ const setupForumPost = () => {
     }
   });
   searchClear?.addEventListener("click", () => {
+    const hadQuery = Boolean(state.forumSearch.trim() || searchInput?.value.trim());
     state.forumSearch = "";
     if (searchInput) searchInput.value = "";
     renderLists();
-    syncSearch(false);
+    syncSearch(hadQuery);
   });
   document.addEventListener("click", (event) => {
     const target = event.target instanceof Element ? event.target : null;
@@ -3772,8 +3982,15 @@ const renderTrashRows = () => {
             <div class="table-row">
               <div><strong>${escapeHtml(item.title)}</strong><span>${item.type === "announcement" ? "公告" : "帖子"} ${formatDate(item.deleted_at)}</span></div>
               <div class="row-actions">
-                <button class="button small ghost" type="button" ${canManage ? `data-restore="${item.type}" data-id="${item.id}"` : "disabled"}>恢复</button>
-                <button class="button small danger" type="button" ${canManage ? `data-purge="${item.type}" data-id="${item.id}"` : "disabled"}>彻底删除</button>
+                <details class="trash-more-menu">
+                  <summary class="button small ghost">更多</summary>
+                  <div class="trash-more-actions">
+                    <button class="button small ghost" type="button" data-trash-open="${item.type}" data-id="${item.id}">查看</button>
+                    <button class="button small ghost" type="button" ${canManage ? `data-trash-edit="${item.type}" data-id="${item.id}"` : "disabled"}>编辑</button>
+                    <button class="button small ghost" type="button" ${canManage ? `data-restore="${item.type}" data-id="${item.id}"` : "disabled"}>恢复</button>
+                    <button class="button small danger" type="button" ${canManage ? `data-purge="${item.type}" data-id="${item.id}"` : "disabled"}>彻底删除</button>
+                  </div>
+                </details>
               </div>
             </div>`;
           },
@@ -3782,6 +3999,35 @@ const renderTrashRows = () => {
     : `<div class="empty">${view.total ? "没有匹配内容。" : "回收站为空。"}</div>`;
   panel.querySelector(".admin-table").innerHTML = `${adminListToolsHtml("trash", view, "搜索标题、类型、发布者，#发布者")}${renderedRows}${adminPaginationHtml("trash", view)}`;
   bindAdminListControls("trash", renderTrashRows);
+  $$("[data-trash-open]").forEach((button) =>
+    button.addEventListener("click", () => {
+      const type = button.dataset.trashOpen;
+      const collection = type === "announcement" ? "announcements" : "posts";
+      const item = state.trash[collection]?.find((entry) => Number(entry.id) === Number(button.dataset.id));
+      if (!item) return;
+      if (type === "announcement") {
+        state.announcements = [item, ...state.announcements.filter((entry) => Number(entry.id) !== Number(item.id))];
+      } else {
+        state.posts = [item, ...state.posts.filter((entry) => Number(entry.id) !== Number(item.id))];
+      }
+      openReader(type, Number(item.id));
+    }),
+  );
+  $$("[data-trash-edit]").forEach((button) =>
+    button.addEventListener("click", () => {
+      const type = button.dataset.trashEdit;
+      const collection = type === "announcement" ? "announcements" : "posts";
+      const item = state.trash[collection]?.find((entry) => Number(entry.id) === Number(button.dataset.id));
+      if (!item) return;
+      const dialog = ensureTrashPostEditDialog();
+      dialog.dataset.itemId = String(item.id);
+      dialog.dataset.itemType = type;
+      dialog.querySelector("#trashPostEditHeading").textContent = type === "announcement" ? "编辑公告" : "编辑帖子";
+      dialog.querySelector("#trashPostEditTitle").value = item.title || "";
+      dialog.querySelector("#trashPostEditBody").innerHTML = item.content_html || "";
+      openDialog(dialog);
+    }),
+  );
   $$("[data-restore]").forEach((button) =>
     button.addEventListener("click", async () => {
       await api(`/${button.dataset.restore === "announcement" ? "announcements" : "posts"}/${button.dataset.id}/restore`, { method: "POST" });
@@ -3963,7 +4209,11 @@ const renderReports = () => {
                       ? `<button class="button small ghost" type="button" data-open-report-comment="${report.comment_id}" data-open-report-post="${report.post_id}">查看回复</button>`
                       : `<button class="button small ghost" type="button" data-open-report-post="${report.post_id}">查看帖子</button>`
                 }
-                <button class="button small primary" type="button" data-resolve-report="${report.id}" data-resolve-report-kind="${isPlayerReport ? "player" : isCommentReport ? "comment" : "post"}">标记已处理</button>
+                ${
+                  report.can_resolve
+                    ? `<button class="button small primary" type="button" data-resolve-report="${report.id}" data-resolve-report-kind="${isPlayerReport ? "player" : isCommentReport ? "comment" : "post"}">标记已处理</button>`
+                    : `<button class="button small ghost" type="button" disabled>仅服主处理</button>`
+                }
               </div>
             </div>`;
           },
@@ -4005,6 +4255,25 @@ const renderReports = () => {
 
 const renderAdmins = () => {
   if (!$("#adminUsers")) return;
+  const ownerOnlyMessage = "只有服主可以创建新的管理员账号。";
+  const adminUserForm = $("#adminUserForm");
+  const adminOwnerHint = $("#adminOwnerHint");
+  if (adminUserForm) {
+    const inputs = adminUserForm.querySelectorAll("input");
+    const submit = adminUserForm.querySelector("button[type='submit']");
+    inputs.forEach((input) => {
+      input.disabled = !isOwner();
+      input.title = isOwner() ? "" : ownerOnlyMessage;
+    });
+    if (submit) {
+      submit.disabled = !isOwner();
+      submit.textContent = isOwner() ? "创建管理员" : "仅服主可创建";
+      submit.title = isOwner() ? "" : ownerOnlyMessage;
+    }
+  }
+  if (adminOwnerHint) adminOwnerHint.hidden = isOwner();
+  const adminUserTools = $(".admin-user-tools");
+  if (adminUserTools) adminUserTools.hidden = !isOwner();
   const normalUsers = state.admins.filter((user) => user.role !== "admin" && !user.account_deletion);
   const promoteSelect = $("#promoteUserSelect");
   if (promoteSelect) {
@@ -4037,7 +4306,9 @@ const renderAdmins = () => {
               </div>
               <div class="row-actions">
                 ${
-                  isOwner() && !user.is_owner
+                  !isOwner()
+                    ? ""
+                    : !user.is_owner
                     ? `
                       <button class="button small ghost" type="button" data-rename-user="${user.id}" data-name="${escapeHtml(user.username)}">改名</button>
                       <button class="button small ghost" type="button" data-role-user="${user.id}" data-role="${user.role}" data-name="${escapeHtml(user.username)}">${user.role === "admin" ? "降为成员" : "设为管理员"}</button>
@@ -4049,7 +4320,7 @@ const renderAdmins = () => {
                       }
                       <button class="button small danger" type="button" data-remove-user="${user.id}" data-name="${escapeHtml(user.username)}">删除账号</button>
                     `
-                    : `<button class="button small ghost" type="button" disabled>${user.is_owner ? "服主账号" : "仅服主可操作"}</button>`
+                    : ""
                 }
               </div>
             </div>`;
@@ -4152,6 +4423,10 @@ const renderAdmins = () => {
 const setupAdminUsers = () => {
   $("#adminUserForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (!isOwner()) {
+      showToast("只有服主可以创建新的管理员账号");
+      return;
+    }
     await api("/admin/users", {
       method: "POST",
       body: JSON.stringify({ username: $("#adminUsername").value.trim(), password: $("#adminPassword").value }),
@@ -4202,7 +4477,9 @@ const setupAdminNavigation = () => {
     });
   };
   const sync = () => {
+    syncOwnerOnlyAdminUi();
     const current = window.location.hash || "#adminOverview";
+    document.body.classList.toggle("is-trash-open", current === "#adminTrash");
     setActive(current);
     if (current === "#adminTrash") renderTrash().catch((error) => showToast(error.message));
   };

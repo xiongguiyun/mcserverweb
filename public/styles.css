@@ -1914,6 +1914,8 @@ body[data-page="login"] {
 
 .rich-editor img.inline-image,
 .reader-body img.inline-image {
+  width: auto;
+  height: auto;
   max-width: 100%;
   border-radius: 6px;
 }
@@ -1990,6 +1992,7 @@ body[data-page="login"] {
 .rich-editor iframe,
 .reader-body iframe {
   width: 100%;
+  max-width: 100%;
   aspect-ratio: 16 / 9;
   border: 0;
   border-radius: 4px;
@@ -7079,6 +7082,124 @@ body[data-page="admin"] .admin-sidebar-drawer {
     opacity var(--motion-base) ease,
     transform var(--motion-slow) var(--motion-ease);
   will-change: transform, opacity;
+}
+
+.photo-hero .hero-bg {
+  inset: 0 !important;
+  background-position: center 44% !important;
+  background-size: cover !important;
+  transform: none !important;
+  animation: none !important;
+  will-change: auto;
+}
+
+.rich-editor img.inline-image[style],
+.reader-body img.inline-image[style],
+.rich-editor iframe[style],
+.reader-body iframe[style] {
+  max-width: 100%;
+}
+
+.admin-owner-hint {
+  margin: 8px 0 0;
+  color: #7b5b2b;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+body[data-page="admin"] .page-hero.admin-hero > p,
+body[data-page="admin"] .admin-panel > .section-title.compact > p,
+#announcements > .section-title > p {
+  display: none;
+}
+
+body[data-page="admin"]:not(.is-trash-open) #adminTrash {
+  display: none;
+}
+
+body[data-page="admin"] #adminUserForm.inline-form.compact {
+  grid-template-columns: minmax(0, 1fr) auto;
+  max-width: 760px;
+}
+
+body[data-page="admin"] #adminUsername {
+  grid-column: 1 / -1;
+}
+
+.profile-report-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.profile-report-head > div {
+  min-width: 0;
+}
+
+.profile-report-head .button {
+  flex: 0 0 auto;
+  margin-top: 4px;
+}
+
+.trash-more-menu {
+  position: relative;
+}
+
+.trash-more-menu > summary {
+  list-style: none;
+}
+
+.trash-more-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.trash-more-actions {
+  position: absolute;
+  right: 0;
+  z-index: 20;
+  display: grid;
+  gap: 6px;
+  min-width: 116px;
+  padding: 8px;
+  background: #fffaf0;
+  border: 2px solid #d7bc8b;
+  box-shadow: 0 8px 0 rgba(42, 29, 22, 0.14);
+}
+
+.trash-more-actions .button {
+  width: 100%;
+}
+
+.comments-head {
+  align-items: flex-start;
+}
+
+.comments-head .comment-composer-toggle {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.comment-composer.is-expanded {
+  padding-bottom: 16px;
+}
+
+.comment-composer.is-expanded .comment-composer-panel,
+.comment-composer.is-expanded .comment-composer-panel-inner,
+.comment-toolbar-shell {
+  overflow: visible;
+}
+
+.comment-composer-panel-inner {
+  padding-bottom: 6px;
+}
+
+.comment-toolbar-shell {
+  padding: 4px 0;
+}
+
+.comment-submit-row {
+  padding-bottom: 5px;
 }
 
 @media (max-width: 620px) {
