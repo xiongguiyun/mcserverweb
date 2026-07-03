@@ -7,6 +7,7 @@ const json = (data, status = 200, headers = {}) =>
 const schemaEnsureTasks = new Map();
 const currentUserCache = new WeakMap();
 const punishmentCheckCache = new WeakMap();
+const lastSeenTouchCache = new Map();
 let accountDeletionSweepStartedAt = 0;
 let accountDeletionSweepPromise = null;
 
@@ -1083,6 +1084,27 @@ const timestampMs = (value) => {
   const normalized = text.includes("T") ? text : `${text.replace(" ", "T")}Z`;
   const time = Date.parse(normalized);
   return Number.isFinite(time) ? time : 0;
+};
+
+const touchLastSeen = async (env, user) => {
+  if (!user?.id) return;
+  const now = Date.now();
+  const cacheKey = String(user.id);
+  const cachedAt = Number(lastSeenTouchCache.get(cacheKey) || 0);
+  const storedAt = timestampMs(user.last_seen_at);
+  const recentTouchAt = Math.max(cachedAt, storedAt);
+  if (recentTouchAt && now - recentTouchAt < lastSeenTouchIntervalMs) {
+    if (recentTouchAt > storedAt) user.last_seen_at = new Date(recentTouchAt).toISOString();
+    return;
+  }
+  lastSeenTouchCache.set(cacheKey, now);
+  user.last_seen_at = new Date(now).toISOString();
+  try {
+    await env.DB.prepare("UPDATE users SET last_seen_at = CURRENT_TIMESTAMP WHERE id = ?").bind(user.id).run();
+  } catch (error) {
+    lastSeenTouchCache.delete(cacheKey);
+    throw error;
+  }
 };
 
 const nextUsernameChangeIso = (lastChangedAt) => {
