@@ -44,7 +44,9 @@ let maintenanceRequestId = 0;
 const isMobileViewport = () => window.matchMedia?.("(max-width: 620px)")?.matches;
 const isCoarsePointer = () => window.matchMedia?.("(pointer: coarse)")?.matches;
 const shouldUseMobileTotpLayout = () => isMobileViewport() || isCoarsePointer();
-const staticPreviewNotice = "当前是静态预览模式，接口内容暂时不可用。";
+const apiUnavailableNotice = "后台接口未接入，请检查 Cloudflare Pages Functions 和 D1 绑定 DB。";
+const apiUnavailableToastCooldownMs = 4000;
+let lastApiUnavailableToastAt = 0;
 const inFlightApiRequests = new Map();
 const apiResponseCache = new Map();
 let apiCacheVersion = 0;
@@ -150,8 +152,9 @@ const invalidateApiCacheForMutation = (path, method) => {
 };
 
 const api = async (path, options = {}) => {
-  const method = String(options.method || "GET").toUpperCase();
-  const requestKey = method === "GET" && !options.body ? path : "";
+  const { silent = false, headers = {}, ...fetchOptions } = options;
+  const method = String(fetchOptions.method || "GET").toUpperCase();
+  const requestKey = method === "GET" && !fetchOptions.body ? path : "";
   const cacheTtl = requestKey ? apiCacheTtlFor(path) : 0;
   const cachedPayload = cachedApiPayload(requestKey, cacheTtl);
   if (cachedPayload !== undefined) return cachedPayload;
@@ -160,24 +163,37 @@ const api = async (path, options = {}) => {
   const startedCacheVersion = apiCacheVersion;
   const request = (async () => {
     const response = await fetch(`/api${path}`, {
-      headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+      headers: { "Content-Type": "application/json", ...headers },
       credentials: "include",
-      ...options,
+      ...fetchOptions,
     });
     const raw = await response.text();
     let payload = {};
+    let parseFailed = false;
     try {
       payload = raw ? JSON.parse(raw) : {};
     } catch {
+      parseFailed = true;
       const contentType = response.headers.get("content-type") || "";
       const isHtmlFallback = contentType.includes("text/html") || /^\s*<!doctype html/i.test(raw);
-      payload = { error: isHtmlFallback ? staticPreviewNotice : raw.trim() };
+      payload = {
+        error: isHtmlFallback ? apiUnavailableNotice : raw.trim() || "接口返回内容无法解析",
+        apiUnavailable: isHtmlFallback,
+      };
     }
-    if (!response.ok) {
+    if (parseFailed || !response.ok) {
       const message = payload.error || `请求失败 (${response.status})`;
-      showToast(message, { copyText: message === staticPreviewNotice ? "" : message });
+      if (!silent) {
+        const now = Date.now();
+        const shouldThrottle = payload.apiUnavailable && now - lastApiUnavailableToastAt < apiUnavailableToastCooldownMs;
+        if (!shouldThrottle) {
+          if (payload.apiUnavailable) lastApiUnavailableToastAt = now;
+          showToast(message, { copyText: payload.apiUnavailable ? "" : message });
+        }
+      }
       const error = new Error(message);
       error.payload = payload;
+      error.status = response.status;
       throw error;
     }
     if (requestKey && startedCacheVersion === apiCacheVersion) rememberApiPayload(requestKey, cacheTtl, payload);
@@ -241,14 +257,27 @@ const contentHasMeaningfulBody = (html) => {
   );
 };
 
-const formatDate = (value) =>
-  new Intl.DateTimeFormat("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
+const userDateLocale = navigator.languages?.[0] || navigator.language || "zh-CN";
+const dateTimeFormatter = new Intl.DateTimeFormat(userDateLocale, {
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+const parseServerDate = (value) => {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  const normalized = text.includes("T") ? text : `${text.replace(" ", "T")}Z`;
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const formatDate = (value) => {
+  const date = parseServerDate(value);
+  return date ? dateTimeFormatter.format(date) : "";
+};
 
 const isAdmin = () => state.me?.role === "admin";
 const isOwner = () => Boolean(state.me?.is_owner);
@@ -1580,13 +1609,6 @@ const bindTotpSecurity = () => {
     await refreshPageData();
     showToast("2FA 已关闭");
   });
-};
-
-const parseServerDate = (value) => {
-  const text = String(value || "").trim();
-  if (!text) return null;
-  const date = new Date(text.includes("T") ? text : `${text.replace(" ", "T")}Z`);
-  return Number.isNaN(date.getTime()) ? null : date;
 };
 
 const nextUsernameChangeDate = (profile) => {
@@ -4828,30 +4850,48 @@ const loadPublicData = async () => {
   renderAll();
 };
 
+const runAdminLoadTask = async (request, apply, render) => {
+  try {
+    const payload = await request;
+    apply(payload || {});
+    render?.();
+    return null;
+  } catch (error) {
+    return error;
+  }
+};
+
 const loadAdminData = async () => {
   await loadBaseState();
   renderAll();
   renderAdminGate();
   if (!isAdmin()) return;
-  const [announcements, posts, stats, admins, reports] = await Promise.all([
-    api("/announcements"),
-    api("/posts"),
-    api("/admin/stats"),
-    isOwner() ? api("/admin/users") : Promise.resolve({ items: [] }),
-    api("/admin/reports"),
-  ]);
-  state.announcements = announcements.items;
-  state.posts = posts.items;
-  state.stats = stats;
-  state.site.maintenanceMode = Boolean(stats.maintenanceMode);
-  state.admins = admins.items || [];
-  state.reports = reports.items;
   state.trashLoaded = false;
+
+  const errors = (await Promise.all([
+    runAdminLoadTask(api("/announcements", { silent: true }), (payload) => {
+      state.announcements = payload.items || [];
+    }, renderManagement),
+    runAdminLoadTask(api("/posts", { silent: true }), (payload) => {
+      state.posts = payload.items || [];
+    }, renderManagement),
+    runAdminLoadTask(api("/admin/stats", { silent: true }), (payload) => {
+      state.stats = payload;
+      state.site.maintenanceMode = Boolean(payload.maintenanceMode);
+    }, () => {
+      renderStats();
+      renderMaintenanceBanner();
+    }),
+    runAdminLoadTask(isOwner() ? api("/admin/users", { silent: true }) : Promise.resolve({ items: [] }), (payload) => {
+      state.admins = payload.items || [];
+    }, renderAdmins),
+    runAdminLoadTask(api("/admin/reports", { silent: true }), (payload) => {
+      state.reports = payload.items || [];
+    }, renderReports),
+  ])).filter(Boolean);
+
   renderAll();
-  renderStats();
-  renderManagement();
-  renderReports();
-  renderAdmins();
+  if (errors.length) showToast(errors[0].message || "后台数据加载失败，请稍后重试");
 };
 
 const refreshPageData = async () => (page === "admin" ? loadAdminData() : loadPublicData());
