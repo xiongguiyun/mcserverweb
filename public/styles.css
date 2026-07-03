@@ -6898,24 +6898,15 @@ body[data-page="admin"] .admin-mobile-toggle {
 }
 
 .hero-bg {
-  transform: scale(1.018) translate3d(-0.35%, -0.15%, 0);
-  animation: hero-bg-drift 22s var(--motion-ease-soft) infinite alternate;
+  transform: none;
+  animation: none;
   backface-visibility: hidden;
-  will-change: transform;
+  will-change: auto;
 }
 
 .hero-copy,
 .page-hero > * {
   animation: page-copy-in 560ms var(--motion-ease) both;
-}
-
-@keyframes hero-bg-drift {
-  from {
-    transform: scale(1.018) translate3d(-0.35%, -0.15%, 0);
-  }
-  to {
-    transform: scale(1.04) translate3d(0.35%, 0.2%, 0);
-  }
 }
 
 @keyframes page-copy-in {
