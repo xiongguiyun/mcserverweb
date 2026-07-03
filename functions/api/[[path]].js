@@ -4,12 +4,64 @@ const json = (data, status = 200, headers = {}) =>
     headers: { "Content-Type": "application/json; charset=utf-8", ...headers },
   });
 
+const schemaEnsureTasks = new Map();
+const currentUserCache = new WeakMap();
+const punishmentCheckCache = new WeakMap();
+let accountDeletionSweepStartedAt = 0;
+let accountDeletionSweepPromise = null;
+
 const textEncoder = new TextEncoder();
 const usernameChangeCooldownMs = 7 * 24 * 60 * 60 * 1000;
 const commentUndoWindowMs = 30 * 1000;
 const maxSkinImageBytes = 256 * 1024;
 const maxSkinImageDataUrlLength = Math.ceil(maxSkinImageBytes * 1.4) + 64;
 const accountDeletionDelaySql = "+3 days";
+const accountDeletionSweepIntervalMs = 60 * 1000;
+const lastSeenTouchIntervalMs = 2 * 60 * 1000;
+
+const runSchemaEnsure = (key, task) => {
+  let promise = schemaEnsureTasks.get(key);
+  if (!promise) {
+    promise = task().catch((error) => {
+      schemaEnsureTasks.delete(key);
+      throw error;
+    });
+    schemaEnsureTasks.set(key, promise);
+  }
+  return promise;
+};
+
+const withResponseHeaders = (response, headers = {}) => {
+  const nextHeaders = new Headers(response.headers);
+  Object.entries(headers).forEach(([key, value]) => nextHeaders.set(key, value));
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: nextHeaders,
+  });
+};
+
+const publicCacheHeaders = (maxAge = 30) => ({
+  "Cache-Control": `public, max-age=${maxAge}, s-maxage=${maxAge}, stale-while-revalidate=300`,
+  Vary: "Cookie",
+});
+
+const cachedPublicGet = async (request, waitUntil, producer, { maxAge = 30, cacheKey = request.url } = {}) => {
+  const headers = publicCacheHeaders(maxAge);
+  if (request.method !== "GET" || getCookie(request, "session")) {
+    return withResponseHeaders(await producer(), { "Cache-Control": "no-store", Vary: "Cookie" });
+  }
+
+  const cache = globalThis.caches?.default;
+  const cacheRequest = new Request(cacheKey, { method: "GET" });
+  const cached = await cache?.match(cacheRequest);
+  if (cached) return cached;
+
+  const rawResponse = await producer();
+  const response = withResponseHeaders(rawResponse, rawResponse.ok ? headers : { "Cache-Control": "no-store", Vary: "Cookie" });
+  if (response.ok && cache) waitUntil?.(cache.put(cacheRequest, response.clone()));
+  return response;
+};
 
 const messageFromError = (error, fallback = "服务器错误") => {
   if (!error) return fallback;
@@ -161,7 +213,8 @@ const ownerUser = async (env) => {
   }
 };
 
-const ensureForumAdminSchema = async (env) => {
+const ensureForumAdminSchema = (env) =>
+  runSchemaEnsure("forum-admin", async () => {
   await ensurePlayerProfileSchema(env);
   await env.DB.prepare(
     `CREATE TABLE IF NOT EXISTS post_reports (
@@ -245,7 +298,7 @@ const ensureForumAdminSchema = async (env) => {
   await addTableColumnIfMissing(env, "posts", "highlighted INTEGER NOT NULL DEFAULT 0");
   await addTableColumnIfMissing(env, "posts", "highlight_color TEXT");
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_posts_pinned_created_at ON posts(pinned DESC, created_at DESC)").run();
-};
+});
 
 const addUserColumnIfMissing = async (env, definition) => {
   try {
@@ -263,7 +316,8 @@ const addTableColumnIfMissing = async (env, table, definition) => {
   }
 };
 
-const ensureAccountDeletionSchema = async (env) => {
+const ensureAccountDeletionSchema = (env) =>
+  runSchemaEnsure("account-deletion", async () => {
   await addUserColumnIfMissing(env, "deleted_at TEXT");
   await addUserColumnIfMissing(env, "deleted_by INTEGER");
   await env.DB.prepare(
@@ -284,9 +338,10 @@ const ensureAccountDeletionSchema = async (env) => {
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_account_deletion_active ON account_deletion_requests(user_id) WHERE status IN ('pending_approval', 'cooling')",
   ).run();
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_account_deletion_due ON account_deletion_requests(status, scheduled_at)").run();
-};
+});
 
-const ensurePlayerProfileSchema = async (env) => {
+const ensurePlayerProfileSchema = (env) =>
+  runSchemaEnsure("player-profile", async () => {
   await addUserColumnIfMissing(env, "minecraft_name TEXT");
   await addUserColumnIfMissing(env, "skin_image TEXT");
   await addUserColumnIfMissing(env, "username_updated_at TEXT");
@@ -321,7 +376,7 @@ const ensurePlayerProfileSchema = async (env) => {
     )`,
   ).run();
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_user_punishments_active ON user_punishments(user_id, type, expires_at, revoked_at)").run();
-};
+});
 
 const defaultServerStatusSettings = {
   enabled: true,
@@ -765,28 +820,32 @@ const setSiteSetting = async (env, key, value) => {
 };
 
 const currentUser = async (env, request) => {
-  await ensurePlayerProfileSchema(env);
+  if (currentUserCache.has(request)) return currentUserCache.get(request);
   const token = getCookie(request, "session");
   if (!token) return null;
-  const user = await env.DB.prepare(
-    `SELECT users.id, users.username, users.role, users.minecraft_name, users.skin_image,
-            users.username_updated_at, users.totp_enabled, users.created_at, users.last_seen_at
-     FROM sessions
-     JOIN users ON users.id = sessions.user_id
-     WHERE sessions.token = ? AND sessions.expires_at > datetime('now') AND users.deleted_at IS NULL`,
-  )
-    .bind(token)
-    .first();
-  if (user) {
-    await env.DB.prepare("UPDATE users SET last_seen_at = CURRENT_TIMESTAMP WHERE id = ?").bind(user.id).run();
-  }
-  return user;
+
+  const lookup = (async () => {
+    await ensurePlayerProfileSchema(env);
+    const user = await env.DB.prepare(
+      `SELECT users.id, users.username, users.role, users.minecraft_name, users.skin_image,
+              users.username_updated_at, users.totp_enabled, users.created_at, users.last_seen_at
+       FROM sessions
+       JOIN users ON users.id = sessions.user_id
+       WHERE sessions.token = ? AND sessions.expires_at > datetime('now') AND users.deleted_at IS NULL`,
+    )
+      .bind(token)
+      .first();
+    if (user) await touchLastSeen(env, user);
+    return user;
+  })();
+  currentUserCache.set(request, lookup);
+  return lookup;
 };
 
 const requireUser = async (env, request) => {
   const user = await currentUser(env, request);
   if (!user) throw new Response(JSON.stringify({ error: "请先登录" }), { status: 401 });
-  await assertNoPunishment(env, user, ["site_ban", "account_ban"]);
+  await assertNoPunishment(env, user, ["site_ban", "account_ban"], request);
   return user;
 };
 
@@ -945,6 +1004,18 @@ const completeMaturedAccountDeletions = async (env) => {
   }
 };
 
+const scheduleMaturedAccountDeletionSweep = (env, waitUntil) => {
+  const now = Date.now();
+  if (accountDeletionSweepPromise || now - accountDeletionSweepStartedAt < accountDeletionSweepIntervalMs) return;
+  accountDeletionSweepStartedAt = now;
+  accountDeletionSweepPromise = completeMaturedAccountDeletions(env)
+    .catch((error) => console.error("Account deletion sweep failed", error))
+    .finally(() => {
+      accountDeletionSweepPromise = null;
+    });
+  waitUntil?.(accountDeletionSweepPromise);
+};
+
 const requestOwnAccountDeletion = async (env, request) => {
   await ensurePlayerProfileSchema(env);
   const actor = await requireUser(env, request);
@@ -1050,9 +1121,25 @@ const punishmentMessage = (punishment) => {
   return `${label}生效中${expires}${reason}`;
 };
 
-const assertNoPunishment = async (env, user, types) => {
+const assertNoPunishment = async (env, user, types, request = null) => {
   if (!user || user.role === "admin") return;
-  const punishment = (await activePunishments(env, user.id, types))[0];
+  const cacheKey = `${user.id}:${[...(types || [])].sort().join(",")}`;
+  let check = null;
+  if (request) {
+    let requestChecks = punishmentCheckCache.get(request);
+    if (!requestChecks) {
+      requestChecks = new Map();
+      punishmentCheckCache.set(request, requestChecks);
+    }
+    check = requestChecks.get(cacheKey);
+    if (!check) {
+      check = activePunishments(env, user.id, types);
+      requestChecks.set(cacheKey, check);
+    }
+  } else {
+    check = activePunishments(env, user.id, types);
+  }
+  const punishment = (await check)[0];
   if (punishment) throw new Response(JSON.stringify({ error: punishmentMessage(punishment), punishment }), { status: 403 });
 };
 
@@ -2092,21 +2179,23 @@ const stats = async (env, request) => {
   await ensureForumAdminSchema(env);
   const actor = await requireAdmin(env, request);
   const site = await getSiteSettings(env);
-  const announcementViews = await env.DB.prepare("SELECT COALESCE(SUM(views), 0) AS total FROM announcements WHERE deleted_at IS NULL").first();
-  const postViews = await env.DB.prepare("SELECT COALESCE(SUM(views), 0) AS total FROM posts WHERE deleted_at IS NULL").first();
-  const userCount = await env.DB.prepare("SELECT COUNT(*) AS total FROM users WHERE deleted_at IS NULL").first();
-  const adminCount = await env.DB.prepare("SELECT COUNT(*) AS total FROM users WHERE role = 'admin' AND deleted_at IS NULL").first();
-  const reportCount = await env.DB.prepare(
-    `SELECT
-       (SELECT COUNT(*) FROM post_reports WHERE status = 'open') +
-       (SELECT COUNT(*) FROM comment_reports WHERE status = 'open') +
-       (SELECT COUNT(*) FROM player_reports WHERE status = 'open') AS total`,
-  ).first();
-  const trashCount = await env.DB.prepare(
-    "SELECT (SELECT COUNT(*) FROM posts WHERE deleted_at IS NOT NULL AND deleted_by = ?) + (SELECT COUNT(*) FROM announcements WHERE deleted_at IS NOT NULL AND deleted_by = ?) AS total",
-  )
-    .bind(actor.id, actor.id)
-    .first();
+  const [announcementViews, postViews, userCount, adminCount, reportCount, trashCount] = await Promise.all([
+    env.DB.prepare("SELECT COALESCE(SUM(views), 0) AS total FROM announcements WHERE deleted_at IS NULL").first(),
+    env.DB.prepare("SELECT COALESCE(SUM(views), 0) AS total FROM posts WHERE deleted_at IS NULL").first(),
+    env.DB.prepare("SELECT COUNT(*) AS total FROM users WHERE deleted_at IS NULL").first(),
+    env.DB.prepare("SELECT COUNT(*) AS total FROM users WHERE role = 'admin' AND deleted_at IS NULL").first(),
+    env.DB.prepare(
+      `SELECT
+         (SELECT COUNT(*) FROM post_reports WHERE status = 'open') +
+         (SELECT COUNT(*) FROM comment_reports WHERE status = 'open') +
+         (SELECT COUNT(*) FROM player_reports WHERE status = 'open') AS total`,
+    ).first(),
+    env.DB.prepare(
+      "SELECT (SELECT COUNT(*) FROM posts WHERE deleted_at IS NOT NULL AND deleted_by = ?) + (SELECT COUNT(*) FROM announcements WHERE deleted_at IS NOT NULL AND deleted_by = ?) AS total",
+    )
+      .bind(actor.id, actor.id)
+      .first(),
+  ]);
   return json({
     totalViews: Number(announcementViews.total || 0) + Number(postViews.total || 0),
     announcementViews: Number(announcementViews.total || 0),
@@ -2438,14 +2527,14 @@ export async function onRequest(context) {
   const method = request.method;
 
   try {
-    await completeMaturedAccountDeletions(env);
+    scheduleMaturedAccountDeletionSweep(env, waitUntil);
     if (pathname !== "/logout") {
       const sessionUser = await currentUser(env, request);
-      if (sessionUser) await assertNoPunishment(env, sessionUser, ["site_ban", "account_ban"]);
+      if (sessionUser) await assertNoPunishment(env, sessionUser, ["site_ban", "account_ban"], request);
     }
     if (method === "GET" && pathname === "/captcha") return createCaptchaChallenge(env);
     if (method === "POST" && pathname === "/captcha/verify") return verifyCaptchaChallenge(env, request);
-    if (method === "GET" && pathname === "/me") return me(env, request);
+    if (method === "GET" && pathname === "/me") return cachedPublicGet(request, waitUntil, () => me(env, request), { maxAge: 20 });
     if (method === "POST" && pathname === "/account") return account(env, request);
     if (method === "POST" && pathname === "/login") return login(env, request);
     if (method === "POST" && pathname === "/register") return register(env, request);
@@ -2463,16 +2552,22 @@ export async function onRequest(context) {
     if (method === "POST" && pathname === "/me/totp/confirm") return confirmTotp(env, request);
     if (method === "DELETE" && pathname === "/me/totp") return disableTotp(env, request);
 
-    if (method === "GET" && pathname === "/announcements") return listAnnouncements(env);
+    if (method === "GET" && pathname === "/announcements") {
+      return cachedPublicGet(request, waitUntil, () => listAnnouncements(env), { maxAge: 30 });
+    }
     if (method === "POST" && pathname === "/announcements") return createAnnouncement(env, request);
     if (method === "PUT" && /^\/announcements\/\d+$/.test(pathname)) return updateAnnouncement(env, request, pathname.split("/").at(-1));
     if (method === "DELETE" && /^\/announcements\/\d+$/.test(pathname)) return deleteAnnouncement(env, request, pathname.split("/").at(-1));
     if (method === "POST" && /^\/announcements\/\d+\/restore$/.test(pathname)) return restoreAnnouncement(env, request, pathname.split("/").at(-2));
     if (method === "DELETE" && /^\/announcements\/\d+\/purge$/.test(pathname)) return purgeAnnouncement(env, request, pathname.split("/").at(-2));
 
-    if (method === "GET" && pathname === "/posts") return listPosts(env);
+    if (method === "GET" && pathname === "/posts") {
+      return cachedPublicGet(request, waitUntil, () => listPosts(env), { maxAge: 20 });
+    }
     if (method === "POST" && pathname === "/posts") return createPost(env, request);
-    if (method === "GET" && /^\/posts\/\d+\/comments$/.test(pathname)) return listPostComments(env, request, pathname.split("/").at(-2));
+    if (method === "GET" && /^\/posts\/\d+\/comments$/.test(pathname)) {
+      return cachedPublicGet(request, waitUntil, () => listPostComments(env, request, pathname.split("/").at(-2)), { maxAge: 15 });
+    }
     if (method === "POST" && /^\/posts\/\d+\/comments$/.test(pathname)) return createComment(env, request, pathname.split("/").at(-2));
     if (method === "PUT" && /^\/posts\/\d+$/.test(pathname)) return updatePost(env, request, pathname.split("/").at(-1));
     if (method === "PUT" && /^\/posts\/\d+\/pin$/.test(pathname)) return updatePostPinned(env, request, pathname.split("/").at(-2));
@@ -2483,7 +2578,7 @@ export async function onRequest(context) {
     if (method === "DELETE" && /^\/posts\/\d+\/purge$/.test(pathname)) return purgePost(env, request, pathname.split("/").at(-2));
 
     if (method === "GET" && /^\/profiles\/[^/]+$/.test(pathname)) {
-      return profile(env, request, decodeURIComponent(pathname.split("/").at(-1)));
+      return cachedPublicGet(request, waitUntil, () => profile(env, request, decodeURIComponent(pathname.split("/").at(-1))), { maxAge: 20 });
     }
     if (method === "POST" && /^\/profiles\/[^/]+\/reports$/.test(pathname)) {
       return reportPlayer(env, request, decodeURIComponent(pathname.split("/").at(-2)));
@@ -2499,7 +2594,9 @@ export async function onRequest(context) {
       return minecraftImage(request, waitUntil, kind, decodeURIComponent(username), size);
     }
 
-    if (method === "GET" && pathname === "/server-status") return serverStatus(env, request);
+    if (method === "GET" && pathname === "/server-status") {
+      return cachedPublicGet(request, waitUntil, () => serverStatus(env, request), { maxAge: 20 });
+    }
 
     if (method === "POST" && /^\/track-view\/(announcement|post)\/\d+$/.test(pathname)) {
       const [, , type, id] = pathname.split("/");

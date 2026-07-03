@@ -7,6 +7,8 @@
   admins: [],
   reports: [],
   comments: {},
+  commentLoadedAt: {},
+  commentLoadedFor: {},
   commentQuotes: [],
   commentQuoteManagerOpenPostId: null,
   commentComposerOpenPostIds: {},
@@ -43,30 +45,154 @@ const isMobileViewport = () => window.matchMedia?.("(max-width: 620px)")?.matche
 const isCoarsePointer = () => window.matchMedia?.("(pointer: coarse)")?.matches;
 const shouldUseMobileTotpLayout = () => isMobileViewport() || isCoarsePointer();
 const staticPreviewNotice = "当前是静态预览模式，接口内容暂时不可用。";
+const inFlightApiRequests = new Map();
+const apiResponseCache = new Map();
+let apiCacheVersion = 0;
+const commentCacheMs = 15 * 1000;
+
+const apiCacheRules = [
+  [/^\/me$/, 10000],
+  [/^\/announcements$/, 30000],
+  [/^\/posts$/, 20000],
+  [/^\/profiles\/[^/?]+(?:\?.*)?$/, 20000],
+  [/^\/posts\/\d+\/comments$/, 15000],
+  [/^\/server-status(?:\?.*)?$/, 20000],
+  [/^\/admin\/stats$/, 10000],
+  [/^\/admin\/reports$/, 10000],
+  [/^\/admin\/users$/, 20000],
+  [/^\/admin\/trash$/, 10000],
+  [/^\/admin\/settings\/server-status$/, 20000],
+];
+
+const apiCacheTtlFor = (path) => apiCacheRules.find(([pattern]) => pattern.test(path))?.[1] || 0;
+
+const cloneApiPayload = (payload) => {
+  if (!payload || typeof payload !== "object") return payload;
+  if (typeof structuredClone === "function") return structuredClone(payload);
+  return JSON.parse(JSON.stringify(payload));
+};
+
+const cachedApiPayload = (key, ttl) => {
+  if (!ttl) return undefined;
+  const cached = apiResponseCache.get(key);
+  if (!cached) return undefined;
+  if (cached.expiresAt <= Date.now()) {
+    apiResponseCache.delete(key);
+    return undefined;
+  }
+  return cloneApiPayload(cached.payload);
+};
+
+const rememberApiPayload = (key, ttl, payload) => {
+  if (!ttl) return;
+  apiResponseCache.set(key, {
+    expiresAt: Date.now() + ttl,
+    payload: cloneApiPayload(payload),
+  });
+};
+
+const clearCachedApiPrefixes = (prefixes) => {
+  const targets = Array.isArray(prefixes) ? prefixes : [prefixes];
+  for (const key of apiResponseCache.keys()) {
+    if (targets.some((prefix) => key === prefix || key.startsWith(prefix))) {
+      apiResponseCache.delete(key);
+    }
+  }
+};
+
+const invalidateApiCacheForMutation = (path, method) => {
+  if (method === "GET" || /^\/(?:captcha|track-view)(?:\/|$)/.test(path)) return;
+  apiCacheVersion += 1;
+
+  if (/^\/(?:account|login|logout|register)$/.test(path)) {
+    apiResponseCache.clear();
+    return;
+  }
+
+  if (path === "/admin/settings/maintenance") {
+    clearCachedApiPrefixes(["/me", "/admin/stats"]);
+    return;
+  }
+  if (path === "/admin/settings/server-status") {
+    clearCachedApiPrefixes(["/me", "/server-status", "/admin/settings/server-status"]);
+    return;
+  }
+  if (path.startsWith("/me")) {
+    clearCachedApiPrefixes(["/me", "/profiles"]);
+    return;
+  }
+  if (path.startsWith("/announcements")) {
+    clearCachedApiPrefixes(["/announcements", "/admin/stats", "/admin/trash"]);
+    return;
+  }
+  if (path.startsWith("/posts")) {
+    clearCachedApiPrefixes(["/posts", "/profiles", "/admin/stats", "/admin/trash", "/admin/reports"]);
+    return;
+  }
+  if (path.startsWith("/comments")) {
+    clearCachedApiPrefixes(["/posts", "/profiles", "/admin/stats", "/admin/reports"]);
+    return;
+  }
+  if (path.startsWith("/profiles")) {
+    clearCachedApiPrefixes(["/profiles", "/admin/stats", "/admin/reports", "/me"]);
+    return;
+  }
+  if (path.startsWith("/admin/users")) {
+    clearCachedApiPrefixes(["/admin/users", "/admin/stats", "/profiles", "/me"]);
+    return;
+  }
+  if (path.startsWith("/admin/reports")) {
+    clearCachedApiPrefixes(["/admin/reports", "/admin/stats", "/profiles", "/me"]);
+    return;
+  }
+
+  apiResponseCache.clear();
+};
 
 const api = async (path, options = {}) => {
-  const response = await fetch(`/api${path}`, {
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-    credentials: "include",
-    ...options,
-  });
-  const raw = await response.text();
-  let payload = {};
-  try {
-    payload = raw ? JSON.parse(raw) : {};
-  } catch {
-    const contentType = response.headers.get("content-type") || "";
-    const isHtmlFallback = contentType.includes("text/html") || /^\s*<!doctype html/i.test(raw);
-    payload = { error: isHtmlFallback ? staticPreviewNotice : raw.trim() };
+  const method = String(options.method || "GET").toUpperCase();
+  const requestKey = method === "GET" && !options.body ? path : "";
+  const cacheTtl = requestKey ? apiCacheTtlFor(path) : 0;
+  const cachedPayload = cachedApiPayload(requestKey, cacheTtl);
+  if (cachedPayload !== undefined) return cachedPayload;
+  if (requestKey && inFlightApiRequests.has(requestKey)) return inFlightApiRequests.get(requestKey);
+
+  const startedCacheVersion = apiCacheVersion;
+  const request = (async () => {
+    const response = await fetch(`/api${path}`, {
+      headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+      credentials: "include",
+      ...options,
+    });
+    const raw = await response.text();
+    let payload = {};
+    try {
+      payload = raw ? JSON.parse(raw) : {};
+    } catch {
+      const contentType = response.headers.get("content-type") || "";
+      const isHtmlFallback = contentType.includes("text/html") || /^\s*<!doctype html/i.test(raw);
+      payload = { error: isHtmlFallback ? staticPreviewNotice : raw.trim() };
+    }
+    if (!response.ok) {
+      const message = payload.error || `请求失败 (${response.status})`;
+      showToast(message, { copyText: message === staticPreviewNotice ? "" : message });
+      const error = new Error(message);
+      error.payload = payload;
+      throw error;
+    }
+    if (requestKey && startedCacheVersion === apiCacheVersion) rememberApiPayload(requestKey, cacheTtl, payload);
+    if (!requestKey) invalidateApiCacheForMutation(path, method);
+    return payload;
+  })();
+
+  if (requestKey) {
+    inFlightApiRequests.set(requestKey, request);
+    request.then(
+      () => inFlightApiRequests.delete(requestKey),
+      () => inFlightApiRequests.delete(requestKey),
+    );
   }
-  if (!response.ok) {
-    const message = payload.error || `请求失败 (${response.status})`;
-    showToast(message, { copyText: message === staticPreviewNotice ? "" : message });
-    const error = new Error(message);
-    error.payload = payload;
-    throw error;
-  }
-  return payload;
+  return request;
 };
 
 const showToast = (message, options = {}) => {
@@ -2181,11 +2307,28 @@ const renderComments = (postId) => {
   }
 };
 
+const commentCacheIdentity = () => (state.me?.id ? `user:${state.me.id}` : "anon");
+const markCommentsFresh = (postId) => {
+  state.commentLoadedAt[postId] = Date.now();
+  state.commentLoadedFor[postId] = commentCacheIdentity();
+};
+
 const loadPostComments = async (postId) => {
+  const cacheIdentity = commentCacheIdentity();
+  const hasFreshComments =
+    state.comments[postId] &&
+    state.commentLoadedFor[postId] === cacheIdentity &&
+    Date.now() - Number(state.commentLoadedAt[postId] || 0) < commentCacheMs;
+  if (hasFreshComments) {
+    renderComments(postId);
+    return;
+  }
   const section = $(`[data-comments-for="${postId}"]`);
-  if (section) section.innerHTML = `<div class="empty">正在加载回复...</div>`;
+  if (section && !state.comments[postId]) section.innerHTML = `<div class="empty">正在加载回复...</div>`;
+  if (section && state.comments[postId]) renderComments(postId);
   const result = await api(`/posts/${postId}/comments`);
   state.comments[postId] = result.items || [];
+  markCommentsFresh(postId);
   renderComments(postId);
 };
 
@@ -2195,6 +2338,7 @@ const upsertComment = (postId, comment) => {
   state.comments[postId] = [comment, ...list.filter((entry) => Number(entry.id) !== Number(comment.id))].sort(
     (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
   );
+  markCommentsFresh(postId);
 };
 
 const removeCommentUndo = (undoId, rerenderPostId = null) => {
