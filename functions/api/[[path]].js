@@ -80,9 +80,11 @@ const iframeMediaSize = (iframe) => {
   const heightAttr = iframe.match(/\sheight=["']?(\d+)/i)?.[1];
   const style = iframe.match(/\sstyle=["']([^"']+)["']/i)?.[1] || "";
   const styleWidth = style.match(/width:\s*(?:min\([^,]+,\s*)?(\d+)px/i)?.[1];
-  const styleHeight = style.match(/(?:height|aspect-ratio):\s*(\d+)(?:px|\s*\/)/i)?.[1];
+  const styleHeight = style.match(/height:\s*(\d+)px/i)?.[1];
+  const ratio = style.match(/aspect-ratio:\s*(\d+)\s*\/\s*(\d+)/i);
   const width = clampMediaSize(widthAttr || styleWidth, 120, 1600, 720);
-  const height = clampMediaSize(heightAttr || styleHeight, 90, 1200, Math.round(width * 9 / 16));
+  const ratioHeight = ratio ? Math.round((width * Number(ratio[2])) / Number(ratio[1])) : null;
+  const height = clampMediaSize(heightAttr || styleHeight || ratioHeight, 90, 1200, Math.round(width * 9 / 16));
   return { width, height };
 };
 
@@ -106,7 +108,7 @@ const sanitizeHtml = (html) => {
 
 const excerptFromHtml = (html) => {
   const clean = sanitizeHtml(html);
-  const mediaLabel = clean.match(/<iframe\b/i) ? "Bilibili 视频" : clean.match(/<img\b/i) ? "图片" : "";
+  const mediaLabel = clean.match(/<iframe\b/i) ? "Bilibili \u89c6\u9891" : clean.match(/<img\b/i) ? "\u56fe\u7247" : "";
   const text = clean
     .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")
@@ -2089,43 +2091,22 @@ const trackView = async (env, type, id) => {
 const stats = async (env, request) => {
   await ensureForumAdminSchema(env);
   const actor = await requireAdmin(env, request);
-  const owner = await ownerUser(env);
   const site = await getSiteSettings(env);
   const announcementViews = await env.DB.prepare("SELECT COALESCE(SUM(views), 0) AS total FROM announcements WHERE deleted_at IS NULL").first();
   const postViews = await env.DB.prepare("SELECT COALESCE(SUM(views), 0) AS total FROM posts WHERE deleted_at IS NULL").first();
   const userCount = await env.DB.prepare("SELECT COUNT(*) AS total FROM users WHERE deleted_at IS NULL").first();
   const adminCount = await env.DB.prepare("SELECT COUNT(*) AS total FROM users WHERE role = 'admin' AND deleted_at IS NULL").first();
-  const ownerId = owner?.id || 0;
-  const reportCount =
-    ownerId && Number(actor.id) === Number(ownerId)
-      ? await env.DB.prepare(
-          `SELECT
-             (SELECT COUNT(*) FROM post_reports WHERE status = 'open') +
-             (SELECT COUNT(*) FROM comment_reports WHERE status = 'open') +
-             (SELECT COUNT(*) FROM player_reports WHERE status = 'open') AS total`,
-        ).first()
-      : await env.DB.prepare(
-          `SELECT
-             (SELECT COUNT(*)
-              FROM post_reports
-              JOIN posts ON posts.id = post_reports.post_id
-              JOIN users AS authors ON authors.id = posts.author_id
-              WHERE post_reports.status = 'open' AND authors.role <> 'admin' AND authors.id <> ?) +
-             (SELECT COUNT(*)
-              FROM comment_reports
-              JOIN comments ON comments.id = comment_reports.comment_id
-              JOIN users AS authors ON authors.id = comments.author_id
-              WHERE comment_reports.status = 'open' AND authors.role <> 'admin' AND authors.id <> ?) +
-             (SELECT COUNT(*)
-              FROM player_reports
-              JOIN users AS reported ON reported.id = player_reports.reported_user_id
-              WHERE player_reports.status = 'open' AND reported.role <> 'admin' AND reported.id <> ?) AS total`,
-        )
-          .bind(ownerId, ownerId, ownerId)
-          .first();
-  const trashCount = await env.DB.prepare(
-    "SELECT (SELECT COUNT(*) FROM posts WHERE deleted_at IS NOT NULL) + (SELECT COUNT(*) FROM announcements WHERE deleted_at IS NOT NULL) AS total",
+  const reportCount = await env.DB.prepare(
+    `SELECT
+       (SELECT COUNT(*) FROM post_reports WHERE status = 'open') +
+       (SELECT COUNT(*) FROM comment_reports WHERE status = 'open') +
+       (SELECT COUNT(*) FROM player_reports WHERE status = 'open') AS total`,
   ).first();
+  const trashCount = await env.DB.prepare(
+    "SELECT (SELECT COUNT(*) FROM posts WHERE deleted_at IS NOT NULL AND deleted_by = ?) + (SELECT COUNT(*) FROM announcements WHERE deleted_at IS NOT NULL AND deleted_by = ?) AS total",
+  )
+    .bind(actor.id, actor.id)
+    .first();
   return json({
     totalViews: Number(announcementViews.total || 0) + Number(postViews.total || 0),
     announcementViews: Number(announcementViews.total || 0),
@@ -2196,7 +2177,7 @@ const updateServerStatusSettings = async (env, request) => {
 
 const listAdminUsers = async (env, request) => {
   await ensureForumAdminSchema(env);
-  await requireAdmin(env, request);
+  await requireOwnerAdmin(env, request);
   const owner = await ownerUser(env);
   const { results } = await env.DB.prepare(
     `SELECT users.id, users.username, users.role, users.created_at, users.last_seen_at,

@@ -2799,8 +2799,14 @@ const insertEditorNode = (node) => {
   if (!editor || !node) return false;
   if (!restoreEditorSelection()) editor.focus({ preventScroll: true });
   const selection = window.getSelection?.();
-  const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
-  if (!rangeBelongsToEditor(range, editor)) return false;
+  let range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+  if (!rangeBelongsToEditor(range, editor)) {
+    range = document.createRange();
+    range.selectNodeContents(editor);
+    range.collapse(false);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  }
   const cursorTarget = node.nodeType === Node.DOCUMENT_FRAGMENT_NODE ? node.lastChild : node;
   range.deleteContents();
   range.insertNode(node);
@@ -2854,10 +2860,13 @@ const insertEditorSpoiler = () => {
   if (!editor) return;
   if (!restoreEditorSelection()) editor.focus({ preventScroll: true });
   const selection = window.getSelection?.();
-  const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+  let range = selection?.rangeCount ? selection.getRangeAt(0) : null;
   if (!rangeBelongsToEditor(range, editor)) {
-    insertHtmlBlock(`<span class="spoiler-inline">隐藏内容</span>`);
-    return;
+    range = document.createRange();
+    range.selectNodeContents(editor);
+    range.collapse(false);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
   }
   const spoiler = document.createElement("span");
   spoiler.className = "spoiler-inline";
@@ -3185,7 +3194,7 @@ const setupEditor = () => {
       normalize: (value) => value.trim(),
     });
     if (sizeInput === null) return;
-    insertEditorImage(url, parseMediaSizeInput(sizeInput, mediaSizeDefaults.image));
+    if (!insertEditorImage(url, parseMediaSizeInput(sizeInput, mediaSizeDefaults.image))) showToast("请先打开正文编辑器");
   });
   $("#tableButton")?.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -3221,7 +3230,7 @@ const setupEditor = () => {
       normalize: (value) => value.trim(),
     });
     if (sizeInput === null) return;
-    insertEditorBilibili(src, parseMediaSizeInput(sizeInput, mediaSizeDefaults.video));
+    if (!insertEditorBilibili(src, parseMediaSizeInput(sizeInput, mediaSizeDefaults.video))) showToast("请先打开正文编辑器");
   });
   editor.addEventListener("dblclick", async (event) => {
     const media = event.target?.closest?.("img.inline-image, iframe");
@@ -3573,7 +3582,7 @@ const ensureTrashPostEditDialog = () => {
     closeDialogAnimated(dialog);
     if (page === "admin") renderTrashRows();
     renderProfilePage();
-    showToast("回收站帖子已保存");
+    showToast(type === "announcement" ? "回收站公告已保存" : "回收站帖子已保存");
   });
   return dialog;
 };
@@ -3586,6 +3595,9 @@ const bindProfileTrashButtons = () => {
       if (!post) return;
       const dialog = ensureTrashPostEditDialog();
       dialog.dataset.postId = String(id);
+      dialog.dataset.itemId = String(id);
+      dialog.dataset.itemType = "post";
+      dialog.querySelector("#trashPostEditHeading").textContent = "编辑帖子";
       dialog.querySelector("#trashPostEditTitle").value = post.title || "";
       dialog.querySelector("#trashPostEditBody").innerHTML = post.content_html || "";
       openDialog(dialog);
@@ -3915,7 +3927,7 @@ const renderManagement = () => {
     button.addEventListener("click", async () => {
       const type = button.dataset.delete;
       const isPost = type === "post";
-      const confirmed = await showConfirmDialog(isPost ? "撤回后会进入作者的回收站。确定继续吗？" : "删除后会进入回收站。确定继续吗？", {
+      const confirmed = await showConfirmDialog(isPost ? "撤回后会进入你的后台回收站。确定继续吗？" : "删除后会进入你的后台回收站。确定继续吗？", {
         title: isPost ? "撤回帖子" : "删除内容",
         eyebrow: "内容管理",
         confirmLabel: isPost ? "撤回" : "移入回收站",
@@ -4681,14 +4693,14 @@ const loadAdminData = async () => {
     api("/announcements"),
     api("/posts"),
     api("/admin/stats"),
-    api("/admin/users"),
+    isOwner() ? api("/admin/users") : Promise.resolve({ items: [] }),
     api("/admin/reports"),
   ]);
   state.announcements = announcements.items;
   state.posts = posts.items;
   state.stats = stats;
   state.site.maintenanceMode = Boolean(stats.maintenanceMode);
-  state.admins = admins.items;
+  state.admins = admins.items || [];
   state.reports = reports.items;
   state.trashLoaded = false;
   renderAll();
