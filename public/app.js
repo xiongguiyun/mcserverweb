@@ -166,6 +166,10 @@ const searchTipText = "支持标题、内容和发布者搜索。输入 #发布�
 
 const closeSearchTips = () => {
   $$(".forum-search-tip.is-open").forEach((tip) => {
+    if (typeof tip._setSearchTipOpen === "function") {
+      tip._setSearchTipOpen(false);
+      return;
+    }
     tip.classList.remove("is-open");
     tip.setAttribute("aria-expanded", "false");
   });
@@ -179,8 +183,9 @@ const setupSearchTip = (searchTip, bubbleId = "") => {
   searchTip.setAttribute("aria-expanded", "false");
   searchTip.setAttribute("data-tip", searchTipText);
 
-  if (!searchTip.querySelector(".forum-search-tip-bubble")) {
-    const tipBubble = document.createElement("span");
+  let tipBubble = searchTip.querySelector(".forum-search-tip-bubble");
+  if (!tipBubble) {
+    tipBubble = document.createElement("span");
     tipBubble.className = "forum-search-tip-bubble";
     if (bubbleId) tipBubble.id = bubbleId;
     tipBubble.innerHTML = `
@@ -200,10 +205,60 @@ const setupSearchTip = (searchTip, bubbleId = "") => {
     searchTip.append(tipBubble);
   }
 
+  let positionFrame = 0;
+
+  const returnBubble = () => {
+    window.cancelAnimationFrame(positionFrame);
+    tipBubble.classList.remove("is-visible", "is-portal", "is-above");
+    tipBubble.removeAttribute("style");
+    if (tipBubble.parentElement !== searchTip) searchTip.append(tipBubble);
+  };
+
+  const positionBubble = () => {
+    const rect = searchTip.getBoundingClientRect();
+    const viewportPadding = 14;
+    const narrow = window.matchMedia?.("(max-width: 620px)")?.matches;
+    const bubbleRect = tipBubble.getBoundingClientRect();
+    const width = Math.min(bubbleRect.width || 312, window.innerWidth - viewportPadding * 2);
+    const height = bubbleRect.height || 0;
+    const preferredLeft = narrow ? rect.left + rect.width / 2 - width / 2 : rect.right - width;
+    const left = Math.min(Math.max(viewportPadding, preferredLeft), Math.max(viewportPadding, window.innerWidth - width - viewportPadding));
+    const belowTop = rect.bottom + 10;
+    const aboveTop = rect.top - height - 10;
+    const useAbove = height && belowTop + height > window.innerHeight - viewportPadding && aboveTop >= viewportPadding;
+    const top = useAbove ? aboveTop : belowTop;
+    tipBubble.classList.toggle("is-above", useAbove);
+    tipBubble.style.width = `${width}px`;
+    tipBubble.style.left = `${Math.round(left)}px`;
+    tipBubble.style.top = `${Math.round(Math.max(viewportPadding, top))}px`;
+    tipBubble.style.setProperty("--tip-caret-left", `${Math.round(rect.left + rect.width / 2 - left)}px`);
+  };
+
+  const queuePositionBubble = () => {
+    window.cancelAnimationFrame(positionFrame);
+    positionFrame = window.requestAnimationFrame(positionBubble);
+  };
+
   const setTipOpen = (open) => {
+    if (open) {
+      $$(".forum-search-tip.is-open").forEach((tip) => {
+        if (tip !== searchTip && typeof tip._setSearchTipOpen === "function") tip._setSearchTipOpen(false);
+      });
+      if (tipBubble.parentElement !== document.body) document.body.append(tipBubble);
+      tipBubble.classList.add("is-portal");
+      positionBubble();
+      window.requestAnimationFrame(() => tipBubble.classList.add("is-visible"));
+      window.addEventListener("resize", queuePositionBubble);
+      window.addEventListener("scroll", queuePositionBubble, true);
+    } else {
+      window.removeEventListener("resize", queuePositionBubble);
+      window.removeEventListener("scroll", queuePositionBubble, true);
+      returnBubble();
+    }
     searchTip.classList.toggle("is-open", open);
     searchTip.setAttribute("aria-expanded", String(open));
   };
+  searchTip._setSearchTipOpen = setTipOpen;
 
   searchTip.addEventListener("mouseenter", () => setTipOpen(true));
   searchTip.addEventListener("mouseleave", () => setTipOpen(false));
@@ -211,7 +266,7 @@ const setupSearchTip = (searchTip, bubbleId = "") => {
   searchTip.addEventListener("blur", () => setTipOpen(false));
   searchTip.addEventListener("click", (event) => {
     event.stopPropagation();
-    setTipOpen(!searchTip.classList.contains("is-open"));
+    setTipOpen(isCoarsePointer() ? !searchTip.classList.contains("is-open") : true);
   });
   searchTip.addEventListener("keydown", (event) => {
     if (event.key !== "Enter" && event.key !== " ") return;
@@ -1676,27 +1731,47 @@ const bindProfileReportsToggle = () =>
 
 const bindProfileReportButtons = () => {
   $("#profileMarkAllReportsReadButton")?.addEventListener("click", async () => {
-    await api("/me/reports/read-all", { method: "POST" });
-    if (state.profile?.reportHistory) {
-      const now = new Date().toISOString();
-      state.profile.reportHistory = state.profile.reportHistory.map((report) => ({ ...report, reporter_read_at: now }));
+    const button = $("#profileMarkAllReportsReadButton");
+    if (!button || button.disabled) return;
+    button.disabled = true;
+    button.textContent = "标记中...";
+    try {
+      await api("/me/reports/read-all", { method: "POST" });
+      if (state.profile?.reportHistory) {
+        const now = new Date().toISOString();
+        state.profile.reportHistory = state.profile.reportHistory.map((report) => ({ ...report, reporter_read_at: now }));
+      }
+      state.profileReportsOpen = true;
+      renderProfilePage();
+      showToast("我的举报已全部标记为已读");
+    } catch {
+      button.disabled = false;
+      button.textContent = "标记全部已读";
     }
-    renderProfilePage();
-    showToast("我的举报已全部标记为已读");
   });
   $$("[data-mark-report-read]").forEach((button) => {
     button.addEventListener("click", async () => {
-      await api(`/me/reports/${button.dataset.markReportReadKind}/${button.dataset.markReportRead}/read`, { method: "POST" });
-      if (state.profile?.reportHistory) {
-        const now = new Date().toISOString();
-        state.profile.reportHistory = state.profile.reportHistory.map((report) =>
-          report.kind === button.dataset.markReportReadKind && Number(report.id) === Number(button.dataset.markReportRead)
-            ? { ...report, reporter_read_at: now }
-            : report,
-        );
+      if (button.disabled) return;
+      const label = button.textContent;
+      button.disabled = true;
+      button.textContent = "标记中...";
+      try {
+        await api(`/me/reports/${button.dataset.markReportReadKind}/${button.dataset.markReportRead}/read`, { method: "POST" });
+        if (state.profile?.reportHistory) {
+          const now = new Date().toISOString();
+          state.profile.reportHistory = state.profile.reportHistory.map((report) =>
+            report.kind === button.dataset.markReportReadKind && Number(report.id) === Number(button.dataset.markReportRead)
+              ? { ...report, reporter_read_at: now }
+              : report,
+          );
+        }
+        state.profileReportsOpen = true;
+        renderProfilePage();
+        showToast("举报已标记为已读");
+      } catch {
+        button.disabled = false;
+        button.textContent = label;
       }
-      renderProfilePage();
-      showToast("举报已标记为已读");
     });
   });
 };
@@ -2995,6 +3070,7 @@ const renderForumProfileCard = () => {
 };
 
 const renderProfilePage = () => {
+  closeSearchTips();
   const panel = $("#profilePanel");
   const posts = $("#profilePosts");
   if (!panel || !posts) return;
@@ -3087,12 +3163,13 @@ const renderProfilePage = () => {
           <button class="dialog-close-button" type="button" data-profile-report-close aria-label="关闭我的举报">×</button>
           <div class="section-title compact">
             <h2 id="profileReportHistoryTitle">我的举报</h2>
-            <p>查看你提交过的举报处理情况。</p>
+            <p>${reportHistory.length ? `共 ${reportHistory.length} 条记录，${unreadReportCount ? `${unreadReportCount} 条未读更新。` : "全部已读。"}` : "查看你提交过的举报处理情况。"}</p>
           </div>
           ${
             reportHistory.length
-              ? `<div class="row-actions profile-report-actions">
-                  <button class="button small ghost" type="button" id="profileMarkAllReportsReadButton" ${unreadReportCount ? "" : "disabled"}>标记全部已读</button>
+              ? `<div class="profile-report-actions">
+                  <span class="profile-report-count ${unreadReportCount ? "has-unread" : ""}">${unreadReportCount ? `${unreadReportCount} 条未读` : "全部已读"}</span>
+                  <button class="button small ${unreadReportCount ? "primary" : "ghost"}" type="button" id="profileMarkAllReportsReadButton" ${unreadReportCount ? "" : "disabled"}>${unreadReportCount ? "标记全部已读" : "全部已读"}</button>
                 </div>`
               : ""
           }
@@ -3104,14 +3181,21 @@ const renderProfilePage = () => {
                       const kind = report.kind === "player" ? "玩家" : report.kind === "comment" ? "回复" : "帖子";
                       const punishment = report.punishment_type ? ` · ${punishmentLabels[report.punishment_type] || "处罚"} 至 ${report.punishment_expires_at || "到期"}` : "";
                       const isRead = reportHistoryIsRead(report);
+                      const statusText = report.status === "resolved" ? "已处理" : "待处理";
                       return `<div class="table-row report-row ${isRead ? "is-read" : "is-unread"}">
                         <div>
-                          <strong>${kind} · ${escapeHtml(report.target_title || "被举报内容")}${isRead ? "" : '<span class="profile-report-unread">未读</span>'}</strong>
-                          <span>${report.status === "resolved" ? "已处理" : "待处理"} · ${formatDate(report.created_at)}${punishment}</span>
-                          ${report.resolution_reason ? `<p class="report-reason">${escapeHtml(report.resolution_reason)}</p>` : ""}
+                          <div class="profile-report-meta">
+                            <span>${kind}</span>
+                            <span class="profile-report-status ${report.status === "resolved" ? "is-resolved" : "is-open"}">${statusText}</span>
+                            <span>${formatDate(report.created_at)}</span>
+                            <span class="profile-report-read-state ${isRead ? "is-read" : "is-unread"}">${isRead ? "已读" : "未读"}</span>
+                          </div>
+                          <strong>${escapeHtml(report.target_title || "被举报内容")}</strong>
+                          ${report.reason ? `<p class="report-reason"><span>举报原因</span>${escapeHtml(report.reason)}</p>` : ""}
+                          ${report.resolution_reason ? `<p class="report-reason profile-report-resolution"><span>处理说明</span>${escapeHtml(report.resolution_reason)}${escapeHtml(punishment)}</p>` : punishment ? `<p class="report-reason profile-report-resolution"><span>处理结果</span>${escapeHtml(punishment.replace(/^ · /, ""))}</p>` : ""}
                         </div>
                         <div class="row-actions">
-                          <button class="button small ghost" type="button" data-mark-report-read="${report.id}" data-mark-report-read-kind="${report.kind}" ${isRead ? "disabled" : ""}>${isRead ? "已读" : "标记已读"}</button>
+                          <button class="button small ${isRead ? "ghost" : "primary"}" type="button" data-mark-report-read="${report.id}" data-mark-report-read-kind="${report.kind}" ${isRead ? "disabled" : ""} aria-label="${isRead ? "举报已读" : `标记${kind}举报为已读`}">${isRead ? "已读" : "标记已读"}</button>
                         </div>
                       </div>`;
                     })
