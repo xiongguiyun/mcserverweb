@@ -23,6 +23,29 @@
 - 帖子 7 天后自动彻底删除
 - 管理员可启用 Authenticator 双重验证
 
+## 人机验证
+
+登录和注册使用基于 [`sliding-vertify-vue`](https://github.com/jia-allen/sliding-vertify-vue) canvas 拼图模型适配的滑动验证码；当前站点不是 Vue 应用，所以前端以原生 JS 复用它的双 canvas、拼图路径、滑轨状态和拖动轨迹校验思路，并在后端做一次性挑战校验。
+
+验证码相关接口：
+
+- `GET /api/captcha` 生成滑块挑战
+- `POST /api/captcha/verify` 校验滑块位置
+- `/api/account`、`/api/login`、`/api/register` 会消费一次已通过的挑战
+
+## 服务器状态
+
+首页内置 Minecraft 服务器状态卡片，也可以在公告或帖子编辑器里点击“状态”插入当前展示卡片。
+
+后台 `服务器状态` 面板可以配置：
+
+- 是否启用状态展示
+- 服务器地址
+- `mcmotdapi` API 地址，默认 `https://motd.minebbs.com/api/status`
+- Java / Bedrock / 自动识别
+- 是否查询 SRV 记录
+- 图标地址与底部来源文案
+
 ## 服主与管理员
 
 ### 服主

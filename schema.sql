@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS announcements (
   highlighted INTEGER NOT NULL DEFAULT 0,
   views INTEGER NOT NULL DEFAULT 0,
   deleted_at TEXT,
+  deleted_by INTEGER REFERENCES users(id),
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -176,21 +177,32 @@ CREATE TABLE IF NOT EXISTS account_deletion_requests (
 );
 
 CREATE INDEX IF NOT EXISTS idx_announcements_created_at ON announcements(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_announcements_visible_order ON announcements(deleted_at, pinned DESC, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_announcements_deleted_by ON announcements(deleted_by, deleted_at);
 CREATE INDEX IF NOT EXISTS idx_posts_created_at ON posts(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_posts_visible_order ON posts(deleted_at, pinned DESC, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_posts_pinned_created_at ON posts(pinned DESC, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
+CREATE INDEX IF NOT EXISTS idx_users_deleted_at ON users(deleted_at);
+CREATE INDEX IF NOT EXISTS idx_users_role_deleted_at ON users(role, deleted_at, id);
 CREATE INDEX IF NOT EXISTS idx_posts_deleted_at ON posts(deleted_at);
+CREATE INDEX IF NOT EXISTS idx_posts_deleted_by ON posts(deleted_by, deleted_at);
+CREATE INDEX IF NOT EXISTS idx_posts_author_deleted_created ON posts(author_id, deleted_at, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_announcements_deleted_at ON announcements(deleted_at);
 CREATE INDEX IF NOT EXISTS idx_captcha_challenges_expires_at ON captcha_challenges(expires_at);
 CREATE INDEX IF NOT EXISTS idx_comments_post_created_at ON comments(post_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_comments_deleted_at ON comments(deleted_at);
 CREATE INDEX IF NOT EXISTS idx_post_reports_status ON post_reports(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_post_reports_reporter ON post_reports(reporter_id, created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_post_reports_unique_open ON post_reports(post_id, reporter_id) WHERE status = 'open';
 CREATE INDEX IF NOT EXISTS idx_comment_reports_status ON comment_reports(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_comment_reports_reporter ON comment_reports(reporter_id, created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_comment_reports_unique_open ON comment_reports(comment_id, reporter_id) WHERE status = 'open';
 CREATE INDEX IF NOT EXISTS idx_comment_reactions_value ON comment_reactions(comment_id, value);
 CREATE INDEX IF NOT EXISTS idx_comment_quotes_comment_order ON comment_quotes(comment_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_player_reports_status ON player_reports(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_player_reports_reporter ON player_reports(reporter_id, created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_player_reports_unique_open ON player_reports(reported_user_id, reporter_id) WHERE status = 'open';
 CREATE INDEX IF NOT EXISTS idx_user_punishments_active ON user_punishments(user_id, type, expires_at, revoked_at);
 CREATE INDEX IF NOT EXISTS idx_invite_codes_used_by ON invite_codes(used_by);
