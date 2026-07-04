@@ -4,6 +4,13 @@ const json = (data, status = 200, headers = {}) =>
     headers: { "Content-Type": "application/json; charset=utf-8", ...headers },
   });
 
+const apiError = (data, status = 400) => {
+  const error = new Error(data?.error || "请求失败");
+  error.status = status;
+  error.payload = data;
+  return error;
+};
+
 const schemaEnsureTasks = new Map();
 const currentUserCache = new WeakMap();
 const punishmentCheckCache = new WeakMap();
@@ -40,6 +47,27 @@ const withResponseHeaders = (response, headers = {}) => {
     statusText: response.statusText,
     headers: nextHeaders,
   });
+};
+
+const thrownResponse = async (error) => {
+  const isResponseLike =
+    error instanceof Response ||
+    Object.prototype.toString.call(error) === "[object Response]" ||
+    (error && typeof error === "object" && typeof error.status === "number" && typeof error.text === "function");
+  if (!isResponseLike) return null;
+
+  const headers = new Headers(error.headers || {});
+  if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json; charset=utf-8");
+  const init = { status: error.status || 500, headers };
+  if (error.statusText) init.statusText = error.statusText;
+
+  let body = "";
+  try {
+    body = typeof error.text === "function" ? await error.text() : "";
+  } catch {
+    body = "";
+  }
+  return new Response(body, init);
 };
 
 const publicCacheHeaders = (maxAge = 30) => ({
@@ -203,7 +231,143 @@ const readBody = async (request) => {
 
 const isMissingColumnError = (error) => /no such column|duplicate column/i.test(messageFromError(error));
 
+const addTableColumnIfMissing = async (env, table, definition) => {
+  try {
+    await env.DB.prepare(`ALTER TABLE ${table} ADD COLUMN ${definition}`).run();
+  } catch (error) {
+    if (!isMissingColumnError(error)) throw error;
+  }
+};
+
+const addTableColumnsIfMissing = async (env, table, definitions) => {
+  for (const definition of definitions) {
+    await addTableColumnIfMissing(env, table, definition);
+  }
+};
+
+const runDbStatements = async (statements) => {
+  for (const statement of statements) {
+    await statement.run();
+  }
+};
+
+const ensureCoreSchema = (env) =>
+  runSchemaEnsure("core", async () => {
+    await runDbStatements([
+      env.DB.prepare(
+        `CREATE TABLE IF NOT EXISTS users (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          username TEXT NOT NULL UNIQUE,
+          password_hash TEXT NOT NULL,
+          role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
+          minecraft_name TEXT,
+          minecraft_uuid TEXT,
+          skin_image TEXT,
+          username_updated_at TEXT,
+          totp_secret TEXT,
+          totp_enabled INTEGER NOT NULL DEFAULT 0,
+          last_seen_at TEXT,
+          deleted_at TEXT,
+          deleted_by INTEGER,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`,
+      ),
+      env.DB.prepare(
+        `CREATE TABLE IF NOT EXISTS sessions (
+          token TEXT PRIMARY KEY,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          expires_at TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`,
+      ),
+      env.DB.prepare(
+        `CREATE TABLE IF NOT EXISTS announcements (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          title TEXT NOT NULL,
+          content_html TEXT NOT NULL,
+          author_id INTEGER NOT NULL REFERENCES users(id),
+          pinned INTEGER NOT NULL DEFAULT 0,
+          highlighted INTEGER NOT NULL DEFAULT 0,
+          views INTEGER NOT NULL DEFAULT 0,
+          deleted_at TEXT,
+          deleted_by INTEGER REFERENCES users(id),
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`,
+      ),
+      env.DB.prepare(
+        `CREATE TABLE IF NOT EXISTS posts (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          title TEXT NOT NULL,
+          excerpt TEXT NOT NULL,
+          content_html TEXT NOT NULL,
+          author_id INTEGER NOT NULL REFERENCES users(id),
+          pinned INTEGER NOT NULL DEFAULT 0,
+          highlighted INTEGER NOT NULL DEFAULT 0,
+          highlight_color TEXT,
+          views INTEGER NOT NULL DEFAULT 0,
+          deleted_at TEXT,
+          deleted_by INTEGER REFERENCES users(id),
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`,
+      ),
+      env.DB.prepare(
+        `CREATE TABLE IF NOT EXISTS site_settings (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`,
+      ),
+    ]);
+
+    await addTableColumnsIfMissing(env, "users", [
+      "minecraft_name TEXT",
+      "minecraft_uuid TEXT",
+      "skin_image TEXT",
+      "username_updated_at TEXT",
+      "totp_secret TEXT",
+      "totp_enabled INTEGER NOT NULL DEFAULT 0",
+      "last_seen_at TEXT",
+      "deleted_at TEXT",
+      "deleted_by INTEGER",
+    ]);
+    await addTableColumnsIfMissing(env, "announcements", [
+      "pinned INTEGER NOT NULL DEFAULT 0",
+      "highlighted INTEGER NOT NULL DEFAULT 0",
+      "views INTEGER NOT NULL DEFAULT 0",
+      "deleted_at TEXT",
+      "deleted_by INTEGER REFERENCES users(id)",
+    ]);
+    await addTableColumnsIfMissing(env, "posts", [
+      "pinned INTEGER NOT NULL DEFAULT 0",
+      "highlighted INTEGER NOT NULL DEFAULT 0",
+      "highlight_color TEXT",
+      "views INTEGER NOT NULL DEFAULT 0",
+      "deleted_at TEXT",
+      "deleted_by INTEGER REFERENCES users(id)",
+    ]);
+
+    await runDbStatements([
+      env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_users_deleted_at ON users(deleted_at)"),
+      env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_users_role_deleted_at ON users(role, deleted_at, id)"),
+      env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)"),
+      env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at)"),
+      env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_announcements_created_at ON announcements(created_at DESC)"),
+      env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_announcements_visible_order ON announcements(deleted_at, pinned DESC, created_at DESC)"),
+      env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_announcements_deleted_at ON announcements(deleted_at)"),
+      env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_announcements_deleted_by ON announcements(deleted_by, deleted_at)"),
+      env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_posts_created_at ON posts(created_at DESC)"),
+      env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_posts_visible_order ON posts(deleted_at, pinned DESC, created_at DESC)"),
+      env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_posts_deleted_at ON posts(deleted_at)"),
+      env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_posts_deleted_by ON posts(deleted_by, deleted_at)"),
+      env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_posts_author_deleted_created ON posts(author_id, deleted_at, created_at DESC)"),
+      env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_posts_pinned_created_at ON posts(pinned DESC, created_at DESC)"),
+    ]);
+  });
+
 const ownerUser = async (env) => {
+  await ensureCoreSchema(env);
   try {
     return await env.DB.prepare(
       "SELECT id, username FROM users WHERE role = 'admin' AND deleted_at IS NULL ORDER BY id ASC LIMIT 1",
@@ -277,50 +441,48 @@ const ensureForumAdminSchema = (env) =>
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`,
   ).run();
-  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_comments_post_created_at ON comments(post_id, created_at DESC)").run();
-  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_comments_deleted_at ON comments(deleted_at)").run();
-  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_comment_reports_status ON comment_reports(status, created_at DESC)").run();
-  await env.DB.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_comment_reports_unique_open ON comment_reports(comment_id, reporter_id) WHERE status = 'open'").run();
-  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_comment_reactions_value ON comment_reactions(comment_id, value)").run();
-  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_comment_quotes_comment_order ON comment_quotes(comment_id, sort_order)").run();
-  await addTableColumnIfMissing(env, "post_reports", "resolution_reason TEXT");
-  await addTableColumnIfMissing(env, "post_reports", "punishment_type TEXT");
-  await addTableColumnIfMissing(env, "post_reports", "punishment_expires_at TEXT");
-  await addTableColumnIfMissing(env, "post_reports", "reporter_read_at TEXT");
-  await addTableColumnIfMissing(env, "comment_reports", "resolution_reason TEXT");
-  await addTableColumnIfMissing(env, "comment_reports", "punishment_type TEXT");
-  await addTableColumnIfMissing(env, "comment_reports", "punishment_expires_at TEXT");
-  await addTableColumnIfMissing(env, "comment_reports", "reporter_read_at TEXT");
-  try {
-    await env.DB.prepare("ALTER TABLE posts ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0").run();
-  } catch (error) {
-    if (!isMissingColumnError(error)) throw error;
-  }
-  await addTableColumnIfMissing(env, "posts", "highlighted INTEGER NOT NULL DEFAULT 0");
-  await addTableColumnIfMissing(env, "posts", "highlight_color TEXT");
-  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_posts_pinned_created_at ON posts(pinned DESC, created_at DESC)").run();
+  await addTableColumnsIfMissing(env, "comments", [
+    "quote_comment_id INTEGER REFERENCES comments(id) ON DELETE SET NULL",
+    "quote_author TEXT",
+    "quote_excerpt TEXT",
+    "deleted_at TEXT",
+    "deleted_by INTEGER REFERENCES users(id)",
+  ]);
+  await addTableColumnsIfMissing(env, "post_reports", [
+    "resolution_reason TEXT",
+    "punishment_type TEXT",
+    "punishment_expires_at TEXT",
+    "reporter_read_at TEXT",
+  ]);
+  await addTableColumnsIfMissing(env, "comment_reports", [
+    "resolution_reason TEXT",
+    "punishment_type TEXT",
+    "punishment_expires_at TEXT",
+    "reporter_read_at TEXT",
+  ]);
+  await addTableColumnsIfMissing(env, "posts", [
+    "pinned INTEGER NOT NULL DEFAULT 0",
+    "highlighted INTEGER NOT NULL DEFAULT 0",
+    "highlight_color TEXT",
+  ]);
+  await runDbStatements([
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_comments_post_created_at ON comments(post_id, created_at DESC)"),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_comments_deleted_at ON comments(deleted_at)"),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_comment_reports_status ON comment_reports(status, created_at DESC)"),
+    env.DB.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_comment_reports_unique_open ON comment_reports(comment_id, reporter_id) WHERE status = 'open'"),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_comment_reactions_value ON comment_reactions(comment_id, value)"),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_comment_quotes_comment_order ON comment_quotes(comment_id, sort_order)"),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_posts_pinned_created_at ON posts(pinned DESC, created_at DESC)"),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_post_reports_reporter ON post_reports(reporter_id, created_at DESC)"),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_comment_reports_reporter ON comment_reports(reporter_id, created_at DESC)"),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_player_reports_reporter ON player_reports(reporter_id, created_at DESC)"),
+  ]);
 });
-
-const addUserColumnIfMissing = async (env, definition) => {
-  try {
-    await env.DB.prepare(`ALTER TABLE users ADD COLUMN ${definition}`).run();
-  } catch (error) {
-    if (!isMissingColumnError(error)) throw error;
-  }
-};
-
-const addTableColumnIfMissing = async (env, table, definition) => {
-  try {
-    await env.DB.prepare(`ALTER TABLE ${table} ADD COLUMN ${definition}`).run();
-  } catch (error) {
-    if (!isMissingColumnError(error)) throw error;
-  }
-};
 
 const ensureAccountDeletionSchema = (env) =>
   runSchemaEnsure("account-deletion", async () => {
-  await addUserColumnIfMissing(env, "deleted_at TEXT");
-  await addUserColumnIfMissing(env, "deleted_by INTEGER");
+  await ensureCoreSchema(env);
+  await addTableColumnsIfMissing(env, "users", ["deleted_at TEXT", "deleted_by INTEGER"]);
   await env.DB.prepare(
     `CREATE TABLE IF NOT EXISTS account_deletion_requests (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -343,10 +505,16 @@ const ensureAccountDeletionSchema = (env) =>
 
 const ensurePlayerProfileSchema = (env) =>
   runSchemaEnsure("player-profile", async () => {
-  await addUserColumnIfMissing(env, "minecraft_name TEXT");
-  await addUserColumnIfMissing(env, "skin_image TEXT");
-  await addUserColumnIfMissing(env, "username_updated_at TEXT");
   await ensureAccountDeletionSchema(env);
+  await addTableColumnsIfMissing(env, "users", [
+    "minecraft_name TEXT",
+    "minecraft_uuid TEXT",
+    "skin_image TEXT",
+    "username_updated_at TEXT",
+    "totp_secret TEXT",
+    "totp_enabled INTEGER NOT NULL DEFAULT 0",
+    "last_seen_at TEXT",
+  ]);
   await env.DB.prepare(
     `CREATE TABLE IF NOT EXISTS player_reports (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -360,6 +528,7 @@ const ensurePlayerProfileSchema = (env) =>
   ).run();
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_player_reports_status ON player_reports(status, created_at DESC)").run();
   await env.DB.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_player_reports_unique_open ON player_reports(reported_user_id, reporter_id) WHERE status = 'open'").run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_player_reports_reporter ON player_reports(reporter_id, created_at DESC)").run();
   await addTableColumnIfMissing(env, "player_reports", "resolution_reason TEXT");
   await addTableColumnIfMissing(env, "player_reports", "punishment_type TEXT");
   await addTableColumnIfMissing(env, "player_reports", "punishment_expires_at TEXT");
@@ -679,6 +848,7 @@ const randomInviteCode = () => {
 const isUniqueConstraintError = (error) => /unique constraint|constraint failed/i.test(messageFromError(error));
 
 const ensureInviteCodeSchema = async (env) => {
+  await ensureCoreSchema(env);
   await env.DB.prepare(
     `CREATE TABLE IF NOT EXISTS invite_codes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -689,10 +859,15 @@ const ensureInviteCodeSchema = async (env) => {
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`,
   ).run();
-  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_invite_codes_used_by ON invite_codes(used_by)").run();
-  await env.DB.prepare(
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_invite_codes_one_active_per_owner ON invite_codes(owner_id) WHERE used_at IS NULL",
-  ).run();
+  await addTableColumnsIfMissing(env, "invite_codes", [
+    "used_by INTEGER REFERENCES users(id) ON DELETE SET NULL",
+    "used_at TEXT",
+    "created_at TEXT",
+  ]);
+  await runDbStatements([
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_invite_codes_used_by ON invite_codes(used_by)"),
+    env.DB.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_invite_codes_one_active_per_owner ON invite_codes(owner_id) WHERE used_at IS NULL"),
+  ]);
 };
 
 const activeInviteCode = async (env, ownerId) => {
@@ -811,6 +986,7 @@ const getSiteSettings = async (env) => {
 };
 
 const setSiteSetting = async (env, key, value) => {
+  await ensureCoreSchema(env);
   await env.DB.prepare(
     `INSERT INTO site_settings (key, value, updated_at)
      VALUES (?, ?, CURRENT_TIMESTAMP)
@@ -845,7 +1021,7 @@ const currentUser = async (env, request) => {
 
 const requireUser = async (env, request) => {
   const user = await currentUser(env, request);
-  if (!user) throw new Response(JSON.stringify({ error: "请先登录" }), { status: 401 });
+  if (!user) throw apiError({ error: "请先登录" }, 401);
   await assertNoPunishment(env, user, ["site_ban", "account_ban"], request);
   return user;
 };
@@ -853,7 +1029,7 @@ const requireUser = async (env, request) => {
 const requireAdmin = async (env, request) => {
   const user = await requireUser(env, request);
   if (user.role !== "admin") {
-    throw new Response(JSON.stringify({ error: "只有管理员可以执行此操作" }), { status: 403 });
+    throw apiError({ error: "只有管理员可以执行此操作" }, 403);
   }
   return user;
 };
@@ -862,7 +1038,7 @@ const requireOwnerAdmin = async (env, request) => {
   const user = await requireAdmin(env, request);
   const owner = await ownerUser(env);
   if (!owner || Number(owner.id) !== Number(user.id)) {
-    throw new Response(JSON.stringify({ error: "只有服主可以管理管理员账号" }), { status: 403 });
+    throw apiError({ error: "只有服主可以管理管理员账号" }, 403);
   }
   return user;
 };
@@ -1162,13 +1338,13 @@ const assertNoPunishment = async (env, user, types, request = null) => {
     check = activePunishments(env, user.id, types);
   }
   const punishment = (await check)[0];
-  if (punishment) throw new Response(JSON.stringify({ error: punishmentMessage(punishment), punishment }), { status: 403 });
+  if (punishment) throw apiError({ error: punishmentMessage(punishment), punishment }, 403);
 };
 
 const createPunishmentFromBody = async (env, actor, targetId, body = {}) => {
   const type = String(body.punishmentType || "").trim();
   if (!type || type === "none") return null;
-  if (!punishmentTypes.has(type)) throw new Response(JSON.stringify({ error: "处罚类型不正确" }), { status: 400 });
+  if (!punishmentTypes.has(type)) throw apiError({ error: "处罚类型不正确" }, 400);
   const hours = Math.max(1, Math.min(24 * 30, Number(body.punishmentDurationHours || 24)));
   const reason = String(body.punishmentReason || body.resolutionReason || "").trim().slice(0, 500);
   const expiresAt = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
@@ -1472,6 +1648,8 @@ const logout = async (env, request) => {
 };
 
 const register = async (env, request) => {
+  const site = await getSiteSettings(env);
+  if (site.maintenanceMode) return json({ error: "维护模式中暂不开放注册" }, 403);
   const body = await readBody(request);
   const username = String(body.username || "").trim();
   const password = String(body.password || "");
@@ -1711,7 +1889,7 @@ const contentPayload = async (request) => {
   const title = String(body.title || "").trim().slice(0, 80);
   const contentHtml = sanitizeHtml(body.contentHtml);
   const excerpt = excerptFromHtml(contentHtml);
-  if (!title || !excerpt) throw new Response(JSON.stringify({ error: "标题和正文都要填写" }), { status: 400 });
+  if (!title || !excerpt) throw apiError({ error: "标题和正文都要填写" }, 400);
   return { title, contentHtml, excerpt };
 };
 
@@ -1845,7 +2023,7 @@ const commentPayload = async (request) => {
   const body = await readBody(request);
   const contentHtml = sanitizeHtml(body.contentHtml).slice(0, 12000);
   const excerpt = excerptFromHtml(contentHtml);
-  if (!excerpt) throw new Response(JSON.stringify({ error: "回复内容不能为空" }), { status: 400 });
+  if (!excerpt) throw apiError({ error: "回复内容不能为空" }, 400);
   return { contentHtml, quoteCommentIds: normalizeQuoteCommentIds(body) };
 };
 
@@ -2625,16 +2803,16 @@ export async function onRequest(context) {
       return trackView(env, type, id);
     }
 
-    if (method === "GET" && pathname === "/admin/stats") return stats(env, request);
-    if (method === "GET" && pathname === "/admin/settings/server-status") return adminServerStatusSettings(env, request);
-    if (method === "PUT" && pathname === "/admin/settings/server-status") return updateServerStatusSettings(env, request);
-    if (method === "GET" && pathname === "/admin/users") return listAdminUsers(env, request);
-    if (method === "POST" && pathname === "/admin/users") return createAdminAccount(env, request);
+    if (method === "GET" && pathname === "/admin/stats") return await stats(env, request);
+    if (method === "GET" && pathname === "/admin/settings/server-status") return await adminServerStatusSettings(env, request);
+    if (method === "PUT" && pathname === "/admin/settings/server-status") return await updateServerStatusSettings(env, request);
+    if (method === "GET" && pathname === "/admin/users") return await listAdminUsers(env, request);
+    if (method === "POST" && pathname === "/admin/users") return await createAdminAccount(env, request);
     if (method === "PUT" && /^\/admin\/users\/\d+$/.test(pathname)) {
-      return updateManagedUser(env, request, pathname.split("/").at(-1));
+      return await updateManagedUser(env, request, pathname.split("/").at(-1));
     }
     if (method === "PUT" && /^\/admin\/users\/\d+\/password$/.test(pathname)) {
-      return resetManagedUserPassword(env, request, pathname.split("/").at(-2));
+      return await resetManagedUserPassword(env, request, pathname.split("/").at(-2));
     }
     if (method === "POST" && /^\/admin\/users\/\d+\/deletion\/approve$/.test(pathname)) {
       return await approveManagedAccountDeletion(env, request, pathname.split("/").at(-3));
@@ -2647,30 +2825,27 @@ export async function onRequest(context) {
       const [announcements, posts] = await Promise.all([listAnnouncements(env, { trash: true, deletedBy: actor.id }), listPosts(env, { trash: true, deletedBy: actor.id })]);
       return json({ announcements: (await announcements.json()).items, posts: (await posts.json()).items });
     }
-    if (method === "GET" && pathname === "/admin/reports") return listPostReports(env, request);
+    if (method === "GET" && pathname === "/admin/reports") return await listPostReports(env, request);
     if (method === "POST" && /^\/admin\/reports\/post\/\d+\/resolve$/.test(pathname)) {
-      return resolvePostReport(env, request, pathname.split("/").at(-2));
+      return await resolvePostReport(env, request, pathname.split("/").at(-2));
     }
     if (method === "POST" && /^\/admin\/reports\/comment\/\d+\/resolve$/.test(pathname)) {
-      return resolveCommentReport(env, request, pathname.split("/").at(-2));
+      return await resolveCommentReport(env, request, pathname.split("/").at(-2));
     }
     if (method === "POST" && /^\/admin\/reports\/player\/\d+\/resolve$/.test(pathname)) {
-      return resolvePlayerReport(env, request, pathname.split("/").at(-2));
+      return await resolvePlayerReport(env, request, pathname.split("/").at(-2));
     }
     if (method === "POST" && /^\/admin\/reports\/\d+\/resolve$/.test(pathname)) {
-      return resolvePostReport(env, request, pathname.split("/").at(-2));
+      return await resolvePostReport(env, request, pathname.split("/").at(-2));
     }
-    if (method === "PUT" && pathname === "/admin/settings/maintenance") return updateMaintenance(env, request);
+    if (method === "PUT" && pathname === "/admin/settings/maintenance") return await updateMaintenance(env, request);
 
     return json({ error: "接口不存在" }, 404);
   } catch (error) {
     console.error("API request failed", pathname, method, error);
-    if (
-      error instanceof Response ||
-      (error && typeof error === "object" && typeof error.status === "number" && error.headers && typeof error.text === "function")
-    ) {
-      return error;
-    }
+    if (error?.payload && typeof error.status === "number") return json(error.payload, error.status);
+    const response = await thrownResponse(error);
+    if (response) return response;
     return json({ error: messageFromError(error, "服务器错误") }, 500);
   }
 }

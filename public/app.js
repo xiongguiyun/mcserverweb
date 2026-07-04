@@ -1090,7 +1090,7 @@ const renderMaintenanceGate = () => {
         <img class="user-avatar large" src="${activeAvatarSrc(state.me, 48)}" alt="" />
         <div><strong>${escapeHtml(state.me.username)}</strong><p>你已登录，但网站当前维护中，请稍后再来。</p></div>
       </div>`
-    : `<p>网站正在维护中，暂时仅管理员可登录。</p><a class="button primary" href="/login.html">登录</a>`;
+    : `<a class="button primary" href="/login.html">登录</a>`;
 };
 
 const cardTemplate = (item, type) => {
@@ -4789,6 +4789,9 @@ const setupLoginPage = () => {
   if (page !== "login") return;
   const loginForm = $("#loginForm");
   const registerForm = $("#registerForm");
+  const registerChoiceButton = $("#registerChoiceButton");
+  const registerDialog = $("#registerDialog");
+  const registerBlocked = () => Boolean(state.site?.maintenanceMode);
   const redirectAfterAuth = (user, result = {}) => {
     state.me = user;
     if (result.accountDeletionCancelled) {
@@ -4800,8 +4803,19 @@ const setupLoginPage = () => {
     openDialog(dialog);
     window.setTimeout(() => focusTarget?.focus({ preventScroll: true }), prefersReducedMotion() ? 0 : 80);
   };
+  const syncRegisterAvailability = () => {
+    if (!registerChoiceButton) return;
+    registerChoiceButton.hidden = registerBlocked();
+    registerChoiceButton.disabled = registerBlocked();
+    if (registerBlocked() && registerDialog?.open) closeDialogAnimated(registerDialog);
+  };
+  setupLoginPage.syncRegisterAvailability = syncRegisterAvailability;
+  syncRegisterAvailability();
   $("#loginChoiceButton")?.addEventListener("click", () => openAuthDialog($("#loginDialog"), $("#loginUsername")));
-  $("#registerChoiceButton")?.addEventListener("click", () => openAuthDialog($("#registerDialog"), $("#registerUsername")));
+  $("#registerChoiceButton")?.addEventListener("click", () => {
+    if (registerBlocked()) return;
+    openAuthDialog(registerDialog, $("#registerUsername"));
+  });
   loginForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
     try {
@@ -4820,6 +4834,10 @@ const setupLoginPage = () => {
   });
   registerForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (registerBlocked()) {
+      showToast("维护模式中暂不开放注册");
+      return;
+    }
     const result = await api("/register", {
       method: "POST",
       body: JSON.stringify({
@@ -4836,6 +4854,9 @@ const loadBaseState = async () => {
   const me = await api("/me").catch(() => ({ user: null, site: { maintenanceMode: false } }));
   state.me = me.user;
   state.site = me.site || { maintenanceMode: false };
+  if (page === "login" && typeof setupLoginPage.syncRegisterAvailability === "function") {
+    setupLoginPage.syncRegisterAvailability();
+  }
 };
 
 const loadPublicData = async () => {
