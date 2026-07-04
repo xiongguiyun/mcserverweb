@@ -4112,10 +4112,10 @@ const renderManagement = () => {
     button.addEventListener("click", async () => {
       const type = button.dataset.delete;
       const isPost = type === "post";
-      const confirmed = await showConfirmDialog(isPost ? "撤回后会进入你的后台回收站。确定继续吗？" : "删除后会进入你的后台回收站。确定继续吗？", {
-        title: isPost ? "撤回帖子" : "删除内容",
+      const confirmed = await showConfirmDialog(isPost ? "删除后会进入你的后台回收站。确定继续吗？" : "删除后会进入你的后台回收站。确定继续吗？", {
+        title: isPost ? "删除帖子" : "删除内容",
         eyebrow: "内容管理",
-        confirmLabel: isPost ? "撤回" : "移入回收站",
+        confirmLabel: isPost ? "删除" : "移入回收站",
         confirmTone: "danger",
       });
       if (!confirmed) return;
