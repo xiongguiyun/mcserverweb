@@ -4079,7 +4079,7 @@ const adminRows = (items, type) => {
                     : ""
                 }
                 <button class="button small ghost" type="button" ${canManage ? `data-edit="${type}" data-id="${item.id}"` : "disabled"}>编辑</button>
-                <button class="button small danger" type="button" ${canManage ? `data-delete="${type}" data-id="${item.id}"` : "disabled"}>${type === "post" ? "撤回" : "删除"}</button>
+                <button class="button small danger" type="button" ${canManage ? `data-delete="${type}" data-id="${item.id}"` : "disabled"}>删除</button>
               </div>
             </div>`;
           },
