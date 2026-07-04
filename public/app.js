@@ -36,6 +36,28 @@
   },
 };
 
+const defaultMaintenanceCopy = {
+  title: "\u7f51\u7ad9\u7ef4\u62a4\u4e2d",
+  description: "\u7f51\u7ad9\u6b63\u5728\u7ef4\u62a4\u4e2d\uff0c\u8bf7\u7a0d\u540e\u518d\u6765\u3002",
+};
+
+const normalizeSiteState = (site = {}) => {
+  const customMaintenanceTitle = typeof site.customMaintenanceTitle === "string" ? site.customMaintenanceTitle.trim() : "";
+  const customMaintenanceDescription = typeof site.customMaintenanceDescription === "string" ? site.customMaintenanceDescription.trim() : "";
+  const maintenanceTitle = typeof site.maintenanceTitle === "string" ? site.maintenanceTitle.trim() : "";
+  const maintenanceDescription = typeof site.maintenanceDescription === "string" ? site.maintenanceDescription.trim() : "";
+  return {
+    maintenanceMode: Boolean(site.maintenanceMode),
+    maintenanceTitle: maintenanceTitle || customMaintenanceTitle || defaultMaintenanceCopy.title,
+    maintenanceDescription: maintenanceDescription || customMaintenanceDescription || defaultMaintenanceCopy.description,
+    customMaintenanceTitle,
+    customMaintenanceDescription,
+    serverStatus: site.serverStatus || null,
+  };
+};
+
+state.site = normalizeSiteState(state.site);
+
 const page = document.body.dataset.page;
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -1084,6 +1106,12 @@ const renderMaintenanceGate = () => {
   }
   gate.hidden = false;
   if (main) main.hidden = true;
+  const title = state.site?.maintenanceTitle || defaultMaintenanceCopy.title;
+  const description = state.site?.maintenanceDescription || defaultMaintenanceCopy.description;
+  const titleNode = $("#maintenanceGateTitle") || gate.querySelector("h1");
+  const descriptionNode = $("#maintenanceGateDescription");
+  if (titleNode) titleNode.textContent = title;
+  if (descriptionNode) descriptionNode.textContent = description;
   $("#maintenanceGateBody").innerHTML = state.me
     ? `
       <div class="maintenance-user">
@@ -3987,6 +4015,8 @@ const renderStats = () => {
   }
   if ($("#maintenanceToggle")) $("#maintenanceToggle").checked = Boolean(state.stats.maintenanceMode);
   if ($("#maintenanceStatusText")) $("#maintenanceStatusText").textContent = state.stats.maintenanceMode ? "当前维护模式已开启。" : "当前网站正常开放。";
+  if ($("#maintenanceTitleInput")) $("#maintenanceTitleInput").value = state.site?.customMaintenanceTitle || "";
+  if ($("#maintenanceDescriptionInput")) $("#maintenanceDescriptionInput").value = state.site?.customMaintenanceDescription || "";
 };
 
 const ensureHighlightColorDialog = () => {
@@ -4630,31 +4660,54 @@ const setupAdminUsers = () => {
   });
 };
 
-const setupMaintenanceToggle = () => {
-  $("#maintenanceToggle")?.addEventListener("change", async (event) => {
-    const requestId = ++maintenanceRequestId;
-    const enabled = event.target.checked;
-    const previous = Boolean(state.stats?.maintenanceMode);
-    state.site.maintenanceMode = enabled;
-    if (state.stats) state.stats.maintenanceMode = enabled;
+const submitMaintenanceSettings = async ({ enabled, successMessage } = {}) => {
+  const requestId = ++maintenanceRequestId;
+  const previousSite = { ...state.site };
+  const previousMode = Boolean(state.stats?.maintenanceMode);
+  const nextEnabled = typeof enabled === "boolean" ? enabled : Boolean($("#maintenanceToggle")?.checked);
+  const customMaintenanceTitle = $("#maintenanceTitleInput")?.value.trim() || "";
+  const customMaintenanceDescription = $("#maintenanceDescriptionInput")?.value.trim() || "";
+  state.site = normalizeSiteState({
+    ...state.site,
+    maintenanceMode: nextEnabled,
+    customMaintenanceTitle,
+    customMaintenanceDescription,
+  });
+  if (state.stats) state.stats.maintenanceMode = nextEnabled;
+  renderAll();
+  renderStats();
+  try {
+    const result = await api("/admin/settings/maintenance", {
+      method: "PUT",
+      body: JSON.stringify({
+        enabled: nextEnabled,
+        title: customMaintenanceTitle,
+        description: customMaintenanceDescription,
+      }),
+    });
+    if (requestId !== maintenanceRequestId) return;
+    state.site = normalizeSiteState({ ...state.site, ...result });
+    if (state.stats) state.stats.maintenanceMode = result.maintenanceMode;
+    renderAll();
     renderStats();
-    renderMaintenanceBanner();
-    try {
-      const result = await api("/admin/settings/maintenance", { method: "PUT", body: JSON.stringify({ enabled }) });
-      if (requestId !== maintenanceRequestId) return;
-      state.site.maintenanceMode = result.maintenanceMode;
-      if (state.stats) state.stats.maintenanceMode = result.maintenanceMode;
-      renderStats();
-      renderMaintenanceBanner();
-      showToast(result.maintenanceMode ? "已开启维护模式" : "已关闭维护模式");
-    } catch (error) {
-      if (requestId !== maintenanceRequestId) return;
-      state.site.maintenanceMode = previous;
-      if (state.stats) state.stats.maintenanceMode = previous;
-      renderStats();
-      renderMaintenanceBanner();
-      showToast(error.message);
-    }
+    showToast(successMessage || (result.maintenanceMode ? "已开启维护模式" : "已关闭维护模式"));
+  } catch (error) {
+    if (requestId !== maintenanceRequestId) return;
+    state.site = normalizeSiteState(previousSite);
+    if (state.stats) state.stats.maintenanceMode = previousMode;
+    renderAll();
+    renderStats();
+    showToast(error.message);
+  }
+};
+
+const setupMaintenanceToggle = () => {
+  $("#maintenanceToggle")?.addEventListener("change", (event) => {
+    submitMaintenanceSettings({ enabled: event.target.checked }).catch(() => {});
+  });
+  $("#maintenanceSettingsForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await submitMaintenanceSettings({ successMessage: "维护文案已保存" });
   });
 };
 
@@ -4851,9 +4904,9 @@ const setupLoginPage = () => {
 };
 
 const loadBaseState = async () => {
-  const me = await api("/me").catch(() => ({ user: null, site: { maintenanceMode: false } }));
+  const me = await api("/me").catch(() => ({ user: null, site: normalizeSiteState() }));
   state.me = me.user;
-  state.site = me.site || { maintenanceMode: false };
+  state.site = normalizeSiteState(me.site);
   if (page === "login" && typeof setupLoginPage.syncRegisterAvailability === "function") {
     setupLoginPage.syncRegisterAvailability();
   }

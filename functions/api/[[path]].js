@@ -559,6 +559,11 @@ const defaultServerStatusSettings = {
   footer: "API by motd.minebbs.com",
 };
 
+const defaultMaintenanceSettings = {
+  title: "\u7f51\u7ad9\u7ef4\u62a4\u4e2d",
+  description: "\u7f51\u7ad9\u6b63\u5728\u7ef4\u62a4\u4e2d\uff0c\u8bf7\u7a0d\u540e\u518d\u6765\u3002",
+};
+
 const readSiteSettingsMap = async (env) => {
   try {
     const { results } = await env.DB.prepare("SELECT key, value FROM site_settings").all();
@@ -568,6 +573,22 @@ const readSiteSettingsMap = async (env) => {
     throw error;
   }
 };
+
+const normalizeMaintenanceSettings = (map = {}) => ({
+  title: String(map.maintenance_title || "")
+    .trim()
+    .slice(0, 80),
+  description: String(map.maintenance_description || "")
+    .trim()
+    .slice(0, 300),
+});
+
+const publicMaintenanceSettings = (settings = {}) => ({
+  maintenanceTitle: settings.title || defaultMaintenanceSettings.title,
+  maintenanceDescription: settings.description || defaultMaintenanceSettings.description,
+  customMaintenanceTitle: settings.title || "",
+  customMaintenanceDescription: settings.description || "",
+});
 
 const normalizeServerStatusSettings = (map = {}) => {
   const rawType = String(map.server_status_type || defaultServerStatusSettings.serverType).toLowerCase();
@@ -982,7 +1003,11 @@ const publicUser = (user, ownerId) =>
 
 const getSiteSettings = async (env) => {
   const map = await readSiteSettingsMap(env);
-  return { maintenanceMode: map.maintenance_mode === "on", serverStatus: publicServerStatusSettings(normalizeServerStatusSettings(map)) };
+  return {
+    maintenanceMode: map.maintenance_mode === "on",
+    ...publicMaintenanceSettings(normalizeMaintenanceSettings(map)),
+    serverStatus: publicServerStatusSettings(normalizeServerStatusSettings(map)),
+  };
 };
 
 const setSiteSetting = async (env, key, value) => {
@@ -1407,7 +1432,17 @@ const me = async (env, request) => {
   const user = await currentUser(env, request);
   const owner = await ownerUser(env);
   const site = await getSiteSettings(env);
-  return json({ user: publicUser(user, owner?.id), site: { maintenanceMode: site.maintenanceMode, serverStatus: site.serverStatus } });
+  return json({
+    user: publicUser(user, owner?.id),
+    site: {
+      maintenanceMode: site.maintenanceMode,
+      maintenanceTitle: site.maintenanceTitle,
+      maintenanceDescription: site.maintenanceDescription,
+      customMaintenanceTitle: site.customMaintenanceTitle,
+      customMaintenanceDescription: site.customMaintenanceDescription,
+      serverStatus: site.serverStatus,
+    },
+  });
 };
 
 const purgeExpiredDeletedPosts = async (env) => {
@@ -2717,8 +2752,15 @@ const updateMaintenance = async (env, request) => {
   await requireAdmin(env, request);
   const body = await readBody(request);
   const enabled = Boolean(body.enabled);
+  const settings = normalizeMaintenanceSettings(body);
   await setSiteSetting(env, "maintenance_mode", enabled ? "on" : "off");
-  return json({ ok: true, maintenanceMode: enabled });
+  await setSiteSetting(env, "maintenance_title", settings.title);
+  await setSiteSetting(env, "maintenance_description", settings.description);
+  return json({
+    ok: true,
+    maintenanceMode: enabled,
+    ...publicMaintenanceSettings(settings),
+  });
 };
 
 export async function onRequest(context) {
