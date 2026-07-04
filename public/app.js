@@ -304,7 +304,10 @@ const canManageContentItem = (item, author) => {
   if (ownsContent(item, author)) return true;
   if (!isAdmin()) return false;
   if (isOwner()) return true;
-  return (item?.author_account_type || "") === "成员";
+  if (isOwnerContent(item)) return false;
+  if (item?.author_role) return item.author_role !== "admin";
+  if (item?.author_account_type) return item.author_account_type === "成员";
+  return true;
 };
 const minecraftImageUrl = (kind, name, size) => `/api/minecraft-image/${kind}/${encodeURIComponent(name)}/${size}`;
 const skinUrl = (name, size = 210) => minecraftImageUrl("body", name, size);
@@ -1356,10 +1359,15 @@ const bindAdminListControls = (key, render) => {
   $$(`[data-admin-search-clear="${key}"]`).forEach((button) => {
     button.addEventListener("click", () => {
       const list = adminListState(key);
-      list.query = "";
       list.page = 1;
-      list.open = false;
+      if (list.query) {
+        list.query = "";
+        list.open = true;
+      } else {
+        list.open = false;
+      }
       render();
+      if (list.open) window.setTimeout(() => $(`[data-admin-search="${key}"]`)?.focus({ preventScroll: true }), prefersReducedMotion() ? 0 : 40);
     });
   });
   $$(`[data-admin-page="${key}"]`).forEach((button) => {
@@ -2786,16 +2794,20 @@ const setupReaderOutline = (readerContent) => {
   syncActiveLink();
 };
 
-const openReader = (type, id) => {
+const openReader = (type, id, options = {}) => {
   const source = type === "announcement" ? state.announcements : state.posts;
-  const item = source.find((entry) => entry.id === id);
+  const item = options.sourceItem || source.find((entry) => entry.id === id);
   if (!item || !$("#readerContent")) return;
-  api(`/track-view/${type}/${id}`, { method: "POST" }).catch(() => {});
-  item.views = Number(item.views || 0) + 1;
+  const trackView = options.trackView !== false;
+  const loadComments = type === "post" && options.loadComments !== false;
+  if (trackView) {
+    api(`/track-view/${type}/${id}`, { method: "POST" }).catch(() => {});
+    item.views = Number(item.views || 0) + 1;
+  }
   const author = item.author || "管理员";
   const authorUser = authorUserFromItem(item, author);
   const accountType = item.author_account_type || (type === "announcement" ? "管理员" : "成员");
-  const canReportPost = type === "post" && Boolean(state.me) && !ownsContent(item, author) && !isOwnerContent(item);
+  const canReportPost = loadComments && type === "post" && Boolean(state.me) && !ownsContent(item, author) && !isOwnerContent(item);
   $("#readerContent").innerHTML = `
     <button class="dialog-close-button" type="button" data-reader-close aria-label="关闭阅读页">×</button>
     <div class="reader-layout ${type === "post" || type === "announcement" ? "has-author-panel" : ""}">
@@ -2845,7 +2857,7 @@ const openReader = (type, id) => {
           </aside>
           <div class="reader-body">${item.content_html}</div>
         </div>
-        ${type === "post" ? `<section class="comments-panel" data-comments-for="${item.id}" aria-label="帖子回复"></section>` : ""}
+        ${loadComments ? `<section class="comments-panel" data-comments-for="${item.id}" aria-label="帖子回复"></section>` : ""}
       </div>
     </div>
   `;
@@ -2857,7 +2869,7 @@ const openReader = (type, id) => {
   const serverStatusBinder = globalThis.bindServerStatusCardActions;
   if (typeof serverStatusBinder === "function") serverStatusBinder($("#readerContent"));
   openDialog($("#readerDialog"));
-  if (type === "post") {
+  if (loadComments) {
     removeCommentQuotesForPost(id);
     setCommentComposerOpen(id, false);
     state.commentEditing = null;
@@ -4190,12 +4202,8 @@ const renderTrashRows = () => {
       const collection = type === "announcement" ? "announcements" : "posts";
       const item = state.trash[collection]?.find((entry) => Number(entry.id) === Number(button.dataset.id));
       if (!item) return;
-      if (type === "announcement") {
-        state.announcements = [item, ...state.announcements.filter((entry) => Number(entry.id) !== Number(item.id))];
-      } else {
-        state.posts = [item, ...state.posts.filter((entry) => Number(entry.id) !== Number(item.id))];
-      }
-      openReader(type, Number(item.id));
+      button.closest("details")?.removeAttribute("open");
+      openReader(type, Number(item.id), { sourceItem: item, trackView: false, loadComments: false });
     }),
   );
   $$("[data-trash-edit]").forEach((button) =>
