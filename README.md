@@ -33,19 +33,6 @@
 - `POST /api/captcha/verify` 校验滑块位置
 - `/api/account`、`/api/login`、`/api/register` 会消费一次已通过的挑战
 
-## 服务器状态
-
-首页内置 Minecraft 服务器状态卡片，也可以在公告或帖子编辑器里点击“状态”插入当前展示卡片。
-
-后台 `服务器状态` 面板可以配置：
-
-- 是否启用状态展示
-- 服务器地址
-- `mcmotdapi` API 地址，默认 `https://motd.minebbs.com/api/status`
-- Java / Bedrock / 自动识别
-- 是否查询 SRV 记录
-- 图标地址与底部来源文案
-
 ## 服主与管理员
 
 ### 服主
