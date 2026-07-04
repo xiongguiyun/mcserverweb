@@ -63,6 +63,7 @@ const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const serverAddress = () => "play.blockhaven.cn";
 let maintenanceRequestId = 0;
+let maintenanceEditorExpanded = false;
 const isMobileViewport = () => window.matchMedia?.("(max-width: 620px)")?.matches;
 const isCoarsePointer = () => window.matchMedia?.("(pointer: coarse)")?.matches;
 const shouldUseMobileTotpLayout = () => isMobileViewport() || isCoarsePointer();
@@ -89,6 +90,55 @@ const apiCacheRules = [
 ];
 
 const apiCacheTtlFor = (path) => apiCacheRules.find(([pattern]) => pattern.test(path))?.[1] || 0;
+
+const motionRevealSelector = [
+  ".feature-band article",
+  ".post-card",
+  ".editor-card",
+  ".admin-panel",
+  ".stat-card",
+  ".profile-card",
+  ".profile-page-card",
+  ".forum-main",
+  ".mc-status-card",
+  ".comment-card",
+  ".comment-login",
+  ".comment-undo",
+  ".maintenance-card",
+].join(",");
+let motionRevealObserver = null;
+
+const syncMotionReveals = () => {
+  const targets = $$(motionRevealSelector).filter((node) => !node.dataset.motionReveal);
+  if (!targets.length) return;
+  targets.forEach((node, index) => {
+    node.dataset.motionReveal = "true";
+    node.style.setProperty("--motion-reveal-delay", `${Math.min(index, 7) * 42}ms`);
+    node.classList.add("motion-reveal");
+    if (prefersReducedMotion() || !motionRevealObserver) {
+      node.classList.add("is-visible");
+      return;
+    }
+    motionRevealObserver.observe(node);
+  });
+};
+
+const setupMotionReveals = () => {
+  document.body.classList.add("motion-ready");
+  if (!prefersReducedMotion() && "IntersectionObserver" in window) {
+    motionRevealObserver = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
+          entry.target.classList.add("is-visible");
+          motionRevealObserver.unobserve(entry.target);
+        });
+      },
+      { rootMargin: "0px 0px -8% 0px", threshold: 0.08 },
+    );
+  }
+  syncMotionReveals();
+};
 
 const cloneApiPayload = (payload) => {
   if (!payload || typeof payload !== "object") return payload;
@@ -1185,6 +1235,7 @@ const renderLists = () => {
   }
   updateForumSearchStatus();
   bindContentButtons();
+  syncMotionReveals();
 };
 
 let renderListsFrame = 0;
@@ -4017,6 +4068,10 @@ const renderStats = () => {
   if ($("#maintenanceStatusText")) $("#maintenanceStatusText").textContent = state.stats.maintenanceMode ? "当前维护模式已开启。" : "当前网站正常开放。";
   if ($("#maintenanceTitleInput")) $("#maintenanceTitleInput").value = state.site?.customMaintenanceTitle || "";
   if ($("#maintenanceDescriptionInput")) $("#maintenanceDescriptionInput").value = state.site?.customMaintenanceDescription || "";
+  const editorToggle = $("#maintenanceEditorToggle");
+  const editorPanel = $("#maintenanceEditorPanel");
+  if (editorToggle) editorToggle.setAttribute("aria-expanded", maintenanceEditorExpanded ? "true" : "false");
+  if (editorPanel) editorPanel.hidden = !maintenanceEditorExpanded;
 };
 
 const ensureHighlightColorDialog = () => {
@@ -4705,6 +4760,10 @@ const setupMaintenanceToggle = () => {
   $("#maintenanceToggle")?.addEventListener("change", (event) => {
     submitMaintenanceSettings({ enabled: event.target.checked }).catch(() => {});
   });
+  $("#maintenanceEditorToggle")?.addEventListener("click", () => {
+    maintenanceEditorExpanded = !maintenanceEditorExpanded;
+    renderStats();
+  });
   $("#maintenanceSettingsForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     await submitMaintenanceSettings({ successMessage: "维护文案已保存" });
@@ -4993,6 +5052,7 @@ const renderAll = () => {
   if (page === "forum") renderForumProfileCard();
   if (page === "profile") renderProfilePage();
   if (page === "admin") renderAdminGate();
+  syncMotionReveals();
 };
 
 $("#toast")?.addEventListener("click", async (event) => {
@@ -5002,6 +5062,7 @@ $("#toast")?.addEventListener("click", async (event) => {
 });
 
 setupDialogDismiss();
+setupMotionReveals();
 
 if (page === "login") setupLoginPage();
 

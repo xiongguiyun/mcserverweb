@@ -83,29 +83,40 @@
                 <span>网站维护中</span>
               </label>
               <p id="maintenanceStatusText">当前网站正常开放。</p>
-              <div class="admin-form-grid maintenance-settings-grid">
-                <div class="form-row">
-                  <label for="maintenanceTitleInput">&#32500;&#25252;&#26631;&#39064;</label>
-                  <input
-                    id="maintenanceTitleInput"
-                    name="maintenanceTitle"
-                    maxlength="80"
-                    placeholder="&#30041;&#31354;&#26102;&#20351;&#29992;&#40664;&#35748;&#26631;&#39064;&#65306;&#32593;&#31449;&#32500;&#25252;&#20013;"
-                  />
+              <div class="maintenance-editor">
+                <button
+                  class="button ghost maintenance-editor-toggle"
+                  id="maintenanceEditorToggle"
+                  type="button"
+                  aria-expanded="false"
+                  aria-controls="maintenanceEditorPanel"
+                >&#32534;&#36753;&#26631;&#39064;&#19982;&#25551;&#36848;</button>
+                <div class="maintenance-editor-panel" id="maintenanceEditorPanel" hidden>
+                  <div class="admin-form-grid maintenance-settings-grid">
+                    <div class="form-row">
+                      <label for="maintenanceTitleInput">&#32500;&#25252;&#26631;&#39064;</label>
+                      <input
+                        id="maintenanceTitleInput"
+                        name="maintenanceTitle"
+                        maxlength="80"
+                        placeholder="&#30041;&#31354;&#26102;&#20351;&#29992;&#40664;&#35748;&#26631;&#39064;"
+                      />
+                    </div>
+                    <div class="form-row">
+                      <label for="maintenanceDescriptionInput">&#32500;&#25252;&#25551;&#36848;</label>
+                      <textarea
+                        id="maintenanceDescriptionInput"
+                        name="maintenanceDescription"
+                        rows="4"
+                        maxlength="300"
+                        placeholder="&#30041;&#31354;&#26102;&#20351;&#29992;&#40664;&#35748;&#25551;&#36848;"
+                      ></textarea>
+                    </div>
+                  </div>
+                  <div class="toolbar footer-tools compact">
+                    <button class="button primary" type="submit">&#20445;&#23384;&#32500;&#25252;&#35774;&#32622;</button>
+                  </div>
                 </div>
-                <div class="form-row">
-                  <label for="maintenanceDescriptionInput">&#32500;&#25252;&#25551;&#36848;</label>
-                  <textarea
-                    id="maintenanceDescriptionInput"
-                    name="maintenanceDescription"
-                    rows="4"
-                    maxlength="300"
-                    placeholder="&#30041;&#31354;&#26102;&#20351;&#29992;&#40664;&#35748;&#25551;&#36848;&#65306;&#32593;&#31449;&#27491;&#22312;&#32500;&#25252;&#20013;&#65292;&#35831;&#31245;&#21518;&#20877;&#26469;&#12290;"
-                  ></textarea>
-                </div>
-              </div>
-              <div class="toolbar footer-tools compact">
-                <button class="button primary" type="submit">&#20445;&#23384;&#32500;&#25252;&#35774;&#32622;</button>
               </div>
             </form>
           </section>

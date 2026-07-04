@@ -229,14 +229,14 @@ button {
 
 .hero-bg {
   position: absolute;
-  inset: -28px;
+  inset: 0;
   background:
     radial-gradient(circle at 18% 24%, rgba(255, 221, 99, 0.22), transparent 20%),
     radial-gradient(circle at 82% 18%, rgba(70, 145, 70, 0.18), transparent 24%),
     linear-gradient(135deg, rgba(58, 39, 26, 0.96), rgba(29, 20, 15, 0.9)),
     repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.03) 0 18px, transparent 18px 36px);
   filter: blur(0);
-  transform: scale(1.05);
+  transform: none;
 }
 
 .photo-hero::after {
@@ -1376,6 +1376,22 @@ body[data-page="admin"] .admin-locked {
 .maintenance-admin-card {
   display: grid;
   gap: 16px;
+}
+
+.maintenance-editor {
+  display: grid;
+  gap: 12px;
+  justify-items: start;
+}
+
+.maintenance-editor-toggle {
+  min-width: 0;
+}
+
+.maintenance-editor-panel {
+  width: 100%;
+  display: grid;
+  gap: 12px;
 }
 
 .maintenance-settings-grid {
@@ -6860,6 +6876,9 @@ body[data-page="forum"] #forumSearchStatus:empty,
   --motion-fast: 160ms;
   --motion-base: 240ms;
   --motion-slow: 420ms;
+  --motion-page: 620ms;
+  --motion-shadow-hover: 0 18px 38px rgba(19, 12, 8, 0.16);
+  --motion-shadow-pop: 0 24px 54px rgba(19, 12, 8, 0.24);
 }
 
 .site-header {
@@ -6918,6 +6937,7 @@ body[data-page="forum"] #forumSearchStatus:empty,
 .comment-toolbar-drawer button,
 .comment-toolbar-toggle,
 .comment-color-tool,
+.server-address-copy,
 .forum-search-toggle,
 .forum-search-clear,
 body[data-page="admin"] .admin-mobile-toggle {
@@ -6940,6 +6960,7 @@ body[data-page="admin"] .admin-mobile-toggle {
 .comment-toolbar-drawer button:hover,
 .comment-toolbar-toggle:hover,
 .comment-color-tool:hover,
+.server-address-copy:hover,
 .forum-search-toggle:hover,
 .forum-search-clear:hover {
   transform: translate3d(0, -2px, 0);
@@ -6952,6 +6973,7 @@ body[data-page="admin"] .admin-mobile-toggle {
 .comment-toolbar-drawer button:active,
 .comment-toolbar-toggle:active,
 .comment-color-tool:active,
+.server-address-copy:active,
 .forum-search-toggle:active,
 .forum-search-clear:active {
   transform: translate3d(0, 2px, 0) scale(0.985);
@@ -6963,6 +6985,7 @@ body[data-page="admin"] .admin-mobile-toggle {
 }
 
 .hero-bg {
+  inset: 0;
   transform: none;
   animation: none;
   backface-visibility: hidden;
@@ -6971,7 +6994,7 @@ body[data-page="admin"] .admin-mobile-toggle {
 
 .hero-copy,
 .page-hero > * {
-  animation: page-copy-in 560ms var(--motion-ease) both;
+  animation: page-copy-in var(--motion-page) var(--motion-ease) both;
 }
 
 @keyframes page-copy-in {
@@ -7001,8 +7024,31 @@ body[data-page="admin"] .admin-mobile-toggle {
   transition:
     transform var(--motion-base) var(--motion-ease),
     box-shadow var(--motion-base) var(--motion-ease),
+    opacity var(--motion-base) ease,
     border-color var(--motion-fast) ease,
     filter var(--motion-fast) ease;
+}
+
+.motion-ready .motion-reveal {
+  opacity: 0.01;
+  transform: translate3d(0, 18px, 0);
+}
+
+.motion-ready .motion-reveal.is-visible {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+  animation: motion-reveal-in 520ms var(--motion-ease) var(--motion-reveal-delay, 0ms) both;
+}
+
+@keyframes motion-reveal-in {
+  from {
+    opacity: 0.01;
+    transform: translate3d(0, 18px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
 }
 
 .skin-figure,
@@ -7026,6 +7072,7 @@ body[data-page="admin"] .admin-mobile-toggle {
   .mc-status-card:hover,
   .comment-card:hover {
     transform: translate3d(0, -3px, 0);
+    box-shadow: var(--motion-shadow-hover);
     filter: saturate(1.02);
   }
 
@@ -7077,6 +7124,16 @@ body[data-page="admin"] .admin-sidebar-drawer,
     visibility var(--motion-base) ease,
     box-shadow var(--motion-base) var(--motion-ease);
   will-change: transform, opacity;
+}
+
+.profile-trash-popover,
+.comment-quote-popover,
+.forum-search-tip-bubble,
+.table-picker,
+.toolbar-more-menu,
+.toolbar-color-panel,
+.tox-menu {
+  box-shadow: var(--motion-shadow-pop);
 }
 
 body[data-page="admin"] .admin-sidebar-drawer {
@@ -7148,11 +7205,25 @@ body[data-page="admin"] .admin-sidebar-drawer {
 
 .photo-hero .hero-bg {
   inset: 0 !important;
-  background-position: center 44% !important;
+  background:
+    linear-gradient(180deg, rgba(24, 16, 12, 0.2), rgba(24, 16, 12, 0.72)),
+    linear-gradient(90deg, rgba(24, 16, 12, 0.44), rgba(24, 16, 12, 0.08), rgba(24, 16, 12, 0.44)),
+    image-set(url("/assets/group-photo.jpg") type("image/jpeg"), url("/assets/group-photo.png") type("image/png")) center center / cover no-repeat !important;
+  background-position: center center !important;
   background-size: cover !important;
   transform: none !important;
   animation: none !important;
   will-change: auto;
+}
+
+@media (max-width: 620px) {
+  .photo-hero .hero-bg {
+    background:
+      linear-gradient(180deg, rgba(24, 16, 12, 0.38), rgba(24, 16, 12, 0.82)),
+      linear-gradient(90deg, rgba(24, 16, 12, 0.36), rgba(24, 16, 12, 0.08), rgba(24, 16, 12, 0.36)),
+      image-set(url("/assets/group-photo.jpg") type("image/jpeg"), url("/assets/group-photo.png") type("image/png")) center center / cover no-repeat !important;
+    background-color: #201713;
+  }
 }
 
 .rich-editor img.inline-image[style],
@@ -7308,6 +7379,7 @@ body[data-page="admin"] #adminUsername {
   .hero-bg,
   .hero-copy,
   .page-hero > *,
+  .motion-ready .motion-reveal,
   .forum-search-panel,
   .forum-search-panel > *,
   .comment-composer-panel,
