@@ -1638,29 +1638,24 @@ const profileSettingsTemplate = (profile) => {
   const nextRenameAt = nextUsernameChangeDate(profile);
   const canRenameFreely = profile.role === "admin" || profile.isOwner;
   const renameLocked = !canRenameFreely && nextRenameAt && Date.now() < nextRenameAt.getTime();
-  const renameHint = canRenameFreely
-    ? "服主/管理员可随时修改。"
-    : renameLocked
-      ? `下次可修改：${formatDate(nextRenameAt.toISOString())}`
-      : "每 7 天可修改一次。";
   const characterName = profile.minecraft_name || "";
   const deletionStatus = accountDeletionStatusText(profile.accountDeletion);
   const deletionLocked = Boolean(profile.accountDeletion);
+  const deletionDescription = deletionStatus || "注销账户后有 3 天冷静期，期间重新登录会取消注销。";
   const deletionSection = profile.isOwner
     ? ""
     : `
       <details class="profile-setting danger-zone">
-        <summary><span>注销账户</span><small>${escapeHtml(deletionStatus || "10 秒确认，3 天冷静期")}</small></summary>
-        <div class="profile-setting-form">
-          <p>${escapeHtml(
-            deletionStatus ||
-              (profile.role === "admin"
-                ? "管理员提交后需要服主批准，批准后进入 3 天冷静期。冷静期内重新登录会取消注销。"
-                : "发起后账号会退出登录并进入 3 天冷静期。冷静期内重新登录会取消注销，到期后账号会注销。"),
-          )}</p>
-          <button class="button danger" type="button" id="requestAccountDeletionButton" ${deletionLocked ? "disabled" : ""}>
-            ${deletionLocked ? "注销已开启" : "注销账户"}
-          </button>
+        <summary><span>注销账户</span></summary>
+        <div class="profile-setting-panel">
+          <div class="profile-setting-panel-inner">
+            <div class="profile-setting-form">
+              <p>${escapeHtml(deletionDescription)}</p>
+              <button class="button danger" type="button" id="requestAccountDeletionButton" ${deletionLocked ? "disabled" : ""}>
+                ${deletionLocked ? "注销已开启" : "注销账户"}
+              </button>
+            </div>
+          </div>
         </div>
       </details>
     `;
@@ -1668,52 +1663,64 @@ const profileSettingsTemplate = (profile) => {
     <section class="profile-settings">
       <h3>账号设置</h3>
       <details class="profile-setting">
-        <summary><span>更改用户名</span><small>${escapeHtml(renameHint)}</small></summary>
-        <form class="profile-setting-form" id="profileUsernameForm">
-          <label>
-            <span>新用户名</span>
-            <input id="profileNewUsername" name="username" maxlength="20" autocomplete="username" value="${escapeHtml(profile.username)}" ${renameLocked ? "disabled" : ""} />
-          </label>
-          <button class="button primary" type="submit" ${renameLocked ? "disabled" : ""}>保存用户名</button>
-        </form>
+        <summary><span>更改用户名</span></summary>
+        <div class="profile-setting-panel">
+          <div class="profile-setting-panel-inner">
+            <form class="profile-setting-form" id="profileUsernameForm">
+              <label>
+                <span>新用户名</span>
+                <input id="profileNewUsername" name="username" maxlength="20" autocomplete="username" value="${escapeHtml(profile.username)}" ${renameLocked ? "disabled" : ""} />
+              </label>
+              <button class="button primary" type="submit" ${renameLocked ? "disabled" : ""}>保存用户名</button>
+            </form>
+          </div>
+        </div>
       </details>
       <details class="profile-setting">
-        <summary><span>换人物角色</span><small>${escapeHtml(characterName || profile.username)}</small></summary>
-        <form class="profile-setting-form" id="profileCharacterForm">
-          <label>
-            <span>Minecraft 角色名</span>
-            <input id="profileMinecraftName" name="minecraftName" maxlength="32" autocomplete="off" value="${escapeHtml(characterName)}" placeholder="${escapeHtml(profile.username)}" />
-          </label>
-          <label>
-            <span>上传皮肤</span>
-            <input id="profileSkinFile" name="skinFile" type="file" accept="image/png,image/jpeg,image/webp" />
-          </label>
-          <div class="profile-skin-preview">
-            <img id="profileSkinPreview" src="${activeSkinSrc(profile, 210)}" alt="" />
+        <summary><span>换人物角色</span></summary>
+        <div class="profile-setting-panel">
+          <div class="profile-setting-panel-inner">
+            <form class="profile-setting-form" id="profileCharacterForm">
+              <label>
+                <span>Minecraft 角色名</span>
+                <input id="profileMinecraftName" name="minecraftName" maxlength="32" autocomplete="off" value="${escapeHtml(characterName)}" placeholder="${escapeHtml(profile.username)}" />
+              </label>
+              <label>
+                <span>上传皮肤</span>
+                <input id="profileSkinFile" name="skinFile" type="file" accept="image/png,image/jpeg,image/webp" />
+              </label>
+              <div class="profile-skin-preview">
+                <img id="profileSkinPreview" src="${activeSkinSrc(profile, 210)}" alt="" />
+              </div>
+              <div class="profile-setting-actions">
+                <button class="button primary" type="submit">保存角色</button>
+                <button class="button ghost" type="button" id="clearProfileSkinButton" ${profile.skin_image ? "" : "disabled"}>清除上传图</button>
+              </div>
+            </form>
           </div>
-          <div class="profile-setting-actions">
-            <button class="button primary" type="submit">保存角色</button>
-            <button class="button ghost" type="button" id="clearProfileSkinButton" ${profile.skin_image ? "" : "disabled"}>清除上传图</button>
-          </div>
-        </form>
+        </div>
       </details>
       <details class="profile-setting">
-        <summary><span>修改密码</span><small>需先输入旧密码</small></summary>
-        <form class="profile-setting-form" id="profilePasswordForm">
-          <label>
-            <span>旧密码</span>
-            <input id="profileOldPassword" type="password" autocomplete="current-password" />
-          </label>
-          <label>
-            <span>新密码</span>
-            <input id="profileNewPassword" type="password" autocomplete="new-password" minlength="6" />
-          </label>
-          <label>
-            <span>确认新密码</span>
-            <input id="profileConfirmPassword" type="password" autocomplete="new-password" minlength="6" />
-          </label>
-          <button class="button primary" type="submit">保存密码</button>
-        </form>
+        <summary><span>修改密码</span></summary>
+        <div class="profile-setting-panel">
+          <div class="profile-setting-panel-inner">
+            <form class="profile-setting-form" id="profilePasswordForm">
+              <label>
+                <span>旧密码</span>
+                <input id="profileOldPassword" type="password" autocomplete="current-password" />
+              </label>
+              <label>
+                <span>新密码</span>
+                <input id="profileNewPassword" type="password" autocomplete="new-password" minlength="6" />
+              </label>
+              <label>
+                <span>确认新密码</span>
+                <input id="profileConfirmPassword" type="password" autocomplete="new-password" minlength="6" />
+              </label>
+              <button class="button primary" type="submit">保存密码</button>
+            </form>
+          </div>
+        </div>
       </details>
       ${deletionSection}
     </section>
@@ -4159,14 +4166,14 @@ const renderTrashRows = () => {
             return `
             <div class="table-row">
               <div><strong>${escapeHtml(item.title)}</strong><span>${item.type === "announcement" ? "公告" : "帖子"} ${formatDate(item.deleted_at)}</span></div>
-              <div class="row-actions">
+              <div class="row-actions trash-row-actions">
+                <button class="button small danger" type="button" ${canManage ? `data-purge="${item.type}" data-id="${item.id}"` : "disabled"}>彻底删除</button>
                 <details class="trash-more-menu">
                   <summary class="button small ghost">更多</summary>
                   <div class="trash-more-actions">
                     <button class="button small ghost" type="button" data-trash-open="${item.type}" data-id="${item.id}">查看</button>
                     <button class="button small ghost" type="button" ${canManage ? `data-trash-edit="${item.type}" data-id="${item.id}"` : "disabled"}>编辑</button>
                     <button class="button small ghost" type="button" ${canManage ? `data-restore="${item.type}" data-id="${item.id}"` : "disabled"}>恢复</button>
-                    <button class="button small danger" type="button" ${canManage ? `data-purge="${item.type}" data-id="${item.id}"` : "disabled"}>彻底删除</button>
                   </div>
                 </details>
               </div>
