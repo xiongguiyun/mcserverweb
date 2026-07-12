@@ -97,52 +97,66 @@
           <input id="forumTitle" maxlength="80" required placeholder="例如：我的新基地完工了" />
         </div>
         <div class="editor-toolbar-shell">
-          <div class="toolbar editor-toolbar" aria-label="编辑工具栏">
-            <button type="button" data-command="bold" title="粗体"><strong>B</strong></button>
-            <button type="button" data-command="italic" title="斜体"><em>I</em></button>
-            <button type="button" data-command="underline" title="下划线"><u>U</u></button>
-            <button type="button" data-command="strikeThrough" title="中划线"><s>S</s></button>
-            <select id="fontSizeSelect" class="toolbar-select" title="字号">
-              <option value="">字号</option>
-              <option value="3">正文</option>
-              <option value="4">大号</option>
-              <option value="5">标题</option>
-              <option value="6">特大</option>
-            </select>
-            <select id="blockFormatSelect" class="toolbar-select" title="段落格式">
-              <option value="">段落</option>
-              <option value="P">正文</option>
-              <option value="H2">标题 2</option>
-              <option value="H3">标题 3</option>
-              <option value="BLOCKQUOTE">引用</option>
-              <option value="PRE">代码块</option>
-            </select>
-            <select id="alignSelect" class="toolbar-select" title="对齐方式">
-              <option value="">对齐</option>
-              <option value="justifyLeft">居左</option>
-              <option value="justifyCenter">居中</option>
-              <option value="justifyRight">居右</option>
-            </select>
-            <button type="button" id="linkButton" title="添加链接">链接</button>
-            <button type="button" id="imageButton" title="插入图片">图片</button>
-            <button type="button" id="findReplaceButton" title="查找和替换">查找</button>
-            <button type="button" id="tableButton" title="插入表格">表格</button>
-            <button type="button" id="spoilerButton" title="内联遮挡">遮挡</button>
-            <button type="button" id="hrButton" title="插入水平线">分隔</button>
-            <button type="button" id="detailsButton" title="折叠">折叠</button>
-            <button type="button" id="codeButton" title="代码">代码</button>
-            <button type="button" id="bilibiliButton" title="插入 Bilibili 视频">Bilibili</button>
-            <div class="toolbar-more">
-              <button type="button" id="moreButton" aria-expanded="false" title="更多">更多</button>
+          <div class="toolbar editor-toolbar editor-toolbar--reimagined" aria-label="编辑工具栏">
+            <div class="toolbar-group toolbar-group--format" aria-label="文字样式">
+              <button type="button" class="toolbar-icon-button" data-command="bold" data-toolbar-label="粗体" title="粗体" aria-label="粗体"><strong>B</strong></button>
+              <button type="button" class="toolbar-icon-button" data-command="italic" data-toolbar-label="斜体" title="斜体" aria-label="斜体"><em>I</em></button>
+              <button type="button" class="toolbar-icon-button" data-command="underline" data-toolbar-label="下划线" title="下划线" aria-label="下划线"><u>U</u></button>
+              <button type="button" class="toolbar-icon-button" data-command="strikeThrough" data-toolbar-label="中划线" title="中划线" aria-label="中划线"><s>S</s></button>
+            </div>
+
+            <div class="toolbar-divider" aria-hidden="true"></div>
+
+            <div class="toolbar-group toolbar-group--structure" aria-label="段落结构">
+              <select id="fontSizeSelect" class="toolbar-select" title="字号" aria-label="字号">
+                <option value="">字号</option>
+                <option value="3">正文</option>
+                <option value="4">大号</option>
+                <option value="5">标题</option>
+                <option value="6">特大</option>
+              </select>
+              <select id="blockFormatSelect" class="toolbar-select" title="段落格式" aria-label="段落格式">
+                <option value="">段落</option>
+                <option value="P">正文</option>
+                <option value="H2">标题 2</option>
+                <option value="H3">标题 3</option>
+                <option value="BLOCKQUOTE">引用</option>
+                <option value="PRE">代码块</option>
+              </select>
+              <select id="alignSelect" class="toolbar-select" title="对齐方式" aria-label="对齐方式">
+                <option value="">对齐</option>
+                <option value="justifyLeft">居左</option>
+                <option value="justifyCenter">居中</option>
+                <option value="justifyRight">居右</option>
+              </select>
+            </div>
+
+            <div class="toolbar-divider" aria-hidden="true"></div>
+
+            <div class="toolbar-group toolbar-group--insert" aria-label="插入内容">
+              <button type="button" class="toolbar-icon-button" id="linkButton" data-toolbar-label="链接" title="添加链接" aria-label="添加链接">链</button>
+              <button type="button" class="toolbar-icon-button" id="imageButton" data-toolbar-label="图片" title="插入图片" aria-label="插入图片">图</button>
+              <button type="button" class="toolbar-icon-button" id="tableButton" data-toolbar-label="表格" title="插入表格" aria-label="插入表格">格</button>
+            </div>
+
+            <div class="toolbar-group toolbar-group--more toolbar-more" aria-label="更多编辑操作">
+              <button type="button" id="moreButton" class="toolbar-icon-button" data-toolbar-label="更多" aria-expanded="false" title="更多" aria-label="更多">⋯</button>
               <div class="toolbar-more-menu" id="moreMenu" hidden>
-                <button type="button" data-command="insertUnorderedList">无序列表</button>
-                <button type="button" data-command="insertOrderedList">有序列表</button>
-                <button type="button" id="colorButton">文本颜色</button>
-                <button type="button" id="quoteButton">引用</button>
+                <button type="button" data-command="insertUnorderedList" data-toolbar-label="无序列表" title="无序列表" aria-label="无序列表">无序列表</button>
+                <button type="button" data-command="insertOrderedList" data-toolbar-label="有序列表" title="有序列表" aria-label="有序列表">有序列表</button>
+                <button type="button" id="colorButton" data-toolbar-label="文本颜色" title="文本颜色" aria-label="文本颜色">色</button>
+                <button type="button" id="quoteButton" data-toolbar-label="引用" title="引用" aria-label="引用">引用</button>
+                <button type="button" id="findReplaceButton" data-toolbar-label="查找" title="查找和替换" aria-label="查找和替换">查找</button>
+                <button type="button" id="spoilerButton" data-toolbar-label="遮挡" title="内联遮挡" aria-label="内联遮挡">遮挡</button>
+                <button type="button" id="hrButton" data-toolbar-label="分隔" title="插入水平线" aria-label="插入水平线">分隔</button>
+                <button type="button" id="detailsButton" data-toolbar-label="折叠" title="折叠" aria-label="折叠">折叠</button>
+                <button type="button" id="codeButton" data-toolbar-label="代码" title="代码" aria-label="代码">代码</button>
+                <button type="button" id="bilibiliButton" data-toolbar-label="Bilibili" title="插入 Bilibili 视频" aria-label="插入 Bilibili 视频">Bilibili</button>
               </div>
             </div>
+
             <span class="toolbar-spacer" aria-hidden="true"></span>
-            <button type="button" id="previewButton" class="toolbar-preview-button">预览</button>
+            <button type="button" id="previewButton" class="toolbar-preview-button" data-toolbar-label="预览" title="预览" aria-label="预览">预览</button>
           </div>
         </div>
         <div class="rich-editor" id="editor" contenteditable="true" role="textbox" aria-label="帖子正文"></div>

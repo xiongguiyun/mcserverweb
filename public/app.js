@@ -1048,7 +1048,7 @@ const enhanceColorTool = () => {
   const wrapper = document.createElement("div");
   wrapper.className = "toolbar-color-popover";
   wrapper.innerHTML = `
-    <button type="button" id="colorButton" aria-expanded="false" aria-controls="colorToolPanel">文本颜色</button>
+    <button type="button" id="colorButton" data-toolbar-label="文本颜色" title="文本颜色" aria-label="文本颜色" aria-expanded="false" aria-controls="colorToolPanel">色</button>
     <div class="toolbar-color-tool" id="colorToolPanel" hidden>
       <div class="toolbar-color-presets" aria-label="默认文本颜色">
         ${editorColorPresets
@@ -2965,6 +2965,51 @@ const command = (name, value = null) => {
   if (!restoreEditorSelection()) editor.focus();
   document.execCommand(name, false, value);
   saveEditorSelection();
+  updateEditorToolbarState();
+};
+
+const editorToolbarStateCommands = ["bold", "italic", "underline", "strikeThrough", "insertUnorderedList", "insertOrderedList"];
+
+const isSelectionInsideEditor = (editor) => {
+  const selection = window.getSelection?.();
+  if (!editor || !selection || selection.rangeCount === 0) return false;
+  const range = selection.getRangeAt(0);
+  return editor === range.commonAncestorContainer || editor.contains(range.commonAncestorContainer);
+};
+
+const updateEditorToolbarState = () => {
+  const editor = $("#editor");
+  const toolbar = $(".editor-toolbar");
+  if (!editor || !toolbar) return;
+  const hasEditorSelection = isSelectionInsideEditor(editor);
+
+  editorToolbarStateCommands.forEach((name) => {
+    toolbar.querySelectorAll(`[data-command="${name}"]`).forEach((button) => {
+      let active = false;
+      if (hasEditorSelection) {
+        try {
+          active = document.queryCommandState(name);
+        } catch {
+          active = false;
+        }
+      }
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+  });
+
+  const alignSelect = $("#alignSelect");
+  if (!alignSelect) return;
+  if (!hasEditorSelection) {
+    alignSelect.value = "";
+    return;
+  }
+  const selection = window.getSelection?.();
+  const currentBlock = selection?.rangeCount ? closestEditableBlock(selection.getRangeAt(0).startContainer, editor) : editor;
+  const styleTarget = currentBlock && currentBlock !== editor ? currentBlock : editor;
+  const textAlign = (styleTarget.style.textAlign || window.getComputedStyle(styleTarget).textAlign || "").replace("start", "left");
+  const nextValue = Object.entries(editorAlignmentMap).find(([, value]) => value === textAlign)?.[0] || "";
+  alignSelect.value = nextValue;
 };
 
 const editorAlignmentMap = {
@@ -3018,6 +3063,7 @@ const applyEditorAlignment = (name) => {
     editor.style.textAlign = align;
   }
   saveEditorSelection();
+  updateEditorToolbarState();
 };
 
 const insertHtmlBlock = (html) => command("insertHTML", html);
@@ -3405,11 +3451,17 @@ const setupEditor = () => {
   if (!$("#editor")) return;
   const editor = $("#editor");
   ["keyup", "mouseup", "touchend", "input"].forEach((eventName) => {
-    editor.addEventListener(eventName, saveEditorSelection);
+    editor.addEventListener(eventName, () => {
+      saveEditorSelection();
+      updateEditorToolbarState();
+    });
   });
   $(".editor-toolbar")?.addEventListener("pointerdown", saveEditorSelection);
   document.addEventListener("selectionchange", () => {
-    if (document.activeElement === editor) saveEditorSelection();
+    if (document.activeElement === editor) {
+      saveEditorSelection();
+      updateEditorToolbarState();
+    }
   });
   $$("[data-command]").forEach((button) => button.addEventListener("click", () => command(button.dataset.command)));
   $("#fontSizeSelect")?.addEventListener("change", (event) => {
