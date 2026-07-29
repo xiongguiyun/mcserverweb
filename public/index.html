@@ -9,6 +9,7 @@
     <title>Liou_Yang Server | 我的世界服务器</title>
     <meta name="description" content="Liou_Yang Server 我的世界服务器主页与论坛公告。" />
     <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/ui-components.css" />
   </head>
   <body data-page="home">
     <header class="site-header">
@@ -44,10 +45,11 @@
             <a class="button ghost" href="/forum.html">进入论坛</a>
           </div>
           <dl class="server-panel">
-            <button class="server-item server-address-copy" id="copyServerAddress" type="button">
-              <dt>服务器地址</dt>
-              <dd>play.blockhaven.cn</dd>
-            </button>
+            <div class="server-address-group">
+              <span class="server-address-addon">服务器 IP</span>
+              <input class="server-address-input" id="serverAddressInput" value="play.blockhaven.cn" readonly aria-label="服务器 IP" />
+              <button class="server-address-copy" id="copyServerAddress" type="button">复制</button>
+            </div>
             <div class="server-item">
               <dt>版本</dt>
               <dd>Java 1.20+</dd>

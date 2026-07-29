@@ -1,0 +1,572 @@
+:root {
+  --tg-surface: #fffaf0;
+  --tg-surface-muted: #f6ead3;
+  --tg-text: #2c1f17;
+  --tg-muted: #765f4e;
+  --tg-line: #d7bc8b;
+  --tg-primary: #297a58;
+  --tg-primary-strong: #1f6046;
+  --tg-danger: #b53b35;
+  --tg-focus: rgba(41, 122, 88, 0.22);
+  --tg-shadow: 0 14px 32px rgba(42, 29, 22, 0.18);
+}
+
+.tg-control-source,
+.tg-otp-source {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0 0 0 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+.tg-select,
+.tg-combobox {
+  position: relative;
+  display: inline-flex;
+  width: 100%;
+  min-width: 0;
+}
+
+.tg-select-trigger,
+.tg-combobox-input {
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  color: var(--tg-text);
+  background: var(--tg-surface);
+  border: 2px solid var(--tg-line);
+  border-radius: 6px;
+  box-shadow: 0 2px 0 rgba(42, 29, 22, 0.08);
+  transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
+}
+
+.tg-select-trigger {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  text-align: left;
+}
+
+.tg-select-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tg-select-trigger.is-placeholder .tg-select-value,
+.tg-combobox-input::placeholder {
+  color: var(--tg-muted);
+}
+
+.tg-select-chevron {
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(-2px) rotate(45deg);
+  transition: transform 150ms ease;
+}
+
+.tg-select.is-open .tg-select-chevron,
+.tg-combobox.is-open .tg-select-chevron {
+  transform: translateY(2px) rotate(225deg);
+}
+
+.tg-select-trigger:focus-visible,
+.tg-combobox-input:focus,
+.tg-combobox-trigger:focus-visible,
+.tg-otp-cell:focus {
+  outline: 0;
+  border-color: var(--tg-primary);
+  box-shadow: 0 0 0 4px var(--tg-focus);
+}
+
+.tg-select-trigger:disabled,
+.tg-combobox-input:disabled,
+.tg-combobox-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.tg-select.is-toolbar {
+  width: auto;
+  flex: 0 0 auto;
+}
+
+.tg-select.is-toolbar .tg-select-trigger {
+  min-width: 78px;
+  min-height: 32px;
+  height: 32px;
+  padding: 0 8px;
+  border-width: 1px;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.tg-popover {
+  position: fixed;
+  z-index: 3000;
+  display: grid;
+  gap: 3px;
+  padding: 6px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  color: var(--tg-text);
+  background: var(--tg-surface);
+  border: 1px solid var(--tg-line);
+  border-radius: 6px;
+  box-shadow: var(--tg-shadow);
+}
+
+.tg-popover[hidden] {
+  display: none;
+}
+
+.tg-option {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 10px;
+  color: var(--tg-text);
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  text-align: left;
+  font-weight: 750;
+}
+
+.tg-option:hover,
+.tg-option:focus-visible,
+.tg-option.is-active {
+  outline: 0;
+  background: var(--tg-surface-muted);
+}
+
+.tg-option[aria-selected="true"] {
+  color: #fff;
+  background: var(--tg-primary);
+}
+
+.tg-combobox-input {
+  padding: 0 42px 0 12px;
+}
+
+.tg-combobox-trigger {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  bottom: 2px;
+  display: grid;
+  width: 38px;
+  place-items: center;
+  color: var(--tg-muted);
+  background: transparent;
+  border: 0;
+}
+
+.tg-combobox-empty {
+  padding: 18px 12px;
+  color: var(--tg-muted);
+  text-align: center;
+  font-size: 13px;
+}
+
+.tg-otp {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tg-otp-cells {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.tg-otp-cell {
+  width: 42px;
+  min-width: 0;
+  height: 48px;
+  padding: 0;
+  color: var(--tg-text);
+  background: var(--tg-surface);
+  border: 2px solid var(--tg-line);
+  border-radius: 6px;
+  text-align: center;
+  font-size: 21px;
+  font-weight: 900;
+  line-height: 1;
+  caret-color: var(--tg-primary);
+}
+
+.tg-otp.is-complete .tg-otp-cell {
+  border-color: var(--tg-primary);
+}
+
+.tg-otp-divider {
+  width: 10px;
+  height: 2px;
+  flex: 0 0 10px;
+  background: var(--tg-line);
+}
+
+.tg-otp-hint {
+  color: var(--tg-muted);
+  font-size: 12px;
+}
+
+.tg-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.tg-page-button,
+.tg-page-ellipsis {
+  display: inline-grid;
+  min-width: 38px;
+  height: 38px;
+  place-items: center;
+  padding: 0 10px;
+  color: var(--tg-text);
+  background: var(--tg-surface);
+  border: 1px solid var(--tg-line);
+  border-radius: 5px;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.tg-page-button:hover:not(:disabled) {
+  border-color: var(--tg-primary);
+  background: #edf7f1;
+}
+
+.tg-page-button[aria-current="page"] {
+  color: #fff;
+  background: var(--tg-primary);
+  border-color: var(--tg-primary);
+}
+
+.tg-page-button:focus-visible {
+  outline: 0;
+  box-shadow: 0 0 0 4px var(--tg-focus);
+}
+
+.tg-page-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.tg-page-ellipsis {
+  border-color: transparent;
+  background: transparent;
+}
+
+.tg-page-side {
+  gap: 7px;
+}
+
+.tg-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 11px;
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 850;
+}
+
+.tg-toggle input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.tg-toggle-track {
+  position: relative;
+  width: 46px;
+  height: 26px;
+  flex: 0 0 46px;
+  background: #c9bda9;
+  border: 1px solid #9e8a6d;
+  border-radius: 999px;
+  transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.tg-toggle-track::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 2px 5px rgba(42, 29, 22, 0.28);
+  transition: transform 180ms cubic-bezier(.2,.8,.2,1);
+}
+
+.tg-toggle input:checked + .tg-toggle-track {
+  background: var(--tg-primary);
+  border-color: var(--tg-primary-strong);
+}
+
+.tg-toggle input:checked + .tg-toggle-track::after {
+  transform: translateX(20px);
+}
+
+.tg-toggle input:focus-visible + .tg-toggle-track {
+  box-shadow: 0 0 0 4px var(--tg-focus);
+}
+
+.server-address-group {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: stretch;
+  min-width: 0;
+  padding: 11px;
+  border-right: 2px solid rgba(255, 232, 178, 0.35);
+}
+
+.server-address-addon,
+.server-address-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  color: #ffedc2;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 232, 178, 0.42);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.server-address-addon {
+  border-radius: 5px 0 0 5px;
+}
+
+.server-address-input {
+  width: 100%;
+  min-width: 0;
+  height: 42px;
+  padding: 0 12px;
+  color: #fffaf0;
+  background: rgba(20, 14, 10, 0.42);
+  border: 1px solid rgba(255, 232, 178, 0.42);
+  border-right: 0;
+  border-left: 0;
+  border-radius: 0;
+  font-weight: 900;
+}
+
+.server-address-copy {
+  border-radius: 0 5px 5px 0;
+  cursor: pointer;
+}
+
+.server-address-copy:hover {
+  color: #201713;
+  background: #ffcf68;
+}
+
+@media (min-width: 621px) {
+  .photo-hero .server-panel {
+    grid-template-columns: minmax(330px, 1.4fr) repeat(2, minmax(170px, 0.8fr));
+  }
+}
+
+.tg-toast.toast {
+  right: 18px;
+  bottom: 18px;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  width: min(420px, calc(100vw - 36px));
+  max-width: none;
+  padding: 13px 14px;
+  color: var(--tg-text);
+  background: var(--tg-surface);
+  border: 1px solid var(--tg-line);
+  border-left: 4px solid var(--tg-primary);
+  border-radius: 6px;
+  box-shadow: var(--tg-shadow);
+  opacity: 0;
+  transform: none;
+  transition: none;
+  pointer-events: none;
+  overflow: hidden;
+  will-change: auto;
+}
+
+.tg-toast.toast.show {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.tg-toast.is-error {
+  border-left-color: var(--tg-danger);
+}
+
+.tg-toast.is-info {
+  border-left-color: #3276a8;
+}
+
+.tg-toast-icon {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  color: #fff;
+  background: var(--tg-primary);
+  border-radius: 50%;
+  font-weight: 950;
+}
+
+.tg-toast.is-error .tg-toast-icon {
+  background: var(--tg-danger);
+}
+
+.tg-toast.is-info .tg-toast-icon {
+  background: #3276a8;
+}
+
+.tg-toast-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tg-toast-copy strong,
+.tg-toast-copy span {
+  overflow-wrap: anywhere;
+}
+
+.tg-toast-copy span {
+  color: var(--tg-muted);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.tg-toast-action,
+.tg-toast-dismiss {
+  min-width: 30px;
+  min-height: 30px;
+  color: var(--tg-text);
+  background: transparent;
+  border: 0;
+  font-weight: 900;
+}
+
+.tg-toast-action {
+  color: var(--tg-primary-strong);
+}
+
+.tg-toast-dismiss {
+  padding: 0;
+  font-size: 21px;
+}
+
+.tg-toast-progress {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: currentColor;
+  transform-origin: left center;
+  opacity: 0.45;
+}
+
+@media (max-width: 620px) {
+  .tg-otp-cells {
+    gap: 5px;
+  }
+
+  .tg-otp-cell {
+    width: min(40px, calc((100vw - 88px) / 6));
+    height: 44px;
+    font-size: 19px;
+  }
+
+  .tg-otp-divider {
+    width: 5px;
+    flex-basis: 5px;
+  }
+
+  .tg-pagination {
+    justify-content: center;
+  }
+
+  .tg-page-button,
+  .tg-page-ellipsis {
+    min-width: 34px;
+    height: 36px;
+    padding: 0 8px;
+  }
+
+  .tg-page-side span {
+    display: none;
+  }
+
+  .server-address-group {
+    grid-template-columns: 64px minmax(0, 1fr) 48px;
+    border-right: 0;
+    border-bottom: 1px solid rgba(255, 232, 178, 0.3);
+  }
+
+  .server-address-addon,
+  .server-address-copy {
+    padding: 0 8px;
+    font-size: 10px;
+  }
+
+  .photo-hero .server-address-group .server-address-copy {
+    display: inline-flex;
+    min-height: 42px;
+    grid-template-columns: none;
+    width: auto;
+    padding: 0 8px;
+    text-align: center;
+  }
+
+  .server-address-input {
+    padding: 0 8px;
+    font-size: 12px;
+  }
+
+  .tg-toast.toast {
+    right: 12px;
+    bottom: 12px;
+    grid-template-columns: 30px minmax(0, 1fr) auto;
+    width: calc(100vw - 24px);
+  }
+
+  .tg-toast-action {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .tg-toast-dismiss {
+    grid-column: 3;
+    grid-row: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tg-select-chevron,
+  .tg-toggle-track,
+  .tg-toggle-track::after {
+    transition: none;
+  }
+}

@@ -7,6 +7,7 @@
     <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
     <title>登录账号 | Liou_Yang Server</title>
     <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/ui-components.css" />
   </head>
   <body data-page="login">
     <main class="login-page">
@@ -52,7 +53,16 @@
         <form id="loginForm" class="login-form">
           <input id="loginUsername" autocomplete="username" placeholder="账号名" required />
           <input id="loginPassword" type="password" autocomplete="current-password" placeholder="密码" required />
-          <input id="loginTotpCode" inputmode="numeric" maxlength="6" placeholder="双重验证码（已开启时填写）" />
+          <input
+            id="loginTotpCode"
+            data-ui-otp
+            data-otp-label="双重验证码"
+            data-otp-hint="仅已开启双重验证的管理员需要填写"
+            inputmode="numeric"
+            maxlength="6"
+            autocomplete="one-time-code"
+            aria-label="双重验证码"
+          />
           <button class="button primary" type="submit">登录账号</button>
         </form>
       </dialog>

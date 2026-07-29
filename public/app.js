@@ -36,6 +36,16 @@
   },
 };
 
+import {
+  enhanceOtpInput,
+  focusOtpInput,
+  paginationRange,
+  refreshSelectionControl,
+  revealUiElement,
+  setupUiComponents,
+  showUiToast,
+} from "./ui-components.js";
+
 const defaultMaintenanceCopy = {
   title: "\u7f51\u7ad9\u7ef4\u62a4\u4e2d",
   description: "\u7f51\u7ad9\u6b63\u5728\u7ef4\u62a4\u4e2d\uff0c\u8bf7\u7a0d\u540e\u518d\u6765\u3002",
@@ -92,6 +102,8 @@ const apiCacheRules = [
 const apiCacheTtlFor = (path) => apiCacheRules.find(([pattern]) => pattern.test(path))?.[1] || 0;
 
 const motionRevealSelector = [
+  ".hero-copy",
+  ".page-hero > *",
   ".feature-band article",
   ".post-card",
   ".editor-card",
@@ -109,28 +121,26 @@ const motionRevealSelector = [
 let motionRevealObserver = null;
 
 const syncMotionReveals = () => {
-  const targets = $$(motionRevealSelector).filter((node) => !node.dataset.motionReveal);
+  const targets = $$(motionRevealSelector).filter((node) => !node.dataset.uiMotionObserved && !node.dataset.uiRevealed);
   if (!targets.length) return;
   targets.forEach((node, index) => {
-    node.dataset.motionReveal = "true";
-    node.style.setProperty("--motion-reveal-delay", `${Math.min(index, 7) * 42}ms`);
-    node.classList.add("motion-reveal");
+    node.dataset.uiMotionObserved = "true";
     if (prefersReducedMotion() || !motionRevealObserver) {
-      node.classList.add("is-visible");
+      revealUiElement(node);
       return;
     }
+    node.dataset.uiRevealDelay = String(Math.min(index, 7) * 36);
     motionRevealObserver.observe(node);
   });
 };
 
 const setupMotionReveals = () => {
-  document.body.classList.add("motion-ready");
   if (!prefersReducedMotion() && "IntersectionObserver" in window) {
     motionRevealObserver = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
           if (!entry.isIntersecting) return;
-          entry.target.classList.add("is-visible");
+          revealUiElement(entry.target, Number(entry.target.dataset.uiRevealDelay) || 0);
           motionRevealObserver.unobserve(entry.target);
         });
       },
@@ -286,13 +296,7 @@ const api = async (path, options = {}) => {
 const showToast = (message, options = {}) => {
   const toast = $("#toast");
   if (!toast) return;
-  const { copyText = "" } = options;
-  toast.textContent = message;
-  toast.dataset.copyText = copyText;
-  toast.classList.toggle("copyable", Boolean(copyText));
-  toast.classList.add("show");
-  window.clearTimeout(showToast.timer);
-  showToast.timer = window.setTimeout(() => toast.classList.remove("show"), 2600);
+  showUiToast(toast, message, options);
 };
 
 const escapeHtml = (value) =>
@@ -1048,7 +1052,7 @@ const enhanceColorTool = () => {
   const wrapper = document.createElement("div");
   wrapper.className = "toolbar-color-popover";
   wrapper.innerHTML = `
-    <button type="button" id="colorButton" data-toolbar-label="文本颜色" title="文本颜色" aria-label="文本颜色" aria-expanded="false" aria-controls="colorToolPanel">色</button>
+    <button type="button" id="colorButton" aria-expanded="false" aria-controls="colorToolPanel">文本颜色</button>
     <div class="toolbar-color-tool" id="colorToolPanel" hidden>
       <div class="toolbar-color-presets" aria-label="默认文本颜色">
         ${editorColorPresets
@@ -1350,14 +1354,23 @@ const adminListToolsHtml = (key, view, placeholder) => {
   `;
 };
 
+const paginationItemsHtml = (currentPage, totalPages, attributesForPage) =>
+  paginationRange(currentPage, totalPages)
+    .map((item) =>
+      item === "ellipsis"
+        ? '<span class="tg-page-ellipsis" aria-hidden="true">&hellip;</span>'
+        : `<button class="tg-page-button" type="button" ${attributesForPage(item)} ${item === currentPage ? 'aria-current="page"' : ""} aria-label="第 ${item} 页">${item}</button>`,
+    )
+    .join("");
+
 const adminPaginationHtml = (key, view) =>
   view.totalPages > 1
     ? `
-      <div class="admin-pagination">
-        <button class="button small ghost" type="button" data-admin-page="${key}" data-page="${view.page - 1}" ${view.page <= 1 ? "disabled" : ""}>上一页</button>
-        <span>第 ${view.page} / ${view.totalPages} 页</span>
-        <button class="button small ghost" type="button" data-admin-page="${key}" data-page="${view.page + 1}" ${view.page >= view.totalPages ? "disabled" : ""}>下一页</button>
-      </div>
+      <nav class="admin-pagination tg-pagination" aria-label="后台列表分页">
+        <button class="tg-page-button tg-page-side" type="button" data-admin-page="${key}" data-page="${view.page - 1}" ${view.page <= 1 ? "disabled" : ""} aria-label="上一页">&larr;<span>上一页</span></button>
+        ${paginationItemsHtml(view.page, view.totalPages, (pageNumber) => `data-admin-page="${key}" data-page="${pageNumber}"`)}
+        <button class="tg-page-button tg-page-side" type="button" data-admin-page="${key}" data-page="${view.page + 1}" ${view.page >= view.totalPages ? "disabled" : ""} aria-label="下一页"><span>下一页</span>&rarr;</button>
+      </nav>
     `
     : "";
 
@@ -1534,11 +1547,11 @@ const renderProfilePostSearch = (view, total) => {
 const renderProfilePostPagination = (view) =>
   view.totalPages > 1
     ? `
-      <div class="admin-pagination profile-post-pagination">
-        <button class="button small ghost" type="button" data-profile-post-page="${view.page - 1}" ${view.page <= 1 ? "disabled" : ""}>上一页</button>
-        <span>第 ${view.page} / ${view.totalPages} 页</span>
-        <button class="button small ghost" type="button" data-profile-post-page="${view.page + 1}" ${view.page >= view.totalPages ? "disabled" : ""}>下一页</button>
-      </div>
+      <nav class="admin-pagination profile-post-pagination tg-pagination" aria-label="玩家帖子分页">
+        <button class="tg-page-button tg-page-side" type="button" data-profile-post-page="${view.page - 1}" ${view.page <= 1 ? "disabled" : ""} aria-label="上一页">&larr;<span>上一页</span></button>
+        ${paginationItemsHtml(view.page, view.totalPages, (pageNumber) => `data-profile-post-page="${pageNumber}"`)}
+        <button class="tg-page-button tg-page-side" type="button" data-profile-post-page="${view.page + 1}" ${view.page >= view.totalPages ? "disabled" : ""} aria-label="下一页"><span>下一页</span>&rarr;</button>
+      </nav>
     `
     : "";
 
@@ -1647,10 +1660,16 @@ const renderTotpSetupPanel = async (setupPanel, result) => {
       <code>${escapeHtml(result.secret)}</code>
     </div>
     <div class="security-form">
-      <input id="totpConfirmCode" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6 位验证码" />
+      <input id="totpConfirmCode" data-ui-otp data-otp-label="6 位验证码" data-otp-hint="输入验证器中当前显示的验证码" inputmode="numeric" maxlength="6" autocomplete="one-time-code" aria-label="6 位验证码" />
       <button class="button primary" type="button" id="confirmTotpButton">确认启用</button>
     </div>
   `;
+
+  const totpConfirmInput = $("#totpConfirmCode");
+  enhanceOtpInput(totpConfirmInput, {
+    label: "6 位验证码",
+    hint: "输入验证器中当前显示的验证码",
+  });
 
   $("#totpSecretToggle")?.addEventListener("click", () => {
     const visualCard = $("#totpVisualCard");
@@ -1662,7 +1681,7 @@ const renderTotpSetupPanel = async (setupPanel, result) => {
     if (toggle) toggle.textContent = showingSecret ? "切换成密钥" : "切换成二维码";
   });
 
-  $("#totpConfirmCode")?.focus();
+  focusOtpInput(totpConfirmInput);
   $("#confirmTotpButton")?.addEventListener("click", async () => {
     const code = $("#totpConfirmCode")?.value.trim() || "";
     await api("/me/totp/confirm", { method: "POST", body: JSON.stringify({ code }) });
@@ -2965,51 +2984,6 @@ const command = (name, value = null) => {
   if (!restoreEditorSelection()) editor.focus();
   document.execCommand(name, false, value);
   saveEditorSelection();
-  updateEditorToolbarState();
-};
-
-const editorToolbarStateCommands = ["bold", "italic", "underline", "strikeThrough", "insertUnorderedList", "insertOrderedList"];
-
-const isSelectionInsideEditor = (editor) => {
-  const selection = window.getSelection?.();
-  if (!editor || !selection || selection.rangeCount === 0) return false;
-  const range = selection.getRangeAt(0);
-  return editor === range.commonAncestorContainer || editor.contains(range.commonAncestorContainer);
-};
-
-const updateEditorToolbarState = () => {
-  const editor = $("#editor");
-  const toolbar = $(".editor-toolbar");
-  if (!editor || !toolbar) return;
-  const hasEditorSelection = isSelectionInsideEditor(editor);
-
-  editorToolbarStateCommands.forEach((name) => {
-    toolbar.querySelectorAll(`[data-command="${name}"]`).forEach((button) => {
-      let active = false;
-      if (hasEditorSelection) {
-        try {
-          active = document.queryCommandState(name);
-        } catch {
-          active = false;
-        }
-      }
-      button.classList.toggle("is-active", active);
-      button.setAttribute("aria-pressed", String(active));
-    });
-  });
-
-  const alignSelect = $("#alignSelect");
-  if (!alignSelect) return;
-  if (!hasEditorSelection) {
-    alignSelect.value = "";
-    return;
-  }
-  const selection = window.getSelection?.();
-  const currentBlock = selection?.rangeCount ? closestEditableBlock(selection.getRangeAt(0).startContainer, editor) : editor;
-  const styleTarget = currentBlock && currentBlock !== editor ? currentBlock : editor;
-  const textAlign = (styleTarget.style.textAlign || window.getComputedStyle(styleTarget).textAlign || "").replace("start", "left");
-  const nextValue = Object.entries(editorAlignmentMap).find(([, value]) => value === textAlign)?.[0] || "";
-  alignSelect.value = nextValue;
 };
 
 const editorAlignmentMap = {
@@ -3063,7 +3037,6 @@ const applyEditorAlignment = (name) => {
     editor.style.textAlign = align;
   }
   saveEditorSelection();
-  updateEditorToolbarState();
 };
 
 const insertHtmlBlock = (html) => command("insertHTML", html);
@@ -3451,17 +3424,11 @@ const setupEditor = () => {
   if (!$("#editor")) return;
   const editor = $("#editor");
   ["keyup", "mouseup", "touchend", "input"].forEach((eventName) => {
-    editor.addEventListener(eventName, () => {
-      saveEditorSelection();
-      updateEditorToolbarState();
-    });
+    editor.addEventListener(eventName, saveEditorSelection);
   });
   $(".editor-toolbar")?.addEventListener("pointerdown", saveEditorSelection);
   document.addEventListener("selectionchange", () => {
-    if (document.activeElement === editor) {
-      saveEditorSelection();
-      updateEditorToolbarState();
-    }
+    if (document.activeElement === editor) saveEditorSelection();
   });
   $$("[data-command]").forEach((button) => button.addEventListener("click", () => command(button.dataset.command)));
   $("#fontSizeSelect")?.addEventListener("change", (event) => {
@@ -4611,6 +4578,7 @@ const renderAdmins = () => {
       ? normalUsers.map((user) => `<option value="${user.id}">${escapeHtml(user.username)} ${formatDate(user.created_at)}</option>`).join("")
       : `<option value="">暂无可提权注册用户</option>`;
     promoteSelect.disabled = !isOwner() || !normalUsers.length;
+    refreshSelectionControl(promoteSelect);
   }
   const promoteButton = $("#promoteUserButton");
   if (promoteButton) {
@@ -4993,7 +4961,7 @@ const setupLoginPage = () => {
       });
       redirectAfterAuth(result.user, result);
     } catch (error) {
-      if (error.payload?.needsTotp) $("#loginTotpCode")?.focus();
+      if (error.payload?.needsTotp) focusOtpInput($("#loginTotpCode"));
     }
   });
   registerForm?.addEventListener("submit", async (event) => {
@@ -5107,13 +5075,8 @@ const renderAll = () => {
   syncMotionReveals();
 };
 
-$("#toast")?.addEventListener("click", async (event) => {
-  const copyText = event.currentTarget.dataset.copyText;
-  if (!copyText) return;
-  await navigator.clipboard?.writeText(copyText).catch(() => {});
-});
-
 setupDialogDismiss();
+setupUiComponents();
 setupMotionReveals();
 
 if (page === "login") setupLoginPage();
