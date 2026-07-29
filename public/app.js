@@ -42,6 +42,8 @@ import {
   paginationRange,
   refreshSelectionControl,
   revealUiElement,
+  runUiMotion,
+  setOtpInputValue,
   setupUiComponents,
   showUiToast,
 } from "./ui-components.js";
@@ -976,7 +978,7 @@ const updateToolbarMorePosition = () => {
   container.classList.toggle("is-open-upward", isUpward);
 };
 
-const closeToolbarMore = () => {
+const closeToolbarMore = (restoreFocus = false) => {
   const button = $("#moreButton");
   const menu = $("#moreMenu");
   if (!button || !menu) return;
@@ -991,6 +993,7 @@ const closeToolbarMore = () => {
     menu._toolbarMoreHost.append(menu);
   }
   button.closest(".toolbar-more")?.classList.remove("is-open", "is-open-upward");
+  if (restoreFocus) button.focus({ preventScroll: true });
 };
 
 const updateColorToolPosition = () => {
@@ -1049,10 +1052,11 @@ const enhanceColorTool = () => {
   const colorButton = $("#colorButton");
   if (!colorButton || colorButton.dataset.colorEnhanced) return;
   colorButton.dataset.colorEnhanced = "true";
+  const colorButtonContent = colorButton.innerHTML;
   const wrapper = document.createElement("div");
   wrapper.className = "toolbar-color-popover";
   wrapper.innerHTML = `
-    <button type="button" id="colorButton" aria-expanded="false" aria-controls="colorToolPanel">文本颜色</button>
+    <button class="fui-menu-item" type="button" role="menuitem" id="colorButton" aria-expanded="false" aria-controls="colorToolPanel">${colorButtonContent}</button>
     <div class="toolbar-color-tool" id="colorToolPanel" hidden>
       <div class="toolbar-color-presets" aria-label="默认文本颜色">
         ${editorColorPresets
@@ -1111,7 +1115,16 @@ const renderAuth = () => {
   });
 
   if (!state.me) {
-    actions.innerHTML = `<a class="button small primary" href="/login.html">登录</a>`;
+    actions.innerHTML = `
+      <a class="interactive-hover-button" href="/login.html" aria-label="登录">
+        <span class="interactive-hover-dot" aria-hidden="true"></span>
+        <span class="interactive-hover-label">登录</span>
+        <span class="interactive-hover-reveal" aria-hidden="true">
+          <span>登录</span>
+          <svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+        </span>
+        <svg class="mobile-auth-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3" /></svg>
+      </a>`;
     return;
   }
 
@@ -1120,7 +1133,10 @@ const renderAuth = () => {
       <img class="user-avatar" src="${activeAvatarSrc(state.me, 32)}" alt="" />
       <span class="user-chip">${escapeHtml(state.me.username)}</span>
     </a>
-    <button class="button small ghost" id="logoutButton" type="button">退出</button>
+    <button class="button small ghost logout-button" id="logoutButton" type="button" aria-label="退出">
+      <span class="logout-label">退出</span>
+      <svg class="mobile-auth-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" /></svg>
+    </button>
   `;
   $("#logoutButton")?.addEventListener("click", async () => {
     await api("/logout", { method: "POST" });
@@ -3556,12 +3572,43 @@ const setupEditor = () => {
     button.setAttribute("aria-expanded", String(!isOpen));
     menu.hidden = isOpen;
     button.closest(".toolbar-more")?.classList.toggle("is-open", !isOpen);
-    window.requestAnimationFrame(() => updateToolbarMorePosition());
+    window.requestAnimationFrame(() => {
+      updateToolbarMorePosition();
+      runUiMotion(menu, [{ opacity: 0, transform: "translate3d(0,-6px,0) scale(.98)" }, { opacity: 1, transform: "none" }], {
+        id: "popover-menu",
+        duration: 170,
+      });
+      menu.querySelector('[role="menuitem"]:not(:disabled)')?.focus({ preventScroll: true });
+    });
   });
-  $("#moreMenu")?.addEventListener("click", (event) => event.stopPropagation());
+  $("#moreMenu")?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const item = event.target.closest('[role="menuitem"]');
+    if (item && item.id !== "colorButton") closeToolbarMore();
+  });
+  $("#moreMenu")?.addEventListener("keydown", (event) => {
+    const items = [...event.currentTarget.querySelectorAll('[role="menuitem"]:not(:disabled)')];
+    const index = items.indexOf(document.activeElement);
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      items[(index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
+    } else if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      items[event.key === "Home" ? 0 : items.length - 1]?.focus();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      closeColorTool();
+      closeToolbarMore(true);
+    }
+  });
   document.addEventListener("click", () => {
     closeToolbarMore();
     closeColorTool();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || $("#moreMenu")?.hidden) return;
+    closeColorTool();
+    closeToolbarMore(true);
   });
   window.addEventListener("resize", () => {
     closeToolbarMore();
@@ -4260,9 +4307,105 @@ const renderManagement = () => {
   });
 };
 
+let trashPopoverGlobalsBound = false;
+
+const positionTrashPopover = (details) => {
+  const trigger = details?.querySelector("summary");
+  const menu = details?._popoverMenu;
+  if (!details?.open || !trigger || !menu?.isConnected) return;
+  const rect = trigger.getBoundingClientRect();
+  const width = menu.offsetWidth || 210;
+  const height = menu.offsetHeight || 132;
+  const gap = 8;
+  const margin = 8;
+  const openAbove = window.innerHeight - rect.bottom < height + gap && rect.top > height + gap;
+  const left = Math.max(margin, Math.min(rect.right - width, window.innerWidth - width - margin));
+  const top = openAbove ? Math.max(margin, rect.top - height - gap) : Math.min(window.innerHeight - height - margin, rect.bottom + gap);
+  Object.assign(menu.style, {
+    position: "fixed",
+    left: `${Math.round(left)}px`,
+    top: `${Math.round(top)}px`,
+    right: "auto",
+    bottom: "auto",
+  });
+  menu.style.transformOrigin = openAbove ? "bottom right" : "top right";
+};
+
+const closeTrashPopover = (details, restoreFocus = false) => {
+  if (!details) return;
+  const trigger = details.querySelector("summary");
+  const menu = details._popoverMenu;
+  details.removeAttribute("open");
+  trigger?.setAttribute("aria-expanded", "false");
+  if (menu && menu.parentElement !== details) details.append(menu);
+  if (menu) {
+    ["position", "left", "top", "right", "bottom", "transform-origin"].forEach((property) => menu.style.removeProperty(property));
+  }
+  if (restoreFocus) trigger?.focus({ preventScroll: true });
+};
+
+const enhanceTrashPopoverMenus = (root) => {
+  root.querySelectorAll(".trash-more-menu:not([data-popover-ready])").forEach((details, index) => {
+    details.dataset.popoverReady = "true";
+    const trigger = details.querySelector("summary");
+    const menu = details.querySelector(".trash-more-actions");
+    if (!trigger || !menu) return;
+    menu.id ||= `trash-popover-${Date.now()}-${index}`;
+    trigger.setAttribute("aria-controls", menu.id);
+    details._popoverMenu = menu;
+    menu._popoverOwner = details;
+    details.addEventListener("toggle", () => {
+      trigger.setAttribute("aria-expanded", String(details.open));
+      if (!details.open) {
+        if (menu.parentElement !== details) details.append(menu);
+        return;
+      }
+      $$(".trash-more-menu[open]").filter((other) => other !== details).forEach((other) => closeTrashPopover(other));
+      document.body.append(menu);
+      window.requestAnimationFrame(() => {
+        positionTrashPopover(details);
+        runUiMotion(menu, [{ opacity: 0, transform: "translate3d(0,-5px,0) scale(.98)" }, { opacity: 1, transform: "none" }], {
+          id: "trash-popover-menu",
+          duration: 170,
+        });
+        menu.querySelector('[role="menuitem"]:not(:disabled)')?.focus({ preventScroll: true });
+      });
+    });
+    menu.addEventListener("click", (event) => {
+      if (!event.target.closest('[role="menuitem"]')) return;
+      window.queueMicrotask(() => closeTrashPopover(details));
+    });
+    menu.addEventListener("keydown", (event) => {
+      const items = [...menu.querySelectorAll('[role="menuitem"]:not(:disabled)')];
+      const current = items.indexOf(document.activeElement);
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        items[(current + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
+      } else if (event.key === "Home" || event.key === "End") {
+        event.preventDefault();
+        items[event.key === "Home" ? 0 : items.length - 1]?.focus();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        closeTrashPopover(details, true);
+      }
+    });
+  });
+  if (trashPopoverGlobalsBound) return;
+  trashPopoverGlobalsBound = true;
+  document.addEventListener("pointerdown", (event) => {
+    $$(".trash-more-menu[open]").forEach((details) => {
+      const menu = details._popoverMenu;
+      if (!details.contains(event.target) && !menu?.contains(event.target)) closeTrashPopover(details);
+    });
+  });
+  document.addEventListener("scroll", () => $$(".trash-more-menu[open]").forEach(positionTrashPopover), { passive: true, capture: true });
+  window.addEventListener("resize", () => $$(".trash-more-menu[open]").forEach(positionTrashPopover), { passive: true });
+};
+
 const renderTrashRows = () => {
   const panel = $("#adminTrash");
   if (!panel) return;
+  $$(".trash-more-menu[open]").forEach((details) => closeTrashPopover(details));
   const rows = [
     ...(state.trash.announcements || []).map((item) => ({ ...item, type: "announcement" })),
     ...(state.trash.posts || []).map((item) => ({ ...item, type: "post" })),
@@ -4285,11 +4428,13 @@ const renderTrashRows = () => {
               <div class="row-actions trash-row-actions">
                 <button class="button small danger" type="button" ${canManage ? `data-purge="${item.type}" data-id="${item.id}"` : "disabled"}>彻底删除</button>
                 <details class="trash-more-menu">
-                  <summary class="button small ghost">更多</summary>
-                  <div class="trash-more-actions">
-                    <button class="button small ghost" type="button" data-trash-open="${item.type}" data-id="${item.id}">查看</button>
-                    <button class="button small ghost" type="button" ${canManage ? `data-trash-edit="${item.type}" data-id="${item.id}"` : "disabled"}>编辑</button>
-                    <button class="button small ghost" type="button" ${canManage ? `data-restore="${item.type}" data-id="${item.id}"` : "disabled"}>恢复</button>
+                  <summary class="button small ghost fui-popover-trigger" aria-haspopup="menu" aria-expanded="false" aria-label="更多操作"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg><span class="sr-only">更多操作</span></summary>
+                  <div class="trash-more-actions fui-popover-menu" role="menu" aria-label="回收站操作">
+                    <div class="fui-popover-group" role="group">
+                      <button class="fui-menu-item" role="menuitem" type="button" data-trash-open="${item.type}" data-id="${item.id}"><svg class="fui-menu-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg><span>查看</span></button>
+                      <button class="fui-menu-item" role="menuitem" type="button" ${canManage ? `data-trash-edit="${item.type}" data-id="${item.id}"` : "disabled"}><svg class="fui-menu-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg><span>编辑</span></button>
+                      <button class="fui-menu-item" role="menuitem" type="button" ${canManage ? `data-restore="${item.type}" data-id="${item.id}"` : "disabled"}><svg class="fui-menu-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg><span>恢复</span></button>
+                    </div>
                   </div>
                 </details>
               </div>
@@ -4300,6 +4445,7 @@ const renderTrashRows = () => {
     : `<div class="empty">${view.total ? "没有匹配内容。" : "回收站为空。"}</div>`;
   panel.querySelector(".admin-table").innerHTML = `${adminListToolsHtml("trash", view, "搜索标题、类型、发布者，#发布者")}${renderedRows}${adminPaginationHtml("trash", view)}`;
   bindAdminListControls("trash", renderTrashRows);
+  enhanceTrashPopoverMenus(panel);
   $$("[data-trash-open]").forEach((button) =>
     button.addEventListener("click", () => {
       const type = button.dataset.trashOpen;
@@ -4901,28 +5047,102 @@ const setupHeroTyping = () => {
   const title = $("#heroTypedTitle");
   if (!title) return;
   const fullText = title.dataset.text || "Liou_Yang Server";
+  const caret = title.parentElement?.querySelector(".type-caret");
+  title.setAttribute("aria-label", fullText);
   if (prefersReducedMotion()) {
     title.textContent = fullText;
+    if (caret) caret.hidden = true;
     return;
   }
+  const characters = Array.from(fullText);
   let index = 0;
+  let started = false;
   title.textContent = "";
+  if (caret) caret.hidden = false;
   const tick = () => {
-    title.textContent = fullText.slice(0, index);
-    if (index < fullText.length) {
+    if (index < characters.length) {
       index += 1;
-      window.setTimeout(tick, index > 9 ? 80 : 112);
+      title.textContent = characters.slice(0, index).join("");
+      window.setTimeout(tick, 100);
+      return;
     }
+    if (caret) caret.hidden = true;
   };
-  window.setTimeout(tick, 220);
+  const start = () => {
+    if (started) return;
+    started = true;
+    window.setTimeout(tick, 100);
+  };
+  if (!("IntersectionObserver" in window)) {
+    start();
+    return;
+  }
+  const observer = new IntersectionObserver(
+    (entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return;
+      observer.disconnect();
+      start();
+    },
+    { threshold: 0.3 },
+  );
+  observer.observe(title);
+};
+
+const mobileDockIcon = (name) => {
+  const paths = {
+    home: '<path d="M3 11l9-8 9 8v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/>',
+    announcements: '<path d="M3 11v2a2 2 0 0 0 2 2h2l4 4V5L7 9H5a2 2 0 0 0-2 2z"/><path d="M16 9a4 4 0 0 1 0 6M19 6a8 8 0 0 1 0 12"/>',
+    forum: '<path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/><path d="M8 9h8M8 13h5"/>',
+    admin: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/>',
+  };
+  return `<svg class="mobile-dock-icon" viewBox="0 0 24 24" aria-hidden="true">${paths[name] || paths.home}</svg>`;
+};
+
+const setupMobileDock = () => {
+  const sourceNav = $(".site-header .top-nav");
+  if (!sourceNav || $(".mobile-dock")) return;
+  const dock = sourceNav.cloneNode(true);
+  dock.dataset.mobileDockReady = "true";
+  dock.classList.add("mobile-dock");
+  dock.setAttribute("aria-label", "移动主导航");
+  document.body.classList.add("mobile-dock-ready");
+  dock.querySelectorAll("a").forEach((link) => {
+    const label = link.textContent.trim();
+    const href = link.getAttribute("href") || "";
+    const iconName = href.includes("#announcements") ? "announcements" : href.includes("forum") ? "forum" : href.includes("admin") ? "admin" : "home";
+    link.setAttribute("aria-label", label);
+    link.innerHTML = `${mobileDockIcon(iconName)}<span class="mobile-dock-label">${escapeHtml(label)}</span>`;
+  });
+  const links = [...dock.querySelectorAll("a")];
+  const reset = () => links.forEach((link) => link.style.removeProperty("--dock-scale"));
+  dock.addEventListener("pointermove", (event) => {
+    if (event.pointerType === "touch") return;
+    links.forEach((link) => {
+      const bounds = link.getBoundingClientRect();
+      const distance = Math.abs(event.clientX - (bounds.left + bounds.width / 2));
+      const influence = Math.max(0, 1 - distance / 140);
+      link.style.setProperty("--dock-scale", String(1 + influence * 0.42));
+    });
+  });
+  dock.addEventListener("pointerleave", reset);
+  dock.addEventListener("pointercancel", reset);
+  dock.addEventListener("focusout", (event) => {
+    if (!dock.contains(event.relatedTarget)) reset();
+  });
+  document.body.append(dock);
 };
 
 const setupLoginPage = () => {
   if (page !== "login") return;
   const loginForm = $("#loginForm");
+  const loginDialog = $("#loginDialog");
+  const otpDialog = $("#loginOtpDialog");
+  const otpForm = $("#loginOtpForm");
+  const otpInput = $("#loginTotpCode");
   const registerForm = $("#registerForm");
   const registerChoiceButton = $("#registerChoiceButton");
   const registerDialog = $("#registerDialog");
+  let pendingLoginCredentials = null;
   const registerBlocked = () => Boolean(state.site?.maintenanceMode);
   const redirectAfterAuth = (user, result = {}) => {
     state.me = user;
@@ -4935,6 +5155,17 @@ const setupLoginPage = () => {
     openDialog(dialog);
     window.setTimeout(() => focusTarget?.focus({ preventScroll: true }), prefersReducedMotion() ? 0 : 80);
   };
+  const switchAuthDialog = (from, to, focus) => {
+    closeDialogAnimated(from);
+    window.setTimeout(() => {
+      openDialog(to);
+      window.setTimeout(focus, prefersReducedMotion() ? 0 : 80);
+    }, prefersReducedMotion() ? 0 : dialogCloseDelay() + 80);
+  };
+  const resetOtpStep = () => {
+    pendingLoginCredentials = null;
+    setOtpInputValue(otpInput, "");
+  };
   const syncRegisterAvailability = () => {
     if (!registerChoiceButton) return;
     registerChoiceButton.hidden = registerBlocked();
@@ -4943,25 +5174,73 @@ const setupLoginPage = () => {
   };
   setupLoginPage.syncRegisterAvailability = syncRegisterAvailability;
   syncRegisterAvailability();
-  $("#loginChoiceButton")?.addEventListener("click", () => openAuthDialog($("#loginDialog"), $("#loginUsername")));
+  $("#loginChoiceButton")?.addEventListener("click", () => openAuthDialog(loginDialog, $("#loginUsername")));
   $("#registerChoiceButton")?.addEventListener("click", () => {
     if (registerBlocked()) return;
     openAuthDialog(registerDialog, $("#registerUsername"));
   });
+  otpDialog?.addEventListener("close", resetOtpStep);
+  $("#loginOtpBack")?.addEventListener("click", () => {
+    switchAuthDialog(otpDialog, loginDialog, () => $("#loginPassword")?.focus({ preventScroll: true }));
+  });
   loginForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
+    const credentials = {
+      username: $("#loginUsername").value.trim(),
+      password: $("#loginPassword").value,
+    };
+    const submitButton = loginForm.querySelector('button[type="submit"]');
+    if (submitButton) submitButton.disabled = true;
     try {
       const result = await api("/login", {
         method: "POST",
-        body: JSON.stringify({
-          username: $("#loginUsername").value.trim(),
-          password: $("#loginPassword").value,
-          totpCode: $("#loginTotpCode")?.value.trim(),
-        }),
+        silent: true,
+        body: JSON.stringify(credentials),
       });
       redirectAfterAuth(result.user, result);
     } catch (error) {
-      if (error.payload?.needsTotp) focusOtpInput($("#loginTotpCode"));
+      if (error.payload?.needsTotp) {
+        pendingLoginCredentials = credentials;
+        setOtpInputValue(otpInput, "");
+        switchAuthDialog(loginDialog, otpDialog, () => focusOtpInput(otpInput));
+      } else {
+        showToast(error.message, { variant: "error" });
+      }
+    } finally {
+      if (submitButton) submitButton.disabled = false;
+    }
+  });
+  otpForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const totpCode = otpInput?.value.trim() || "";
+    if (!pendingLoginCredentials) {
+      switchAuthDialog(otpDialog, loginDialog, () => $("#loginUsername")?.focus({ preventScroll: true }));
+      return;
+    }
+    if (!/^\d{6}$/.test(totpCode)) {
+      showToast("请输入完整的 6 位验证码", { variant: "error" });
+      focusOtpInput(otpInput);
+      return;
+    }
+    const submitButton = otpForm.querySelector('button[type="submit"]');
+    if (submitButton) submitButton.disabled = true;
+    try {
+      const result = await api("/login", {
+        method: "POST",
+        silent: true,
+        body: JSON.stringify({ ...pendingLoginCredentials, totpCode }),
+      });
+      redirectAfterAuth(result.user, result);
+    } catch (error) {
+      showToast(error.message, { variant: "error" });
+      if (error.payload?.needsTotp) {
+        setOtpInputValue(otpInput, "");
+        focusOtpInput(otpInput);
+      } else {
+        switchAuthDialog(otpDialog, loginDialog, () => $("#loginPassword")?.focus({ preventScroll: true }));
+      }
+    } finally {
+      if (submitButton) submitButton.disabled = false;
     }
   });
   registerForm?.addEventListener("submit", async (event) => {
@@ -5078,6 +5357,7 @@ const renderAll = () => {
 setupDialogDismiss();
 setupUiComponents();
 setupMotionReveals();
+setupMobileDock();
 
 if (page === "login") setupLoginPage();
 

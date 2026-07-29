@@ -53,17 +53,29 @@
         <form id="loginForm" class="login-form">
           <input id="loginUsername" autocomplete="username" placeholder="账号名" required />
           <input id="loginPassword" type="password" autocomplete="current-password" placeholder="密码" required />
+          <button class="button primary" type="submit">登录账号</button>
+        </form>
+      </dialog>
+      <dialog class="auth-dialog login-auth-dialog otp-auth-dialog" id="loginOtpDialog" aria-labelledby="loginOtpDialogTitle">
+        <button class="dialog-close-button" type="button" data-dialog-close aria-label="关闭双重验证窗口">×</button>
+        <span class="otp-dialog-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+        </span>
+        <h2 id="loginOtpDialogTitle">双重验证</h2>
+        <p class="otp-dialog-description">请输入身份验证器中显示的 6 位验证码</p>
+        <form id="loginOtpForm" class="login-form otp-login-form">
           <input
             id="loginTotpCode"
             data-ui-otp
-            data-otp-label="双重验证码"
-            data-otp-hint="仅已开启双重验证的管理员需要填写"
+            data-otp-label="六位验证码"
+            data-otp-hint="支持直接粘贴完整验证码"
             inputmode="numeric"
             maxlength="6"
             autocomplete="one-time-code"
-            aria-label="双重验证码"
+            aria-label="六位验证码"
           />
-          <button class="button primary" type="submit">登录账号</button>
+          <button class="button primary" type="submit">验证并登录</button>
+          <button class="button ghost" id="loginOtpBack" type="button">返回账号登录</button>
         </form>
       </dialog>
       <dialog class="auth-dialog login-auth-dialog" id="registerDialog" aria-labelledby="registerDialogTitle">

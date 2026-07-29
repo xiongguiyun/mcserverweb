@@ -3,6 +3,9 @@ const otpControllers = new WeakMap();
 let openSelectionController = null;
 let selectionGlobalsBound = false;
 let selectionId = 0;
+let tooltipGlobalsBound = false;
+let activeTooltipTarget = null;
+let activeTooltip = null;
 
 const reducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
 
@@ -150,7 +153,7 @@ const createSelectController = (select) => {
       trigger.querySelector(".tg-select-value").textContent = selected?.label || placeholder;
       trigger.classList.toggle("is-placeholder", !selected);
       trigger.disabled = select.disabled;
-      trigger.title = select.title || "";
+      if (select.title) trigger.dataset.uiTooltip = select.title;
       trigger.setAttribute("aria-label", select.getAttribute("aria-label") || select.title || placeholder);
       popover.replaceChildren();
       options.filter((option) => !option.placeholder).forEach((option) => {
@@ -408,12 +411,23 @@ export const enhanceOtpInput = (source, { label = "Verification code", hint = ""
     root.append(hintNode);
   }
   sync(source.value);
-  const controller = { root, source, digits, focus: () => (digits.find((digit) => !digit.value) || digits[0])?.focus() };
+  const controller = {
+    root,
+    source,
+    digits,
+    focus: () => (digits.find((digit) => !digit.value) || digits[0])?.focus(),
+    setValue: (value) => sync(value),
+  };
   otpControllers.set(source, controller);
   return controller;
 };
 
 export const focusOtpInput = (source) => otpControllers.get(source)?.focus() || source?.focus();
+export const setOtpInputValue = (source, value = "") => {
+  const controller = otpControllers.get(source);
+  if (controller) return controller.setValue(value);
+  if (source) source.value = value;
+};
 
 const toastVariant = (message, requested) => {
   if (requested) return requested;
@@ -426,10 +440,14 @@ export const showUiToast = (toast, message, options = {}) => {
   if (!toast) return;
   const { copyText = "", duration = 3200, title = "" } = options;
   const variant = toastVariant(String(message), options.variant);
-  toast.replaceChildren();
-  toast.className = `toast tg-toast is-${variant}`;
-  toast.dataset.copyText = copyText;
-  toast.setAttribute("role", variant === "error" ? "alert" : "status");
+  const previousPositions = new Map([...toast.children].map((item) => [item, item.getBoundingClientRect().top]));
+  toast.className = "toast tg-toast show";
+  toast.setAttribute("role", "region");
+  toast.setAttribute("aria-label", "Notifications");
+
+  const item = document.createElement("figure");
+  item.className = `tg-toast-item is-${variant}`;
+  item.setAttribute("role", variant === "error" ? "alert" : "status");
 
   const icon = document.createElement("span");
   icon.className = "tg-toast-icon";
@@ -437,15 +455,17 @@ export const showUiToast = (toast, message, options = {}) => {
   icon.textContent = variant === "success" ? "\u2713" : variant === "error" ? "!" : "i";
   const copy = document.createElement("div");
   copy.className = "tg-toast-copy";
-  if (title) {
-    const heading = document.createElement("strong");
-    heading.textContent = title;
-    copy.append(heading);
-  }
+  const heading = document.createElement("figcaption");
+  const headingText = document.createElement("strong");
+  headingText.textContent = title || (variant === "success" ? "\u64cd\u4f5c\u6210\u529f" : variant === "error" ? "\u9700\u8981\u6ce8\u610f" : "\u7cfb\u7edf\u63d0\u793a");
+  const timestamp = document.createElement("small");
+  timestamp.textContent = "\u00b7 \u521a\u521a";
+  heading.append(headingText, timestamp);
+  copy.append(heading);
   const description = document.createElement("span");
   description.textContent = String(message);
   copy.append(description);
-  toast.append(icon, copy);
+  item.append(icon, copy);
 
   if (copyText) {
     const action = document.createElement("button");
@@ -456,30 +476,213 @@ export const showUiToast = (toast, message, options = {}) => {
       await navigator.clipboard?.writeText(copyText).catch(() => {});
       action.textContent = "\u5df2\u590d\u5236";
     });
-    toast.append(action);
+    item.append(action);
   }
   const dismiss = document.createElement("button");
   dismiss.type = "button";
   dismiss.className = "tg-toast-dismiss";
-  dismiss.setAttribute("aria-label", "Dismiss notification");
-  dismiss.textContent = "\u00d7";
-  toast.append(dismiss);
+  dismiss.setAttribute("aria-label", "\u5173\u95ed\u63d0\u793a");
+  dismiss.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17"/></svg>';
+  item.append(dismiss);
   const progress = document.createElement("span");
   progress.className = "tg-toast-progress";
-  toast.append(progress);
+  item.append(progress);
 
+  toast.prepend(item);
+  [...toast.children].slice(4).forEach((extra) => extra.remove());
+  previousPositions.forEach((top, existingItem) => {
+    if (!existingItem.isConnected) return;
+    const delta = top - existingItem.getBoundingClientRect().top;
+    if (Math.abs(delta) > 1) {
+      runUiMotion(existingItem, [{ transform: `translate3d(0,${delta}px,0)` }, { transform: "none" }], {
+        id: "toast-layout",
+        duration: 260,
+      });
+    }
+  });
+
+  let remaining = Math.max(800, duration);
+  let startedAt = performance.now();
+  let progressAnimation = null;
   const hide = () => {
-    window.clearTimeout(showUiToast.timer);
-    const animation = runUiMotion(toast, [{ opacity: 1, transform: "none" }, { opacity: 0, transform: "translate3d(12px,0,0)" }], { id: "toast-out", duration: 140 });
-    if (animation) animation.finished.finally(() => toast.classList.remove("show"));
-    else toast.classList.remove("show");
+    if (!item.isConnected || item.dataset.closing) return;
+    item.dataset.closing = "true";
+    window.clearTimeout(item._hideTimer);
+    progressAnimation?.cancel();
+    const animation = runUiMotion(item, [{ opacity: 1, transform: "none" }, { opacity: 0, transform: "translate3d(18px,0,0) scale(.84)" }], {
+      id: "toast-out",
+      duration: 180,
+    });
+    const remove = () => {
+      item.remove();
+      if (!toast.children.length) toast.classList.remove("show");
+    };
+    if (animation) animation.finished.then(remove, remove);
+    else remove();
+  };
+  const pause = () => {
+    if (item.dataset.closing || item.dataset.paused === "true") return;
+    item.dataset.paused = "true";
+    remaining = Math.max(0, remaining - (performance.now() - startedAt));
+    window.clearTimeout(item._hideTimer);
+    progressAnimation?.pause();
+  };
+  const resume = () => {
+    if (item.dataset.closing || item.dataset.paused !== "true") return;
+    item.dataset.paused = "false";
+    startedAt = performance.now();
+    progressAnimation?.play();
+    item._hideTimer = window.setTimeout(hide, remaining);
   };
   dismiss.addEventListener("click", hide);
-  toast.classList.add("show");
-  runUiMotion(toast, [{ opacity: 0, transform: "translate3d(18px,0,0) scale(.985)" }, { opacity: 1, transform: "none" }], { id: "toast-in", duration: 220 });
-  runUiMotion(progress, [{ transform: "scaleX(1)" }, { transform: "scaleX(0)" }], { id: "toast-progress", duration, easing: "linear" });
-  window.clearTimeout(showUiToast.timer);
-  showUiToast.timer = window.setTimeout(hide, duration);
+  item.addEventListener("pointerenter", pause);
+  item.addEventListener("pointerleave", resume);
+  item.addEventListener("focusin", pause);
+  item.addEventListener("focusout", (event) => {
+    if (!item.contains(event.relatedTarget)) resume();
+  });
+  runUiMotion(item, [{ opacity: 0, transform: "translate3d(0,-12px,0) scale(.72)" }, { opacity: 1, transform: "none" }], {
+    id: "toast-in",
+    duration: 360,
+    easing: "cubic-bezier(.16,1,.3,1)",
+  });
+  progressAnimation = runUiMotion(progress, [{ transform: "scaleX(1)" }, { transform: "scaleX(0)" }], {
+    id: "toast-progress",
+    duration: remaining,
+    easing: "linear",
+  });
+  item._hideTimer = window.setTimeout(hide, remaining);
+};
+
+const tooltipSelector = [
+  "[data-ui-tooltip]",
+  "[data-tippy-content]",
+  "[title]",
+  ".dialog-close-button[aria-label]",
+  ".forum-search-toggle[aria-label]",
+  ".forum-search-clear[aria-label]",
+  ".fui-popover-trigger[aria-label]",
+  ".mobile-dock a[aria-label]",
+  ".tg-toast-dismiss[aria-label]",
+  ".toolbar-color-swatch[aria-label]",
+  ".comment-icon-button[aria-label]",
+  "[data-comment-remove-quote][aria-label]",
+  "[data-comment-close-quote-manager][aria-label]",
+  "[data-highlight-color-preset][aria-label]",
+].join(",");
+
+const tooltipText = (target) => {
+  const nativeTitle = target.getAttribute("title");
+  if (nativeTitle) {
+    target.dataset.uiTooltip = nativeTitle;
+    target.removeAttribute("title");
+  }
+  return target.dataset.uiTooltip || target.dataset.tippyContent || target.getAttribute("aria-label") || "";
+};
+
+const positionTooltip = () => {
+  if (!activeTooltipTarget?.isConnected || !activeTooltip?.isConnected) return;
+  const targetRect = activeTooltipTarget.getBoundingClientRect();
+  const tooltipRect = activeTooltip.getBoundingClientRect();
+  const gap = 10;
+  const edge = 8;
+  const preferred = activeTooltipTarget.dataset.tooltipPlacement || activeTooltipTarget.dataset.tippyPlacement || "top";
+  let placement = preferred;
+  if (placement === "top" && targetRect.top < tooltipRect.height + gap + edge) placement = "bottom";
+  if (placement === "bottom" && window.innerHeight - targetRect.bottom < tooltipRect.height + gap + edge) placement = "top";
+  if (placement === "left" && targetRect.left < tooltipRect.width + gap + edge) placement = "right";
+  if (placement === "right" && window.innerWidth - targetRect.right < tooltipRect.width + gap + edge) placement = "left";
+
+  let left = targetRect.left + (targetRect.width - tooltipRect.width) / 2;
+  let top = targetRect.top - tooltipRect.height - gap;
+  if (placement === "bottom") top = targetRect.bottom + gap;
+  if (placement === "left") {
+    left = targetRect.left - tooltipRect.width - gap;
+    top = targetRect.top + (targetRect.height - tooltipRect.height) / 2;
+  }
+  if (placement === "right") {
+    left = targetRect.right + gap;
+    top = targetRect.top + (targetRect.height - tooltipRect.height) / 2;
+  }
+  activeTooltip.dataset.placement = placement;
+  activeTooltip.style.left = `${Math.round(Math.min(Math.max(edge, left), window.innerWidth - tooltipRect.width - edge))}px`;
+  activeTooltip.style.top = `${Math.round(Math.min(Math.max(edge, top), window.innerHeight - tooltipRect.height - edge))}px`;
+};
+
+const hideTooltip = (immediate = false) => {
+  const tooltip = activeTooltip;
+  const target = activeTooltipTarget;
+  if (!tooltip) return;
+  activeTooltip = null;
+  activeTooltipTarget = null;
+  const describedBy = (target?.getAttribute("aria-describedby") || "")
+    .split(/\s+/)
+    .filter((id) => id && id !== tooltip.id)
+    .join(" ");
+  if (target) {
+    if (describedBy) target.setAttribute("aria-describedby", describedBy);
+    else target.removeAttribute("aria-describedby");
+  }
+  const remove = () => tooltip.remove();
+  const animation = immediate
+    ? null
+    : runUiMotion(tooltip, [{ opacity: 1, transform: "scale(1)" }, { opacity: 0, transform: "scale(.94)" }], {
+        id: "tooltip-out",
+        duration: 100,
+      });
+  if (animation) animation.finished.then(remove, remove);
+  else remove();
+};
+
+const showTooltip = (target) => {
+  const content = tooltipText(target).trim();
+  if (!content || target === activeTooltipTarget) return;
+  hideTooltip(true);
+  document.querySelectorAll(".ui-tooltip").forEach((tooltip) => tooltip.remove());
+  const tooltip = document.createElement("div");
+  tooltip.className = "ui-tooltip";
+  tooltip.id = `ui-tooltip-${++selectionId}`;
+  tooltip.setAttribute("role", "tooltip");
+  tooltip.textContent = content;
+  document.body.append(tooltip);
+  activeTooltipTarget = target;
+  activeTooltip = tooltip;
+  const describedBy = new Set((target.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean));
+  describedBy.add(tooltip.id);
+  target.setAttribute("aria-describedby", [...describedBy].join(" "));
+  positionTooltip();
+  runUiMotion(tooltip, [{ opacity: 0, transform: "scale(.92)" }, { opacity: 1, transform: "scale(1)" }], {
+    id: "tooltip-in",
+    duration: 160,
+    easing: "cubic-bezier(.16,1,.3,1)",
+  });
+};
+
+const setupTooltips = () => {
+  if (tooltipGlobalsBound) return;
+  tooltipGlobalsBound = true;
+  document.addEventListener("pointerover", (event) => {
+    if (event.pointerType === "touch" || !(event.target instanceof Element)) return;
+    const target = event.target.closest(tooltipSelector);
+    if (target && !target.contains(event.relatedTarget)) showTooltip(target);
+  });
+  document.addEventListener("pointerout", (event) => {
+    if (!activeTooltipTarget || activeTooltipTarget.contains(event.relatedTarget)) return;
+    if (event.target instanceof Element && activeTooltipTarget.contains(event.target)) hideTooltip();
+  });
+  document.addEventListener("focusin", (event) => {
+    if (!(event.target instanceof Element)) return;
+    const target = event.target.closest(tooltipSelector);
+    if (target) showTooltip(target);
+  });
+  document.addEventListener("focusout", (event) => {
+    if (activeTooltipTarget && !activeTooltipTarget.contains(event.relatedTarget)) hideTooltip();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") hideTooltip(true);
+  });
+  window.addEventListener("resize", positionTooltip, { passive: true });
+  document.addEventListener("scroll", positionTooltip, { passive: true, capture: true });
 };
 
 export const paginationRange = (currentPage, totalPages) => {
@@ -496,6 +699,7 @@ export const paginationRange = (currentPage, totalPages) => {
 };
 
 export const setupUiComponents = (root = document) => {
+  setupTooltips();
   root.querySelectorAll("select:not([data-ui-native])").forEach(enhanceSelectionControl);
   root.querySelectorAll("input[data-ui-otp]").forEach((input) =>
     enhanceOtpInput(input, {

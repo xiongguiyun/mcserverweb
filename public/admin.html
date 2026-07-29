@@ -179,12 +179,20 @@
                 <button type="button" id="codeButton" title="代码">代码</button>
                 <button type="button" id="bilibiliButton" title="插入 Bilibili 视频">Bilibili</button>
                 <div class="toolbar-more">
-                  <button type="button" id="moreButton" aria-expanded="false" title="更多">更多</button>
-                  <div class="toolbar-more-menu" id="moreMenu" hidden>
-                    <button type="button" data-command="insertUnorderedList">无序列表</button>
-                    <button type="button" data-command="insertOrderedList">有序列表</button>
-                    <button type="button" id="colorButton">文本颜色</button>
-                    <button type="button" id="quoteButton">引用</button>
+                  <button class="fui-popover-trigger" type="button" id="moreButton" aria-haspopup="menu" aria-controls="moreMenu" aria-expanded="false" title="更多编辑工具">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>
+                    <span class="sr-only">更多编辑工具</span>
+                  </button>
+                  <div class="toolbar-more-menu fui-popover-menu" id="moreMenu" role="menu" aria-label="更多编辑工具" hidden>
+                    <div class="fui-popover-group" role="group" aria-label="列表">
+                      <button class="fui-menu-item" type="button" role="menuitem" data-command="insertUnorderedList"><svg class="fui-menu-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg><span>无序列表</span></button>
+                      <button class="fui-menu-item" type="button" role="menuitem" data-command="insertOrderedList"><svg class="fui-menu-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 6h11M10 12h11M10 18h11"/><path d="M4 6h1V3M4 10h2l-2 2h2M4 17h2l-2 2h2"/></svg><span>有序列表</span></button>
+                    </div>
+                    <div class="fui-popover-divider" role="separator"></div>
+                    <div class="fui-popover-group" role="group" aria-label="格式">
+                      <button class="fui-menu-item" type="button" role="menuitem" id="colorButton"><svg class="fui-menu-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22a10 10 0 1 0-10-10c0 4.42 3.58 8 8 8h1.5a2.5 2.5 0 0 0 0-5H10a2 2 0 0 1-2-2c0-.73.4-1.42 1.04-1.77l1.92-1.06A4 4 0 0 0 13 6.67V2"/><path d="M6.5 8.5h.01M17.5 8.5h.01M16 13h.01"/></svg><span>文本颜色</span></button>
+                      <button class="fui-menu-item" type="button" role="menuitem" id="quoteButton"><svg class="fui-menu-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21c3 0 7-1 7-8V5a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2c0 3-1 4-3 4v4ZM15 21c3 0 7-1 7-8V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2c0 3-1 4-3 4v4Z"/></svg><span>引用</span></button>
+                    </div>
                   </div>
                 </div>
                 <span class="toolbar-spacer" aria-hidden="true"></span>
