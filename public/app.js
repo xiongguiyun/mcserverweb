@@ -651,11 +651,34 @@ const closeDialogAnimated = (dialog) => {
 
 const openPostDialog = () => openDialog($("#postDialog"));
 const closePostDialog = () => closeDialogAnimated($("#postDialog"));
+const restorePreviewViewport = (dialog) => {
+  if (!dialog?.dataset.previewScrollY) return;
+  const left = Number(dialog.dataset.previewScrollX) || 0;
+  const top = Number(dialog.dataset.previewScrollY) || 0;
+  const previousScrollBehavior = document.documentElement.style.scrollBehavior;
+  document.documentElement.style.scrollBehavior = "auto";
+  window.scrollTo(left, top);
+  document.documentElement.style.scrollBehavior = previousScrollBehavior;
+};
+
+const queuePreviewViewportRestore = (dialog) => {
+  window.requestAnimationFrame(() => {
+    restorePreviewViewport(dialog);
+    window.requestAnimationFrame(() => restorePreviewViewport(dialog));
+  });
+};
+
 const openPreviewDialog = () => {
-  const scrollX = window.scrollX;
-  const scrollY = window.scrollY;
-  openDialog($("#previewDialog"));
-  window.requestAnimationFrame(() => window.scrollTo(scrollX, scrollY));
+  const dialog = $("#previewDialog");
+  if (!dialog) return;
+  dialog.dataset.previewScrollX = String(window.scrollX);
+  dialog.dataset.previewScrollY = String(window.scrollY);
+  if (!dialog.dataset.previewRestoreBound) {
+    dialog.dataset.previewRestoreBound = "true";
+    dialog.addEventListener("close", () => queuePreviewViewportRestore(dialog));
+  }
+  openDialog(dialog);
+  queuePreviewViewportRestore(dialog);
 };
 const closePreviewDialog = () => closeDialogAnimated($("#previewDialog"));
 
@@ -4939,13 +4962,23 @@ const setupMaintenanceToggle = () => {
 const setupAdminNavigation = () => {
   const links = $$(".admin-nav a");
   const trashDock = $("#trashDock");
+  const mobileAdminDockLink = $(".mobile-dock [data-admin-link]");
   if (!links.length && !trashDock) return;
 
   const setActive = (current) => {
     links.forEach((link) => {
       const active = link.getAttribute("href") === current;
       link.classList.toggle("active", active);
+      if (active) link.setAttribute("aria-current", "page");
+      else link.removeAttribute("aria-current");
     });
+    const trashActive = current === "#adminTrash";
+    trashDock?.classList.toggle("active", trashActive);
+    if (trashActive) trashDock?.setAttribute("aria-current", "page");
+    else trashDock?.removeAttribute("aria-current");
+    mobileAdminDockLink?.classList.toggle("active", !trashActive);
+    if (trashActive) mobileAdminDockLink?.removeAttribute("aria-current");
+    else mobileAdminDockLink?.setAttribute("aria-current", "page");
   };
   const sync = () => {
     syncOwnerOnlyAdminUi();
@@ -4991,7 +5024,12 @@ const setupAdminMobileDrawer = () => {
 
   toggle.addEventListener("click", () => setOpen(!document.body.classList.contains("admin-drawer-open")));
   backdrop.addEventListener("click", () => setOpen(false));
-  $$(".admin-nav-drawer a").forEach((link) => link.addEventListener("click", () => setOpen(false)));
+  $$(".admin-nav-drawer a").forEach((link) =>
+    link.addEventListener("click", () => {
+      setOpen(false);
+      link.blur();
+    }),
+  );
   window.addEventListener("resize", () => {
     if (window.innerWidth > 620) setOpen(false);
   });
@@ -5094,6 +5132,7 @@ const mobileDockIcon = (name) => {
     announcements: '<path d="M3 11v2a2 2 0 0 0 2 2h2l4 4V5L7 9H5a2 2 0 0 0-2 2z"/><path d="M16 9a4 4 0 0 1 0 6M19 6a8 8 0 0 1 0 12"/>',
     forum: '<path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/><path d="M8 9h8M8 13h5"/>',
     admin: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/>',
+    trash: '<path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v5M14 11v5"/>',
   };
   return `<svg class="mobile-dock-icon" viewBox="0 0 24 24" aria-hidden="true">${paths[name] || paths.home}</svg>`;
 };
@@ -5101,6 +5140,8 @@ const mobileDockIcon = (name) => {
 const setupMobileDock = () => {
   const sourceNav = $(".site-header .top-nav");
   if (!sourceNav || $(".mobile-dock")) return;
+  const trashDock = $("#trashDock");
+  const trashDockHome = trashDock ? { parent: trashDock.parentNode, next: trashDock.nextSibling } : null;
   const dock = sourceNav.cloneNode(true);
   dock.dataset.mobileDockReady = "true";
   dock.classList.add("mobile-dock");
@@ -5113,23 +5154,25 @@ const setupMobileDock = () => {
     link.setAttribute("aria-label", label);
     link.innerHTML = `${mobileDockIcon(iconName)}<span class="mobile-dock-label">${escapeHtml(label)}</span>`;
   });
-  const links = [...dock.querySelectorAll("a")];
-  const reset = () => links.forEach((link) => link.style.removeProperty("--dock-scale"));
-  dock.addEventListener("pointermove", (event) => {
-    if (event.pointerType === "touch") return;
-    links.forEach((link) => {
-      const bounds = link.getBoundingClientRect();
-      const distance = Math.abs(event.clientX - (bounds.left + bounds.width / 2));
-      const influence = Math.max(0, 1 - distance / 140);
-      link.style.setProperty("--dock-scale", String(1 + influence * 0.42));
-    });
-  });
-  dock.addEventListener("pointerleave", reset);
-  dock.addEventListener("pointercancel", reset);
-  dock.addEventListener("focusout", (event) => {
-    if (!dock.contains(event.relatedTarget)) reset();
-  });
   document.body.append(dock);
+
+  if (trashDock && trashDockHome) {
+    trashDock.setAttribute("aria-label", "回收站");
+    trashDock.innerHTML = `${mobileDockIcon("trash")}<span class="trash-dock-label">回收站</span><span class="trash-count-badge" hidden>0</span>`;
+    const mobileQuery = window.matchMedia("(max-width: 620px)");
+    const placeTrashDock = () => {
+      if (mobileQuery.matches) {
+        trashDock.classList.add("is-mobile-dock-item");
+        dock.append(trashDock);
+        return;
+      }
+      trashDock.classList.remove("is-mobile-dock-item");
+      if (trashDockHome.next?.parentNode === trashDockHome.parent) trashDockHome.parent.insertBefore(trashDock, trashDockHome.next);
+      else trashDockHome.parent.append(trashDock);
+    };
+    mobileQuery.addEventListener?.("change", placeTrashDock);
+    placeTrashDock();
+  }
 };
 
 const setupLoginPage = () => {

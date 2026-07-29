@@ -3,11 +3,28 @@ const otpControllers = new WeakMap();
 let openSelectionController = null;
 let selectionGlobalsBound = false;
 let selectionId = 0;
+let suppressSelectionOutsideClick = false;
 let tooltipGlobalsBound = false;
 let activeTooltipTarget = null;
 let activeTooltip = null;
 
 const reducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+
+const promoteToTopLayer = (element) => {
+  if (!element || typeof element.showPopover !== "function") return;
+  element.setAttribute("popover", "manual");
+  try {
+    if (element.matches(":popover-open")) element.hidePopover();
+    element.showPopover();
+  } catch {}
+};
+
+const removeFromTopLayer = (element) => {
+  if (!element || typeof element.hidePopover !== "function") return;
+  try {
+    if (element.matches(":popover-open")) element.hidePopover();
+  } catch {}
+};
 
 export const runUiMotion = (element, keyframes, options = {}) => {
   if (!element || typeof element.animate !== "function" || reducedMotion()) return null;
@@ -42,6 +59,12 @@ const closeOpenSelection = (restoreFocus = false) => {
   openSelectionController?.close(restoreFocus);
 };
 
+const setSelectionScrollLock = (locked) => {
+  const shouldLock = locked && window.matchMedia?.("(max-width: 620px)")?.matches;
+  document.documentElement.classList.toggle("ui-selection-open", shouldLock);
+  document.body.classList.toggle("ui-selection-open", shouldLock);
+};
+
 const positionPopover = (controller) => {
   const { anchor, popover } = controller;
   if (!anchor?.isConnected || !popover || popover.hidden) return;
@@ -70,8 +93,24 @@ const bindSelectionGlobals = () => {
   document.addEventListener("pointerdown", (event) => {
     if (!openSelectionController) return;
     if (openSelectionController.contains(event.target)) return;
+    const switchTarget = event.target instanceof Element && event.target.closest(".tg-select, .tg-combobox");
+    const shouldSuppress = window.matchMedia?.("(max-width: 620px)")?.matches && !switchTarget;
     closeOpenSelection();
-  });
+    if (shouldSuppress) {
+      suppressSelectionOutsideClick = true;
+      event.preventDefault();
+      event.stopPropagation();
+      window.setTimeout(() => {
+        suppressSelectionOutsideClick = false;
+      }, 700);
+    }
+  }, true);
+  document.addEventListener("click", (event) => {
+    if (!suppressSelectionOutsideClick) return;
+    suppressSelectionOutsideClick = false;
+    event.preventDefault();
+    event.stopPropagation();
+  }, true);
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && openSelectionController) closeOpenSelection(true);
   });
@@ -133,6 +172,7 @@ const createSelectController = (select) => {
       root.classList.add("is-open");
       trigger.setAttribute("aria-expanded", "true");
       popover.hidden = false;
+      setSelectionScrollLock(true);
       positionPopover(controller);
       runUiMotion(popover, [{ opacity: 0, transform: "translate3d(0,-6px,0) scale(.985)" }, { opacity: 1, transform: "none" }], { id: "popover", duration: 150 });
       const selected = popover.querySelector('[aria-selected="true"]');
@@ -144,6 +184,7 @@ const createSelectController = (select) => {
       root.classList.remove("is-open");
       trigger.setAttribute("aria-expanded", "false");
       if (openSelectionController === controller) openSelectionController = null;
+      setSelectionScrollLock(false);
       if (restoreFocus) trigger.focus({ preventScroll: true });
     },
     refresh() {
@@ -275,6 +316,7 @@ const createComboboxController = (select) => {
       root.classList.add("is-open");
       input.setAttribute("aria-expanded", "true");
       popover.hidden = false;
+      setSelectionScrollLock(true);
       controller.renderOptions(input.matches(":focus") ? input.value : "");
       positionPopover(controller);
       runUiMotion(popover, [{ opacity: 0, transform: "translate3d(0,-6px,0) scale(.985)" }, { opacity: 1, transform: "none" }], { id: "popover", duration: 150 });
@@ -286,6 +328,7 @@ const createComboboxController = (select) => {
       input.setAttribute("aria-expanded", "false");
       input.removeAttribute("aria-activedescendant");
       if (openSelectionController === controller) openSelectionController = null;
+      setSelectionScrollLock(false);
       controller.refresh();
       if (restoreFocus) input.focus({ preventScroll: true });
     },
@@ -444,6 +487,7 @@ export const showUiToast = (toast, message, options = {}) => {
   toast.className = "toast tg-toast show";
   toast.setAttribute("role", "region");
   toast.setAttribute("aria-label", "Notifications");
+  promoteToTopLayer(toast);
 
   const item = document.createElement("figure");
   item.className = `tg-toast-item is-${variant}`;
@@ -515,7 +559,10 @@ export const showUiToast = (toast, message, options = {}) => {
     });
     const remove = () => {
       item.remove();
-      if (!toast.children.length) toast.classList.remove("show");
+      if (!toast.children.length) {
+        toast.classList.remove("show");
+        removeFromTopLayer(toast);
+      }
     };
     if (animation) animation.finished.then(remove, remove);
     else remove();
@@ -563,6 +610,7 @@ const tooltipSelector = [
   ".forum-search-clear[aria-label]",
   ".fui-popover-trigger[aria-label]",
   ".mobile-dock a[aria-label]",
+  ".mobile-dock .trash-dock[aria-label]",
   ".tg-toast-dismiss[aria-label]",
   ".toolbar-color-swatch[aria-label]",
   ".comment-icon-button[aria-label]",
@@ -645,6 +693,7 @@ const showTooltip = (target) => {
   tooltip.setAttribute("role", "tooltip");
   tooltip.textContent = content;
   document.body.append(tooltip);
+  promoteToTopLayer(tooltip);
   activeTooltipTarget = target;
   activeTooltip = tooltip;
   const describedBy = new Set((target.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean));
@@ -669,14 +718,6 @@ const setupTooltips = () => {
   document.addEventListener("pointerout", (event) => {
     if (!activeTooltipTarget || activeTooltipTarget.contains(event.relatedTarget)) return;
     if (event.target instanceof Element && activeTooltipTarget.contains(event.target)) hideTooltip();
-  });
-  document.addEventListener("focusin", (event) => {
-    if (!(event.target instanceof Element)) return;
-    const target = event.target.closest(tooltipSelector);
-    if (target) showTooltip(target);
-  });
-  document.addEventListener("focusout", (event) => {
-    if (activeTooltipTarget && !activeTooltipTarget.contains(event.relatedTarget)) hideTooltip();
   });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") hideTooltip(true);
