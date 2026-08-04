@@ -888,57 +888,6 @@
   stroke-linecap: round;
 }
 
-.ui-tooltip {
-  position: fixed;
-  z-index: 5000;
-  inset: auto;
-  width: max-content;
-  max-width: min(260px, calc(100vw - 16px));
-  margin: 0;
-  padding: 8px;
-  color: var(--tg-surface);
-  background: var(--tg-text);
-  border: 1px solid var(--tg-text);
-  border-radius: 8px;
-  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.06), 0 26px 26px rgba(0, 0, 0, 0.05), 0 58px 35px rgba(0, 0, 0, 0.03);
-  font-size: 12px;
-  font-weight: 750;
-  line-height: 1.4;
-  text-align: center;
-  overflow-wrap: anywhere;
-  pointer-events: none;
-  transform-origin: center;
-}
-
-.ui-tooltip::after {
-  content: "";
-  position: absolute;
-  width: 8px;
-  height: 8px;
-  background: var(--tg-text);
-  transform: rotate(45deg);
-}
-
-.ui-tooltip[data-placement="top"]::after {
-  bottom: -5px;
-  left: calc(50% - 4px);
-}
-
-.ui-tooltip[data-placement="bottom"]::after {
-  top: -5px;
-  left: calc(50% - 4px);
-}
-
-.ui-tooltip[data-placement="left"]::after {
-  right: -5px;
-  top: calc(50% - 4px);
-}
-
-.ui-tooltip[data-placement="right"]::after {
-  left: -5px;
-  top: calc(50% - 4px);
-}
-
 .auth-dialog.otp-auth-dialog {
   width: min(440px, calc(100vw - 28px));
   text-align: center;
@@ -1058,17 +1007,6 @@
 
   body[data-page="admin"] .admin-form-grid.maintenance-settings-grid {
     grid-template-columns: 1fr;
-  }
-
-  .editor-toolbar {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-  }
-
-  .editor-toolbar::-webkit-scrollbar {
-    display: none;
-    width: 0;
-    height: 0;
   }
 
   body[data-page="admin"] .admin-sidebar-drawer .admin-nav a,

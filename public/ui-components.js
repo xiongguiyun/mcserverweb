@@ -4,9 +4,6 @@ let openSelectionController = null;
 let selectionGlobalsBound = false;
 let selectionId = 0;
 let suppressSelectionOutsideClick = false;
-let tooltipGlobalsBound = false;
-let activeTooltipTarget = null;
-let activeTooltip = null;
 
 const reducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
 
@@ -194,7 +191,6 @@ const createSelectController = (select) => {
       trigger.querySelector(".tg-select-value").textContent = selected?.label || placeholder;
       trigger.classList.toggle("is-placeholder", !selected);
       trigger.disabled = select.disabled;
-      if (select.title) trigger.dataset.uiTooltip = select.title;
       trigger.setAttribute("aria-label", select.getAttribute("aria-label") || select.title || placeholder);
       popover.replaceChildren();
       options.filter((option) => !option.placeholder).forEach((option) => {
@@ -601,131 +597,6 @@ export const showUiToast = (toast, message, options = {}) => {
   item._hideTimer = window.setTimeout(hide, remaining);
 };
 
-const tooltipSelector = [
-  "[data-ui-tooltip]",
-  "[data-tippy-content]",
-  "[title]",
-  ".dialog-close-button[aria-label]",
-  ".forum-search-toggle[aria-label]",
-  ".forum-search-clear[aria-label]",
-  ".fui-popover-trigger[aria-label]",
-  ".mobile-dock a[aria-label]",
-  ".mobile-dock .trash-dock[aria-label]",
-  ".tg-toast-dismiss[aria-label]",
-  ".toolbar-color-swatch[aria-label]",
-  ".comment-icon-button[aria-label]",
-  "[data-comment-remove-quote][aria-label]",
-  "[data-comment-close-quote-manager][aria-label]",
-  "[data-highlight-color-preset][aria-label]",
-].join(",");
-
-const tooltipText = (target) => {
-  const nativeTitle = target.getAttribute("title");
-  if (nativeTitle) {
-    target.dataset.uiTooltip = nativeTitle;
-    target.removeAttribute("title");
-  }
-  return target.dataset.uiTooltip || target.dataset.tippyContent || target.getAttribute("aria-label") || "";
-};
-
-const positionTooltip = () => {
-  if (!activeTooltipTarget?.isConnected || !activeTooltip?.isConnected) return;
-  const targetRect = activeTooltipTarget.getBoundingClientRect();
-  const tooltipRect = activeTooltip.getBoundingClientRect();
-  const gap = 10;
-  const edge = 8;
-  const preferred = activeTooltipTarget.dataset.tooltipPlacement || activeTooltipTarget.dataset.tippyPlacement || "top";
-  let placement = preferred;
-  if (placement === "top" && targetRect.top < tooltipRect.height + gap + edge) placement = "bottom";
-  if (placement === "bottom" && window.innerHeight - targetRect.bottom < tooltipRect.height + gap + edge) placement = "top";
-  if (placement === "left" && targetRect.left < tooltipRect.width + gap + edge) placement = "right";
-  if (placement === "right" && window.innerWidth - targetRect.right < tooltipRect.width + gap + edge) placement = "left";
-
-  let left = targetRect.left + (targetRect.width - tooltipRect.width) / 2;
-  let top = targetRect.top - tooltipRect.height - gap;
-  if (placement === "bottom") top = targetRect.bottom + gap;
-  if (placement === "left") {
-    left = targetRect.left - tooltipRect.width - gap;
-    top = targetRect.top + (targetRect.height - tooltipRect.height) / 2;
-  }
-  if (placement === "right") {
-    left = targetRect.right + gap;
-    top = targetRect.top + (targetRect.height - tooltipRect.height) / 2;
-  }
-  activeTooltip.dataset.placement = placement;
-  activeTooltip.style.left = `${Math.round(Math.min(Math.max(edge, left), window.innerWidth - tooltipRect.width - edge))}px`;
-  activeTooltip.style.top = `${Math.round(Math.min(Math.max(edge, top), window.innerHeight - tooltipRect.height - edge))}px`;
-};
-
-const hideTooltip = (immediate = false) => {
-  const tooltip = activeTooltip;
-  const target = activeTooltipTarget;
-  if (!tooltip) return;
-  activeTooltip = null;
-  activeTooltipTarget = null;
-  const describedBy = (target?.getAttribute("aria-describedby") || "")
-    .split(/\s+/)
-    .filter((id) => id && id !== tooltip.id)
-    .join(" ");
-  if (target) {
-    if (describedBy) target.setAttribute("aria-describedby", describedBy);
-    else target.removeAttribute("aria-describedby");
-  }
-  const remove = () => tooltip.remove();
-  const animation = immediate
-    ? null
-    : runUiMotion(tooltip, [{ opacity: 1, transform: "scale(1)" }, { opacity: 0, transform: "scale(.94)" }], {
-        id: "tooltip-out",
-        duration: 100,
-      });
-  if (animation) animation.finished.then(remove, remove);
-  else remove();
-};
-
-const showTooltip = (target) => {
-  const content = tooltipText(target).trim();
-  if (!content || target === activeTooltipTarget) return;
-  hideTooltip(true);
-  document.querySelectorAll(".ui-tooltip").forEach((tooltip) => tooltip.remove());
-  const tooltip = document.createElement("div");
-  tooltip.className = "ui-tooltip";
-  tooltip.id = `ui-tooltip-${++selectionId}`;
-  tooltip.setAttribute("role", "tooltip");
-  tooltip.textContent = content;
-  document.body.append(tooltip);
-  promoteToTopLayer(tooltip);
-  activeTooltipTarget = target;
-  activeTooltip = tooltip;
-  const describedBy = new Set((target.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean));
-  describedBy.add(tooltip.id);
-  target.setAttribute("aria-describedby", [...describedBy].join(" "));
-  positionTooltip();
-  runUiMotion(tooltip, [{ opacity: 0, transform: "scale(.92)" }, { opacity: 1, transform: "scale(1)" }], {
-    id: "tooltip-in",
-    duration: 160,
-    easing: "cubic-bezier(.16,1,.3,1)",
-  });
-};
-
-const setupTooltips = () => {
-  if (tooltipGlobalsBound) return;
-  tooltipGlobalsBound = true;
-  document.addEventListener("pointerover", (event) => {
-    if (event.pointerType === "touch" || !(event.target instanceof Element)) return;
-    const target = event.target.closest(tooltipSelector);
-    if (target && !target.contains(event.relatedTarget)) showTooltip(target);
-  });
-  document.addEventListener("pointerout", (event) => {
-    if (!activeTooltipTarget || activeTooltipTarget.contains(event.relatedTarget)) return;
-    if (event.target instanceof Element && activeTooltipTarget.contains(event.target)) hideTooltip();
-  });
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") hideTooltip(true);
-  });
-  window.addEventListener("resize", positionTooltip, { passive: true });
-  document.addEventListener("scroll", positionTooltip, { passive: true, capture: true });
-};
-
 export const paginationRange = (currentPage, totalPages) => {
   const current = Math.max(1, Math.min(totalPages, currentPage));
   if (totalPages <= 7) return Array.from({ length: totalPages }, (_, index) => index + 1);
@@ -740,7 +611,6 @@ export const paginationRange = (currentPage, totalPages) => {
 };
 
 export const setupUiComponents = (root = document) => {
-  setupTooltips();
   root.querySelectorAll("select:not([data-ui-native])").forEach(enhanceSelectionControl);
   root.querySelectorAll("input[data-ui-otp]").forEach((input) =>
     enhanceOtpInput(input, {

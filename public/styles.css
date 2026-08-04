@@ -1796,7 +1796,6 @@ body[data-page="login"] {
   background: #f4ead4;
   border: 2px solid #d5be95;
   border-radius: 18px;
-  scrollbar-width: thin;
 }
 
 .editor-toolbar button,
