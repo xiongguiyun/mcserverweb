@@ -3,7 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="preload" href="/assets/group-photo.jpg" as="image" type="image/jpeg" fetchpriority="high" />
+    <style>html { scrollbar-gutter: stable; }</style>
+    <link rel="preload" href="/assets/group-photo.avif" as="image" type="image/avif" fetchpriority="high" />
     <link rel="modulepreload" href="/app.js" />
     <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
     <title>Liou_Yang Server | 我的世界服务器</title>
@@ -85,7 +86,11 @@
           <h2>论坛公告</h2>
           <p>服务器更新、活动安排和重要通知。</p>
         </div>
-        <div class="list" id="announcementList"></div>
+        <div class="list" id="announcementList" aria-busy="true">
+          <div class="content-skeleton" aria-hidden="true">
+            <span></span><span></span><span></span>
+          </div>
+        </div>
       </section>
     </main>
 

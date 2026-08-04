@@ -86,6 +86,7 @@ const inFlightApiRequests = new Map();
 const apiResponseCache = new Map();
 let apiCacheVersion = 0;
 const commentCacheMs = 15 * 1000;
+const sessionApiCachePrefix = "blockhaven-api-v1:";
 
 const apiCacheRules = [
   [/^\/me$/, 10000],
@@ -102,6 +103,23 @@ const apiCacheRules = [
 ];
 
 const apiCacheTtlFor = (path) => apiCacheRules.find(([pattern]) => pattern.test(path))?.[1] || 0;
+const canPersistApiPath = (path) => /^\/(?:announcements|posts|profiles\/[^/?]+|server-status)(?:\?.*)?$/.test(path);
+
+const clearSessionApiCache = (prefixes = null) => {
+  try {
+    const targets = prefixes ? (Array.isArray(prefixes) ? prefixes : [prefixes]) : null;
+    const keys = [];
+    for (let index = 0; index < window.sessionStorage.length; index += 1) {
+      const storageKey = window.sessionStorage.key(index);
+      if (!storageKey?.startsWith(sessionApiCachePrefix)) continue;
+      const path = storageKey.slice(sessionApiCachePrefix.length);
+      if (!targets || targets.some((prefix) => path === prefix || path.startsWith(prefix))) keys.push(storageKey);
+    }
+    keys.forEach((key) => window.sessionStorage.removeItem(key));
+  } catch {
+    // Storage can be unavailable in private or restricted browser contexts.
+  }
+};
 
 const motionRevealSelector = [
   ".hero-copy",
@@ -161,20 +179,37 @@ const cloneApiPayload = (payload) => {
 const cachedApiPayload = (key, ttl) => {
   if (!ttl) return undefined;
   const cached = apiResponseCache.get(key);
-  if (!cached) return undefined;
-  if (cached.expiresAt <= Date.now()) {
+  if (cached) {
+    if (cached.expiresAt > Date.now()) return cloneApiPayload(cached.payload);
     apiResponseCache.delete(key);
+  }
+  if (!canPersistApiPath(key)) return undefined;
+  try {
+    const stored = JSON.parse(window.sessionStorage.getItem(`${sessionApiCachePrefix}${key}`) || "null");
+    if (!stored || stored.expiresAt <= Date.now()) {
+      window.sessionStorage.removeItem(`${sessionApiCachePrefix}${key}`);
+      return undefined;
+    }
+    apiResponseCache.set(key, stored);
+    return cloneApiPayload(stored.payload);
+  } catch {
     return undefined;
   }
-  return cloneApiPayload(cached.payload);
 };
 
 const rememberApiPayload = (key, ttl, payload) => {
   if (!ttl) return;
-  apiResponseCache.set(key, {
+  const cached = {
     expiresAt: Date.now() + ttl,
     payload: cloneApiPayload(payload),
-  });
+  };
+  apiResponseCache.set(key, cached);
+  if (!canPersistApiPath(key)) return;
+  try {
+    window.sessionStorage.setItem(`${sessionApiCachePrefix}${key}`, JSON.stringify(cached));
+  } catch {
+    // Keep the in-memory cache when storage quota or privacy settings reject writes.
+  }
 };
 
 const clearCachedApiPrefixes = (prefixes) => {
@@ -184,6 +219,7 @@ const clearCachedApiPrefixes = (prefixes) => {
       apiResponseCache.delete(key);
     }
   }
+  clearSessionApiCache(targets);
 };
 
 const invalidateApiCacheForMutation = (path, method) => {
@@ -192,6 +228,7 @@ const invalidateApiCacheForMutation = (path, method) => {
 
   if (/^\/(?:account|login|logout|register)$/.test(path)) {
     apiResponseCache.clear();
+    clearSessionApiCache();
     return;
   }
 
@@ -233,6 +270,7 @@ const invalidateApiCacheForMutation = (path, method) => {
   }
 
   apiResponseCache.clear();
+  clearSessionApiCache();
 };
 
 const api = async (path, options = {}) => {
@@ -1265,12 +1303,14 @@ const cardTemplate = (item, type) => {
 const renderLists = () => {
   const announcementList = $("#announcementList");
   if (announcementList) {
+    announcementList.removeAttribute("aria-busy");
     announcementList.innerHTML = state.announcements.length
       ? state.announcements.map((item) => cardTemplate(item, "announcement")).join("")
       : `<div class="empty">还没有公告。</div>`;
   }
   const postList = $("#postList");
   if (postList) {
+    postList.removeAttribute("aria-busy");
     const filteredPosts = filterForumPosts(state.posts);
     postList.innerHTML = filteredPosts.length
       ? filteredPosts.map((item) => cardTemplate(item, "post")).join("")
@@ -3688,6 +3728,8 @@ const renderProfilePage = () => {
   const panel = $("#profilePanel");
   const posts = $("#profilePosts");
   if (!panel || !posts) return;
+  panel.removeAttribute("aria-busy");
+  posts.removeAttribute("aria-busy");
   const profile = state.profile;
   if (!profile) {
     panel.innerHTML = `<div class="empty">没有找到这个玩家。</div>`;
@@ -5313,15 +5355,42 @@ const loadBaseState = async () => {
   }
 };
 
-const loadPublicData = async () => {
-  const baseStatePromise = loadBaseState();
-  let pageDataPromise = Promise.resolve(null);
+let publicPageDataLoaded = false;
 
-  if (page === "home") pageDataPromise = api("/announcements").catch(() => ({ items: [] }));
-  if (page === "forum") pageDataPromise = api("/posts").catch(() => ({ items: [] }));
+const applyPublicPageData = (pageData) => {
+  if (page === "home") state.announcements = pageData?.items || [];
+  if (page === "forum") state.posts = pageData?.items || [];
+  if (page === "profile") {
+    state.profile = pageData?.profile || null;
+    state.posts = state.profile?.posts || [];
+  }
+};
+
+const renderPublicPageData = () => {
+  if (page === "home" || page === "forum") renderLists();
+  if (page === "profile") renderProfilePage();
+  syncMotionReveals();
+};
+
+const renderPublicBaseState = () => {
+  renderAuth();
+  renderMaintenanceBanner();
+  renderMaintenanceGate();
+  if (page === "forum") renderForumProfileCard();
+  if (publicPageDataLoaded) renderPublicPageData();
+  syncMotionReveals();
+};
+
+const loadPublicData = async () => {
+  publicPageDataLoaded = false;
+  const baseStatePromise = loadBaseState().then(renderPublicBaseState);
+  let pageDataRequest = Promise.resolve(null);
+
+  if (page === "home") pageDataRequest = api("/announcements").catch(() => ({ items: [] }));
+  if (page === "forum") pageDataRequest = api("/posts").catch(() => ({ items: [] }));
   if (page === "profile") {
     const profileQuery = new URL(window.location.href).searchParams.get("user");
-    pageDataPromise = profileQuery
+    pageDataRequest = profileQuery
       ? api(`/profiles/${encodeURIComponent(profileQuery)}`).catch(() => ({ profile: null }))
       : baseStatePromise.then(() => {
           const username = currentProfileQuery();
@@ -5329,15 +5398,13 @@ const loadPublicData = async () => {
         });
   }
 
-  const [, pageData] = await Promise.all([baseStatePromise, pageDataPromise]);
+  const pageDataPromise = pageDataRequest.then((pageData) => {
+    applyPublicPageData(pageData);
+    publicPageDataLoaded = true;
+    renderPublicPageData();
+  });
 
-  if (page === "home") state.announcements = pageData?.items || [];
-  if (page === "forum") state.posts = pageData?.items || [];
-  if (page === "profile") {
-    state.profile = pageData?.profile || null;
-    state.posts = state.profile?.posts || [];
-  }
-  renderAll();
+  await Promise.all([baseStatePromise, pageDataPromise]);
 };
 
 const runAdminLoadTask = async (request, apply, render) => {

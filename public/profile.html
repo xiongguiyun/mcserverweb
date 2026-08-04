@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>html { scrollbar-gutter: stable; }</style>
     <link rel="modulepreload" href="/app.js" />
     <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
     <title>玩家资料 | Liou_Yang Server</title>
@@ -39,8 +40,12 @@
       </section>
 
       <section class="profile-page" id="profilePage">
-        <div class="profile-panel" id="profilePanel"></div>
-        <div class="profile-posts" id="profilePosts"></div>
+        <div class="profile-panel" id="profilePanel" aria-busy="true">
+          <div class="profile-skeleton" aria-hidden="true"><span></span><span></span><span></span></div>
+        </div>
+        <div class="profile-posts" id="profilePosts" aria-busy="true">
+          <div class="content-skeleton" aria-hidden="true"><span></span><span></span><span></span></div>
+        </div>
       </section>
     </main>
 

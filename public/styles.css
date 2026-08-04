@@ -1081,6 +1081,50 @@ button {
   gap: 18px;
 }
 
+.content-skeleton {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+  gap: 18px;
+}
+
+.content-skeleton span,
+.profile-skeleton {
+  overflow: hidden;
+  background: #eadfc9;
+  border: 2px solid #dcc69d;
+}
+
+.content-skeleton span {
+  min-height: 220px;
+}
+
+.profile-skeleton {
+  min-height: 458px;
+}
+
+.content-skeleton span::after,
+.profile-skeleton::after {
+  content: "";
+  display: block;
+  width: 42%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 250, 240, 0.72), transparent);
+  animation: loading-sheen 1.15s ease-in-out infinite;
+}
+
+@keyframes loading-sheen {
+  from { transform: translateX(-120%); }
+  to { transform: translateX(340%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .content-skeleton span::after,
+  .profile-skeleton::after {
+    animation: none;
+  }
+}
+
 .post-card {
   position: relative;
   min-height: 220px;
@@ -1663,7 +1707,11 @@ body[data-page="login"] {
   inset: 0;
   background:
     linear-gradient(rgba(26, 15, 9, 0.32), rgba(26, 15, 9, 0.72)),
-    image-set(url("/assets/group-photo.jpg") type("image/jpeg"), url("/assets/group-photo.png") type("image/png")) center / cover no-repeat;
+    image-set(
+      url("/assets/group-photo.avif") type("image/avif"),
+      url("/assets/group-photo.webp") type("image/webp"),
+      url("/assets/group-photo.jpg") type("image/jpeg")
+    ) center / cover no-repeat;
 }
 
 .login-page::after {
@@ -4705,7 +4753,11 @@ dialog.is-closing::backdrop {
   background:
     linear-gradient(180deg, rgba(24, 16, 12, 0.2), rgba(24, 16, 12, 0.72)),
     linear-gradient(90deg, rgba(24, 16, 12, 0.44), rgba(24, 16, 12, 0.08), rgba(24, 16, 12, 0.44)),
-    image-set(url("/assets/group-photo.jpg") type("image/jpeg"), url("/assets/group-photo.png") type("image/png")) center 44% / cover no-repeat;
+    image-set(
+      url("/assets/group-photo.avif") type("image/avif"),
+      url("/assets/group-photo.webp") type("image/webp"),
+      url("/assets/group-photo.jpg") type("image/jpeg")
+    ) center 44% / cover no-repeat;
   transform: none;
 }
 
@@ -7100,7 +7152,11 @@ body[data-page="admin"] .admin-sidebar-drawer {
   background:
     linear-gradient(180deg, rgba(24, 16, 12, 0.2), rgba(24, 16, 12, 0.72)),
     linear-gradient(90deg, rgba(24, 16, 12, 0.44), rgba(24, 16, 12, 0.08), rgba(24, 16, 12, 0.44)),
-    image-set(url("/assets/group-photo.jpg") type("image/jpeg"), url("/assets/group-photo.png") type("image/png")) center center / cover no-repeat !important;
+    image-set(
+      url("/assets/group-photo.avif") type("image/avif"),
+      url("/assets/group-photo.webp") type("image/webp"),
+      url("/assets/group-photo.jpg") type("image/jpeg")
+    ) center center / cover no-repeat !important;
   background-position: center center !important;
   background-size: cover !important;
   transform: none !important;
@@ -7113,7 +7169,11 @@ body[data-page="admin"] .admin-sidebar-drawer {
     background:
       linear-gradient(180deg, rgba(24, 16, 12, 0.38), rgba(24, 16, 12, 0.82)),
       linear-gradient(90deg, rgba(24, 16, 12, 0.36), rgba(24, 16, 12, 0.08), rgba(24, 16, 12, 0.36)),
-      image-set(url("/assets/group-photo.jpg") type("image/jpeg"), url("/assets/group-photo.png") type("image/png")) center center / cover no-repeat !important;
+      image-set(
+        url("/assets/group-photo.avif") type("image/avif"),
+        url("/assets/group-photo.webp") type("image/webp"),
+        url("/assets/group-photo.jpg") type("image/jpeg")
+      ) center center / cover no-repeat !important;
     background-color: #201713;
   }
 }
