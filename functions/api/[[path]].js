@@ -367,7 +367,6 @@ const ensureCoreSchema = (env) =>
   });
 
 const ownerUser = async (env) => {
-  await ensureCoreSchema(env);
   try {
     return await env.DB.prepare(
       "SELECT id, username FROM users WHERE role = 'admin' AND deleted_at IS NULL ORDER BY id ASC LIMIT 1",
@@ -507,6 +506,7 @@ const ensurePlayerProfileSchema = (env) =>
   runSchemaEnsure("player-profile", async () => {
   await ensureAccountDeletionSchema(env);
   await addTableColumnsIfMissing(env, "users", [
+    "email TEXT",
     "minecraft_name TEXT",
     "minecraft_uuid TEXT",
     "skin_image TEXT",
@@ -851,7 +851,19 @@ const verifyCaptchaChallenge = async (env, request) => {
 };
 
 const consumeCaptchaChallenge = async (env, id) => {
-  return true;
+  const challengeId = String(id || "").trim();
+  if (!challengeId) return false;
+  const result = await env.DB.prepare(
+    `UPDATE captcha_challenges
+     SET used_at = CURRENT_TIMESTAMP
+     WHERE id = ?
+       AND verified_at IS NOT NULL
+       AND used_at IS NULL
+       AND expires_at > datetime('now')`,
+  )
+    .bind(challengeId)
+    .run();
+  return Boolean(result.meta?.changes);
 };
 
 const inviteAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -892,7 +904,6 @@ const ensureInviteCodeSchema = async (env) => {
 };
 
 const activeInviteCode = async (env, ownerId) => {
-  await ensureInviteCodeSchema(env);
   const existing = await env.DB.prepare(
     "SELECT code FROM invite_codes WHERE owner_id = ? AND used_at IS NULL ORDER BY id DESC LIMIT 1",
   )
@@ -918,7 +929,7 @@ const activeInviteCode = async (env, ownerId) => {
   throw new Error("生成邀请码失败，请稍后再试");
 };
 
-const createUserWithInvite = async (env, username, password, inviteCode, duplicateMessage) => {
+const createUserWithInvite = async (env, username, email, password, inviteCode, duplicateMessage) => {
   await ensureAccountDeletionSchema(env);
   await ensureInviteCodeSchema(env);
   const code = normalizeInviteCode(inviteCode);
@@ -936,15 +947,15 @@ const createUserWithInvite = async (env, username, password, inviteCode, duplica
   if (!invite) return { response: json({ error: inviteCodeError }, 400) };
 
   try {
-    await env.DB.prepare("INSERT INTO users (username, password_hash, role, last_seen_at) VALUES (?, ?, 'user', CURRENT_TIMESTAMP)")
-      .bind(username, await hashPassword(password))
+    await env.DB.prepare("INSERT INTO users (username, email, password_hash, role, last_seen_at) VALUES (?, ?, ?, 'user', CURRENT_TIMESTAMP)")
+      .bind(username, email, await hashPassword(password))
       .run();
   } catch {
     return { response: json({ error: duplicateMessage }, 409) };
   }
 
   const user = await env.DB.prepare(
-    "SELECT id, username, role, totp_enabled, created_at, last_seen_at FROM users WHERE username = ?",
+    "SELECT id, username, email, role, totp_enabled, created_at, last_seen_at FROM users WHERE username = ?",
   )
     .bind(username)
     .first();
@@ -989,6 +1000,7 @@ const publicUser = (user, ownerId) =>
     ? {
         id: user.id,
         username: user.username,
+        email: user.email || "",
         role: user.role,
         is_owner: ownerId ? Number(user.id) === Number(ownerId) : Boolean(user.is_owner),
         account_type: accountTypeLabel(user, ownerId),
@@ -1027,9 +1039,8 @@ const currentUser = async (env, request) => {
   if (!token) return null;
 
   const lookup = (async () => {
-    await ensurePlayerProfileSchema(env);
     const user = await env.DB.prepare(
-      `SELECT users.id, users.username, users.role, users.minecraft_name, users.skin_image,
+      `SELECT users.id, users.username, users.email, users.role, users.minecraft_name, users.skin_image,
               users.username_updated_at, users.totp_enabled, users.created_at, users.last_seen_at
        FROM sessions
        JOIN users ON users.id = sessions.user_id
@@ -1103,7 +1114,6 @@ const publicUserById = async (env, id) => {
 };
 
 const activeAccountDeletionRequest = async (env, userId) => {
-  await ensureAccountDeletionSchema(env);
   return env.DB.prepare(
     `SELECT id, user_id, requester_id, status, requested_at, approved_at, approved_by, scheduled_at, cancelled_at, completed_at
      FROM account_deletion_requests
@@ -1323,7 +1333,6 @@ const punishmentTypeLabels = {
 const punishmentTypes = new Set(Object.keys(punishmentTypeLabels));
 
 const activePunishments = async (env, userId, types = []) => {
-  await ensurePlayerProfileSchema(env);
   const wanted = types.length ? types : [...punishmentTypes];
   const placeholders = wanted.map(() => "?").join(",");
   const { results } = await env.DB.prepare(
@@ -1458,7 +1467,6 @@ const withAuthorAccountTypes = async (env, rows = []) => {
 };
 
 const listAnnouncements = async (env, { trash = false, deletedBy = null } = {}) => {
-  await ensurePlayerProfileSchema(env);
   const where = [trash ? "announcements.deleted_at IS NOT NULL" : "announcements.deleted_at IS NULL"];
   const bindings = [];
   if (trash && deletedBy !== null) {
@@ -1482,8 +1490,6 @@ const listAnnouncements = async (env, { trash = false, deletedBy = null } = {}) 
 };
 
 const listPosts = async (env, { trash = false, authorId = null, deletedBy = null, limit = 100 } = {}) => {
-  await ensureForumAdminSchema(env);
-  await purgeExpiredDeletedPosts(env);
   const where = [trash ? "posts.deleted_at IS NOT NULL" : "posts.deleted_at IS NULL"];
   const bindings = [];
   if (authorId !== null) {
@@ -1587,16 +1593,17 @@ const markAllOwnReportsRead = async (env, request) => {
 };
 
 const profile = async (env, request, username) => {
-  await ensureForumAdminSchema(env);
-  const viewer = await currentUser(env, request);
-  const owner = await ownerUser(env);
-  const user = await env.DB.prepare(
+  const [viewer, owner, user] = await Promise.all([
+    currentUser(env, request),
+    ownerUser(env),
+    env.DB.prepare(
     `SELECT id, username, role, minecraft_name, skin_image, username_updated_at, totp_enabled, last_seen_at, created_at
      FROM users
      WHERE lower(username) = lower(?) AND deleted_at IS NULL`,
-  )
-    .bind(username)
-    .first();
+    )
+      .bind(username)
+      .first(),
+  ]);
   if (!user) return json({ error: "没有找到这个玩家" }, 404);
   const posts = await env.DB.prepare(
     `SELECT posts.id, posts.title, posts.excerpt, posts.content_html, posts.pinned, posts.highlighted, posts.highlight_color, posts.views, posts.created_at, posts.updated_at,
@@ -1611,10 +1618,14 @@ const profile = async (env, request, username) => {
     .bind(user.id)
     .all();
   const isSelf = Number(viewer?.id) === Number(user.id);
-  const inviteCode = isSelf ? await activeInviteCode(env, user.id) : "";
-  const trash = isSelf ? (await listPosts(env, { trash: true, authorId: user.id, limit: 50 })).json() : Promise.resolve({ items: [] });
-  const reportHistory = isSelf ? await ownReportHistory(env, user.id) : [];
-  const accountDeletion = isSelf ? publicAccountDeletionRequest(await activeAccountDeletionRequest(env, user.id)) : null;
+  const [inviteCode, trash, reportHistory, accountDeletion] = isSelf
+    ? await Promise.all([
+        activeInviteCode(env, user.id),
+        listPosts(env, { trash: true, authorId: user.id, limit: 50 }).then((response) => response.json()),
+        ownReportHistory(env, user.id),
+        activeAccountDeletionRequest(env, user.id).then(publicAccountDeletionRequest),
+      ])
+    : ["", { items: [] }, [], null];
   return json({
     profile: {
       id: user.id,
@@ -1629,7 +1640,7 @@ const profile = async (env, request, username) => {
       created_at: user.created_at,
       postCount: (posts.results || []).length,
       posts: await withAuthorAccountTypes(env, posts.results || []),
-      trashPosts: (await trash).items || [],
+       trashPosts: trash.items || [],
       reportHistory,
       inviteCode,
       accountDeletion,
@@ -1649,7 +1660,7 @@ const login = async (env, request) => {
   }
   await ensurePlayerProfileSchema(env);
   const user = await env.DB.prepare(
-    `SELECT id, username, password_hash, role, minecraft_name, skin_image, username_updated_at,
+    `SELECT id, username, email, password_hash, role, minecraft_name, skin_image, username_updated_at,
             totp_secret, totp_enabled, created_at, last_seen_at
      FROM users
      WHERE username = ? AND deleted_at IS NULL`,
@@ -1687,13 +1698,15 @@ const register = async (env, request) => {
   if (site.maintenanceMode) return json({ error: "维护模式中暂不开放注册" }, 403);
   const body = await readBody(request);
   const username = String(body.username || "").trim();
+  const email = String(body.email || "").trim().toLowerCase();
   const password = String(body.password || "");
   if (!(await consumeCaptchaChallenge(env, body.captchaId))) {
     return json({ error: "请先完成滑块验证" }, 400);
   }
   if (!/^[\w\u4e00-\u9fa5-]{3,20}$/.test(username)) return json({ error: "用户名需要 3 到 20 位" }, 400);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: "请输入有效的注册邮箱" }, 400);
   if (password.length < 6) return json({ error: "密码至少 6 位" }, 400);
-  const created = await createUserWithInvite(env, username, password, body.inviteCode, "用户名已存在");
+  const created = await createUserWithInvite(env, username, email, password, body.inviteCode, "用户名已存在");
   if (created.response) return created.response;
   const user = created.user;
   const owner = await ownerUser(env);
@@ -1708,6 +1721,7 @@ const register = async (env, request) => {
 const account = async (env, request) => {
   const body = await readBody(request);
   const username = String(body.username || "").trim();
+  const email = String(body.email || "").trim().toLowerCase();
   const password = String(body.password || "");
   const totpCode = String(body.totpCode || "").trim();
   if (!(await consumeCaptchaChallenge(env, body.captchaId))) {
@@ -1718,7 +1732,7 @@ const account = async (env, request) => {
 
   await ensurePlayerProfileSchema(env);
   const existingUser = await env.DB.prepare(
-    `SELECT id, username, password_hash, role, minecraft_name, skin_image, username_updated_at,
+    `SELECT id, username, email, password_hash, role, minecraft_name, skin_image, username_updated_at,
             totp_secret, totp_enabled, created_at, last_seen_at
      FROM users
      WHERE lower(username) = lower(?) AND deleted_at IS NULL`,
@@ -1739,7 +1753,8 @@ const account = async (env, request) => {
     return createAuthResponse(env, existingUser, 200, { mode: "login", accountDeletionCancelled: Boolean(cancelledDeletion) });
   }
 
-  const created = await createUserWithInvite(env, username, password, body.inviteCode, "用户名已存在，请直接登录");
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: "请输入有效的注册邮箱" }, 400);
+  const created = await createUserWithInvite(env, username, email, password, body.inviteCode, "用户名已存在，请直接登录");
   if (created.response) return created.response;
   return createAuthResponse(env, created.user, 201, { mode: "register" });
 };
@@ -1896,10 +1911,10 @@ const beginTotp = async (env, request) => {
   const bytes = crypto.getRandomValues(new Uint8Array(20));
   const secret = bytesToBase32(bytes);
   await env.DB.prepare("UPDATE users SET totp_secret = ?, totp_enabled = 0 WHERE id = ?").bind(secret, user.id).run();
-  const issuer = "Liou_Yang Server";
-  const accountLabel = user.username;
+  const issuer = "Liou_Yang Server Forum";
+  const accountLabel = user.email || user.username;
   const uri = `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(accountLabel)}?secret=${secret}&issuer=${encodeURIComponent(issuer)}`;
-  return json({ secret, uri });
+  return json({ secret, uri, issuer, accountLabel, email: user.email || "" });
 };
 
 const confirmTotp = async (env, request) => {
@@ -2164,7 +2179,6 @@ const publicComment = (comment, actor, ownerId) => {
 const commentById = async (env, id) => env.DB.prepare(`${commentSelect} WHERE comments.id = ?`).bind(id).first();
 
 const listPostComments = async (env, request, postId) => {
-  await ensureForumAdminSchema(env);
   const actor = await currentUser(env, request);
   const post = await env.DB.prepare("SELECT id FROM posts WHERE id = ? AND deleted_at IS NULL").bind(postId).first();
   if (!post) return json({ error: "帖子不存在" }, 404);
@@ -2411,7 +2425,6 @@ const trackView = async (env, type, id) => {
 };
 
 const stats = async (env, request) => {
-  await ensureForumAdminSchema(env);
   const actor = await requireAdmin(env, request);
   const site = await getSiteSettings(env);
   const [announcementViews, postViews, userCount, adminCount, reportCount, trashCount] = await Promise.all([
@@ -2500,7 +2513,6 @@ const updateServerStatusSettings = async (env, request) => {
 };
 
 const listAdminUsers = async (env, request) => {
-  await ensureForumAdminSchema(env);
   await requireOwnerAdmin(env, request);
   const owner = await ownerUser(env);
   const { results } = await env.DB.prepare(
@@ -2588,11 +2600,17 @@ const removeManagedUser = async (env, request, id) => {
   return json({ ok: true });
 };
 
-const listPostReports = async (env, request) => {
-  await ensureForumAdminSchema(env);
+const listPostReports = async (env, request, page = 1, pageSize = 20) => {
   const actor = await requireAdmin(env, request);
   const owner = await ownerUser(env);
-  const { results: postReports } = await env.DB.prepare(
+  const safePage = Math.max(1, Number(page) || 1);
+  const safePageSize = Math.min(50, Math.max(10, Number(pageSize) || 20));
+  const reportWindow = safePage * safePageSize;
+  const [postCount, playerCount, commentCount, postRows, playerRows, commentRows] = await Promise.all([
+    env.DB.prepare("SELECT COUNT(*) AS total FROM post_reports WHERE status = 'open'").first(),
+    env.DB.prepare("SELECT COUNT(*) AS total FROM player_reports WHERE status = 'open'").first(),
+    env.DB.prepare("SELECT COUNT(*) AS total FROM comment_reports WHERE status = 'open'").first(),
+    env.DB.prepare(
     `SELECT post_reports.id, post_reports.reason, post_reports.status, post_reports.created_at,
             posts.id AS post_id, posts.title AS post_title, posts.excerpt AS post_excerpt,
             posts.content_html AS post_content_html, posts.pinned AS post_pinned, posts.highlighted AS post_highlighted, posts.highlight_color AS post_highlight_color,
@@ -2608,9 +2626,9 @@ const listPostReports = async (env, request) => {
      JOIN users AS authors ON authors.id = posts.author_id
      WHERE post_reports.status = 'open'
      ORDER BY post_reports.created_at DESC
-     LIMIT 80`,
-  ).all();
-  const { results: playerReports } = await env.DB.prepare(
+      LIMIT ?`,
+    ).bind(reportWindow).all(),
+    env.DB.prepare(
     `SELECT player_reports.id, player_reports.reason, player_reports.status, player_reports.created_at,
             reporters.username AS reporter,
             reported.id AS target_id, reported.username AS target_user, reported.role AS target_role
@@ -2619,9 +2637,9 @@ const listPostReports = async (env, request) => {
      JOIN users AS reported ON reported.id = player_reports.reported_user_id
      WHERE player_reports.status = 'open'
      ORDER BY player_reports.created_at DESC
-     LIMIT 80`,
-  ).all();
-  const { results: commentReports } = await env.DB.prepare(
+      LIMIT ?`,
+    ).bind(reportWindow).all(),
+    env.DB.prepare(
     `SELECT comment_reports.id, comment_reports.reason, comment_reports.status, comment_reports.created_at,
             comments.id AS comment_id, comments.content_html AS comment_content_html,
             posts.id AS post_id, posts.title AS post_title, posts.excerpt AS post_excerpt,
@@ -2643,8 +2661,12 @@ const listPostReports = async (env, request) => {
      JOIN users AS authors ON authors.id = comments.author_id
      WHERE comment_reports.status = 'open'
      ORDER BY comment_reports.created_at DESC
-     LIMIT 80`,
-  ).all();
+      LIMIT ?`,
+    ).bind(reportWindow).all(),
+  ]);
+  const postReports = postRows.results || [];
+  const playerReports = playerRows.results || [];
+  const commentReports = commentRows.results || [];
   const normalize = (report) => {
     const targetAccountType = accountTypeLabel({ id: report.target_id, role: report.target_role }, owner?.id);
     return {
@@ -2661,8 +2683,9 @@ const listPostReports = async (env, request) => {
     ...(playerReports || []).map((report) => ({ ...normalize(report), kind: "player" })),
   ]
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-    .slice(0, 80);
-  return json({ items });
+    .slice((safePage - 1) * safePageSize, safePage * safePageSize);
+  const total = Number(postCount?.total || 0) + Number(playerCount?.total || 0) + Number(commentCount?.total || 0);
+  return json({ items, page: safePage, pageSize: safePageSize, total, totalPages: Math.max(1, Math.ceil(total / safePageSize)) });
 };
 
 const resolvePostReport = async (env, request, id) => {
@@ -2769,7 +2792,6 @@ export async function onRequest(context) {
   const method = request.method;
 
   try {
-    scheduleMaturedAccountDeletionSweep(env, waitUntil);
     if (pathname !== "/logout") {
       const sessionUser = await currentUser(env, request);
       if (sessionUser) await assertNoPunishment(env, sessionUser, ["site_ban", "account_ban"], request);
@@ -2867,7 +2889,10 @@ export async function onRequest(context) {
       const [announcements, posts] = await Promise.all([listAnnouncements(env, { trash: true, deletedBy: actor.id }), listPosts(env, { trash: true, deletedBy: actor.id })]);
       return json({ announcements: (await announcements.json()).items, posts: (await posts.json()).items });
     }
-    if (method === "GET" && pathname === "/admin/reports") return await listPostReports(env, request);
+    if (method === "GET" && pathname === "/admin/reports") {
+      const url = new URL(request.url);
+      return await listPostReports(env, request, url.searchParams.get("page"), url.searchParams.get("pageSize"));
+    }
     if (method === "POST" && /^\/admin\/reports\/post\/\d+\/resolve$/.test(pathname)) {
       return await resolvePostReport(env, request, pathname.split("/").at(-2));
     }

@@ -980,6 +980,24 @@ button {
   border: 2px solid #ead4a6;
 }
 
+.totp-account-preview {
+  display: grid;
+  gap: 3px;
+  padding: 10px 12px;
+  border-left: 3px solid #469146;
+  background: #f3f8ee;
+}
+
+.totp-account-preview strong,
+.totp-account-preview span {
+  overflow-wrap: anywhere;
+}
+
+.totp-account-preview span {
+  color: #725d4c;
+  font-size: 0.9rem;
+}
+
 .totp-text-toggle {
   justify-self: center;
   text-align: center;

@@ -4,6 +4,7 @@ let openSelectionController = null;
 let selectionGlobalsBound = false;
 let selectionId = 0;
 let suppressSelectionOutsideClick = false;
+let selectionPositionFrame = 0;
 
 const reducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
 
@@ -111,8 +112,15 @@ const bindSelectionGlobals = () => {
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && openSelectionController) closeOpenSelection(true);
   });
-  window.addEventListener("resize", () => openSelectionController && positionPopover(openSelectionController), { passive: true });
-  document.addEventListener("scroll", () => openSelectionController && positionPopover(openSelectionController), { passive: true, capture: true });
+  const schedulePosition = () => {
+    if (selectionPositionFrame) return;
+    selectionPositionFrame = window.requestAnimationFrame(() => {
+      selectionPositionFrame = 0;
+      if (openSelectionController) positionPopover(openSelectionController);
+    });
+  };
+  window.addEventListener("resize", schedulePosition, { passive: true });
+  document.addEventListener("scroll", schedulePosition, { passive: true, capture: true });
 };
 
 const optionData = (select) =>

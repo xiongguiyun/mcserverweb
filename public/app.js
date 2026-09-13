@@ -6,6 +6,8 @@
   stats: null,
   admins: [],
   reports: [],
+  reportsTotal: 0,
+  reportsPage: 1,
   comments: {},
   commentLoadedAt: {},
   commentLoadedFor: {},
@@ -84,6 +86,7 @@ const apiUnavailableToastCooldownMs = 4000;
 let lastApiUnavailableToastAt = 0;
 const inFlightApiRequests = new Map();
 const apiResponseCache = new Map();
+const htmlTextCache = new WeakMap();
 let apiCacheVersion = 0;
 const commentCacheMs = 15 * 1000;
 const sessionApiCachePrefix = "blockhaven-api-v1:";
@@ -359,10 +362,20 @@ const postHighlightColor = (item) => normalizeHexColor(item?.highlight_color, "#
 const postHighlightStyle = (item) => (item?.highlighted ? ` style="--post-highlight-color: ${postHighlightColor(item)}"` : "");
 
 const textFromHtml = (html) => {
+  if (html && typeof html === "object") {
+    const cached = htmlTextCache.get(html);
+    if (cached !== undefined) return cached;
+    const value = textFromHtml(html.content_html);
+    htmlTextCache.set(html, value);
+    return value;
+  }
   const div = document.createElement("div");
   div.innerHTML = html || "";
   return div.textContent.replace(/\s+/g, " ").trim();
 };
+
+const searchableTextFor = (item) =>
+  `${item.title || ""} ${item.author || ""} ${formatDate(item.created_at)} ${item.views || 0} ${textFromHtml(item)}`;
 
 const contentHasMeaningfulBody = (html) => {
   const div = document.createElement("div");
@@ -438,11 +451,13 @@ const authorUserFromItem = (item, author) => ({
 });
 const profileHref = (username) => `/profile.html?user=${encodeURIComponent(username)}`;
 const totpQrUri = (result) => {
-  const issuer = encodeURIComponent("LiouYang");
-  return `otpauth://totp/${issuer}?secret=${encodeURIComponent(result.secret || "")}&issuer=${issuer}`;
+  if (result?.uri) return result.uri;
+  const issuer = "Liou_Yang Server Forum";
+  const accountLabel = result?.email || result?.username || "admin";
+  return `otpauth://totp/${encodeURIComponent(`${issuer}:${accountLabel}`)}?secret=${encodeURIComponent(result?.secret || "")}&issuer=${encodeURIComponent(issuer)}`;
 };
 const totpAccountInitials = () =>
-  String(state.me?.username || "LiouYang")
+  String(state.me?.username || "Liou_Yang Server Forum")
     .trim()
     .slice(0, 2)
     .toUpperCase();
@@ -1253,7 +1268,7 @@ const renderMaintenanceGate = () => {
 };
 
 const cardTemplate = (item, type) => {
-  const excerpt = item.excerpt || textFromHtml(item.content_html).slice(0, 110);
+  const excerpt = item.excerpt || textFromHtml(item).slice(0, 110);
   const author = item.author || "管理员";
   const authorUser = authorUserFromItem(item, author);
   const accountType = item.author_account_type || (type === "announcement" ? "管理员" : "成员");
@@ -1348,7 +1363,7 @@ const filterForumPosts = (posts) => {
   return posts.filter((item) => {
     const title = String(item.title || "").toLowerCase();
     const author = String(item.author || "").toLowerCase();
-    const content = textFromHtml(item.content_html).toLowerCase();
+    const content = textFromHtml(item).toLowerCase();
     const haystack = `${title} ${author} ${content}`;
     return authorTerms.every((term) => author.includes(term)) && freeTerms.every((term) => haystack.includes(term));
   });
@@ -1510,11 +1525,13 @@ const bindAdminListControls = (key, render) => {
       list.query = event.target.value;
       list.page = 1;
       list.open = true;
-      render();
-      const nextInput = $(`[data-admin-search="${key}"]`);
-      if (!nextInput) return;
-      nextInput.focus({ preventScroll: true });
-      nextInput.setSelectionRange?.(cursor, cursor);
+       scheduleRender(() => {
+         render();
+         const nextInput = $(`[data-admin-search="${key}"]`);
+         if (!nextInput) return;
+         nextInput.focus({ preventScroll: true });
+         nextInput.setSelectionRange?.(cursor, cursor);
+       }, `admin-search:${key}`);
     });
     input.addEventListener("keydown", (event) => {
       if (event.key !== "Escape") return;
@@ -1543,14 +1560,30 @@ const bindAdminListControls = (key, render) => {
   });
   $$(`[data-admin-page="${key}"]`).forEach((button) => {
     button.addEventListener("click", () => {
-      adminListState(key).page = Number(button.dataset.page) || 1;
+      const page = Number(button.dataset.page) || 1;
+      if (key === "reports") {
+        state.reportsPage = page;
+        loadAdminData();
+        return;
+      }
+      adminListState(key).page = page;
       render();
     });
   });
 };
 
-const adminContentSearchText = (item) =>
-  `${item.title || ""} ${item.author || ""} ${formatDate(item.created_at)} ${item.views || 0} ${textFromHtml(item.content_html)}`;
+const adminContentSearchText = (item) => searchableTextFor(item);
+
+const scheduleRender = (callback, frameKey) => {
+  const currentFrame = scheduleRender.frames.get(frameKey) || 0;
+  if (currentFrame) window.cancelAnimationFrame(currentFrame);
+  const nextFrame = window.requestAnimationFrame(() => {
+    scheduleRender.frames.delete(frameKey);
+    callback();
+  });
+  scheduleRender.frames.set(frameKey, nextFrame);
+};
+scheduleRender.frames = new Map();
 
 const updateForumSearchStatus = () => {
   const status = $("#forumSearchStatus");
@@ -1730,6 +1763,10 @@ const renderTotpSetupPanel = async (setupPanel, result) => {
   setupPanel.innerHTML = `
     <p>${mobileLayout ? "可以直接跳转验证器，也可以扫描二维码或手动输入密钥。" : "在电脑上扫码添加，也可以切换成手动输入密钥。"}</p>
     ${mobileLayout ? `<a class="button ghost small mobile-authenticator-link" href="${escapeHtml(qrResult.uri)}">打开验证器</a>` : ""}
+    <div class="totp-account-preview">
+      <strong>${escapeHtml(result.issuer || "Liou_Yang Server Forum")}</strong>
+      <span>${escapeHtml(result.email || result.accountLabel || "未填写注册邮箱")}</span>
+    </div>
     <div class="totp-visual-card" id="totpVisualCard">
       <div class="totp-qr-shell" id="totpQrShell" aria-label="2FA 二维码">${qrMarkup}</div>
     </div>
@@ -2681,6 +2718,65 @@ const applyCommentColor = (section, color) => {
 const bindPostComments = (postId) => {
   const section = $(`[data-comments-for="${postId}"]`);
   if (!section) return;
+  if (section.dataset.commentsDelegated !== "true") {
+    section.dataset.commentsDelegated = "true";
+    section.addEventListener("click", async (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      const reaction = target?.closest("[data-comment-reaction]");
+      if (reaction) {
+        event.preventDefault();
+        await submitCommentReaction(postId, reaction.dataset.commentReactionId, reaction.dataset.commentReaction);
+        return;
+      }
+      const quote = target?.closest("[data-comment-quote]");
+      if (quote) {
+        const comment = commentById(postId, quote.dataset.commentQuote);
+        if (!comment) return;
+        state.commentEditing = null;
+        if (addCommentQuote(postId, comment)) state.commentQuoteManagerOpenPostId = postId;
+        focusCommentComposer(postId);
+        return;
+      }
+      const report = target?.closest("[data-comment-report]");
+      if (report) {
+        event.preventDefault();
+        await submitCommentReport(report.dataset.commentReport);
+        return;
+      }
+      const edit = target?.closest("[data-comment-edit]");
+      if (edit) {
+        const comment = commentById(postId, edit.dataset.commentEdit);
+        if (!comment) return;
+        removeCommentQuotesForPost(postId);
+        state.commentEditing = { postId, id: comment.id, contentHtml: comment.content_html, previousHtml: comment.content_html };
+        focusCommentComposer(postId);
+        return;
+      }
+      const remove = target?.closest("[data-comment-delete]");
+      if (remove) {
+        const comment = commentById(postId, remove.dataset.commentDelete);
+        if (!comment) return;
+        await api(`/comments/${comment.id}`, { method: "DELETE" });
+        upsertComment(postId, { ...comment, content_html: "", deleted_at: new Date().toISOString(), can_edit: false, can_delete: false, can_report: false });
+        startCommentUndo({ id: `delete-${comment.id}-${Date.now()}`, type: "delete", postId, commentId: comment.id, expiresAt: Date.now() + 30000 });
+        renderComments(postId);
+        showToast("回复已删除，可在 30 秒内撤销");
+        return;
+      }
+      const undo = target?.closest("[data-comment-undo-action]");
+      if (undo) {
+        const item = state.commentUndoItems.find((entry) => entry.id === undo.dataset.commentUndoAction);
+        if (!item) return;
+        const result = item.type === "edit"
+          ? await api(`/comments/${item.commentId}`, { method: "PUT", body: JSON.stringify({ contentHtml: item.previousHtml }) })
+          : await api(`/comments/${item.commentId}/restore`, { method: "POST" });
+        upsertComment(postId, result.comment);
+        removeCommentUndo(item.id);
+        renderComments(postId);
+        showToast("已撤销");
+      }
+    });
+  }
   section.querySelector("[data-comment-composer-toggle]")?.addEventListener("click", (event) => {
     const form = section.querySelector("[data-comment-composer]");
     if (!form) return;
@@ -2836,67 +2932,6 @@ const bindPostComments = (postId) => {
     renderComments(postId);
     showToast("回复已发布");
   });
-  section.querySelectorAll("[data-comment-quote]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const comment = commentById(postId, button.dataset.commentQuote);
-      if (!comment) return;
-      state.commentEditing = null;
-      if (addCommentQuote(postId, comment)) state.commentQuoteManagerOpenPostId = postId;
-      focusCommentComposer(postId);
-    });
-  });
-  section.querySelectorAll("[data-comment-report]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      await submitCommentReport(button.dataset.commentReport);
-    });
-  });
-  section.querySelectorAll("[data-comment-reaction]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      await submitCommentReaction(postId, button.dataset.commentReactionId, button.dataset.commentReaction);
-    });
-  });
-  section.querySelectorAll("[data-comment-edit]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const comment = commentById(postId, button.dataset.commentEdit);
-      if (!comment) return;
-      removeCommentQuotesForPost(postId);
-      state.commentEditing = { postId, id: comment.id, contentHtml: comment.content_html, previousHtml: comment.content_html };
-      focusCommentComposer(postId);
-    });
-  });
-  section.querySelectorAll("[data-comment-delete]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const comment = commentById(postId, button.dataset.commentDelete);
-      if (!comment) return;
-      await api(`/comments/${comment.id}`, { method: "DELETE" });
-      upsertComment(postId, { ...comment, content_html: "", deleted_at: new Date().toISOString(), can_edit: false, can_delete: false, can_report: false });
-      startCommentUndo({
-        id: `delete-${comment.id}-${Date.now()}`,
-        type: "delete",
-        postId,
-        commentId: comment.id,
-        expiresAt: Date.now() + 30000,
-      });
-      renderComments(postId);
-      showToast("回复已删除，可在 30 秒内撤销");
-    });
-  });
-  section.querySelectorAll("[data-comment-undo-action]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const undo = state.commentUndoItems.find((item) => item.id === button.dataset.commentUndoAction);
-      if (!undo) return;
-      if (undo.type === "edit") {
-        const result = await api(`/comments/${undo.commentId}`, { method: "PUT", body: JSON.stringify({ contentHtml: undo.previousHtml }) });
-        upsertComment(postId, result.comment);
-      } else {
-        const result = await api(`/comments/${undo.commentId}/restore`, { method: "POST" });
-        upsertComment(postId, result.comment);
-      }
-      removeCommentUndo(undo.id);
-      renderComments(postId);
-      showToast("已撤销");
-    });
-  });
 };
 
 const setupReaderOutline = (readerContent) => {
@@ -2931,6 +2966,7 @@ const setupReaderOutline = (readerContent) => {
     .join("");
 
   const links = [...list.querySelectorAll(".reader-outline-link")];
+  const headingTops = headings.map((heading) => heading.offsetTop);
   const setCollapsed = (collapsed) => {
     outline.classList.toggle("is-collapsed", collapsed);
     toggle.setAttribute("aria-expanded", String(!collapsed));
@@ -2942,18 +2978,17 @@ const setupReaderOutline = (readerContent) => {
     link.addEventListener("click", (event) => {
       event.preventDefault();
       const heading = headings[index];
-      const top = heading.getBoundingClientRect().top - main.getBoundingClientRect().top + main.scrollTop - 12;
-      main.scrollTo({ top: Math.max(0, top), behavior: prefersReducedMotion() ? "auto" : "smooth" });
+      main.scrollTo({ top: Math.max(0, headingTops[index] - 12), behavior: prefersReducedMotion() ? "auto" : "smooth" });
       links.forEach((entry) => entry.classList.toggle("is-active", entry === link));
     });
   });
 
   let syncActiveLinkFrame = 0;
   const syncActiveLink = () => {
-    const mainTop = main.getBoundingClientRect().top;
+    const scrollTop = main.scrollTop + 28;
     let activeIndex = 0;
-    headings.forEach((heading, index) => {
-      if (heading.getBoundingClientRect().top - mainTop <= 28) activeIndex = index;
+    headingTops.forEach((top, index) => {
+      if (top <= scrollTop) activeIndex = index;
     });
     links.forEach((link, index) => link.classList.toggle("is-active", index === activeIndex));
   };
@@ -4478,7 +4513,7 @@ const renderTrashRows = () => {
   const view = adminListView("trash", rows, (item, query) =>
     adminSearchMatches(
       query,
-      `${item.title || ""} ${item.type === "announcement" ? "公告" : "帖子"} ${item.author || ""} ${formatDate(item.deleted_at)} ${textFromHtml(item.content_html)}`,
+      `${item.title || ""} ${item.type === "announcement" ? "公告" : "帖子"} ${item.author || ""} ${formatDate(item.deleted_at)} ${textFromHtml(item)}`,
       item.author,
     ),
   );
@@ -4686,13 +4721,27 @@ const showReportResolutionDialog = (report) =>
 const renderReports = () => {
   const table = $("#adminReportsTable");
   if (!table) return;
-  const view = adminListView("reports", state.reports, (report, query) =>
-    adminSearchMatches(
-      query,
-      `举报 ${report.post_title || ""} ${report.target_user || ""} ${report.reporter || ""} ${report.author || ""} ${report.reason || ""} ${textFromHtml(report.comment_content_html)} ${formatDate(report.created_at)}`,
-      report.reporter,
-    ),
-  );
+  const list = adminListState("reports");
+  const query = list.query.trim();
+  const filtered = query
+    ? state.reports.filter((report) =>
+        adminSearchMatches(
+          query,
+          `举报 ${report.post_title || ""} ${report.target_user || ""} ${report.reporter || ""} ${report.author || ""} ${report.reason || ""} ${textFromHtml(report.comment_content_html)} ${formatDate(report.created_at)}`,
+          report.reporter,
+        ),
+      )
+    : state.reports;
+  const view = {
+    query,
+    total: Number(state.reportsTotal || state.reports.length),
+    filtered,
+    pageItems: filtered,
+    page: Number(state.reportsPage) || 1,
+    totalPages: Math.max(1, Math.ceil(Number(state.reportsTotal || state.reports.length) / ADMIN_PAGE_SIZE)),
+    start: (Number(state.reportsPage) - 1) * ADMIN_PAGE_SIZE,
+    end: (Number(state.reportsPage) - 1) * ADMIN_PAGE_SIZE + filtered.length,
+  };
   const rows = view.pageItems.length
     ? view.pageItems
         .map(
@@ -4754,9 +4803,9 @@ const renderReports = () => {
         (report) => !(report.kind === button.dataset.resolveReportKind && report.id === Number(button.dataset.resolveReport)),
       );
       if (state.stats) state.stats.reportCount = Math.max(0, Number(state.stats.reportCount || 0) - 1);
-      renderReports();
       renderStats();
       showToast(result.punishment ? `举报已处理，已执行${punishmentLabels[result.punishment.type] || "处罚"}` : "举报已标记处理");
+      await loadAdminData();
     });
   });
 };
@@ -5338,6 +5387,7 @@ const setupLoginPage = () => {
       method: "POST",
       body: JSON.stringify({
         username: $("#registerUsername").value.trim(),
+        email: $("#registerEmail").value.trim(),
         password: $("#registerPassword").value,
         inviteCode: $("#registerInviteCode").value.trim(),
       }),
@@ -5428,23 +5478,22 @@ const loadAdminData = async () => {
   const errors = (await Promise.all([
     runAdminLoadTask(api("/announcements", { silent: true }), (payload) => {
       state.announcements = payload.items || [];
-    }, renderManagement),
+    }),
     runAdminLoadTask(api("/posts", { silent: true }), (payload) => {
       state.posts = payload.items || [];
-    }, renderManagement),
+    }),
     runAdminLoadTask(api("/admin/stats", { silent: true }), (payload) => {
       state.stats = payload;
       state.site.maintenanceMode = Boolean(payload.maintenanceMode);
-    }, () => {
-      renderStats();
-      renderMaintenanceBanner();
     }),
     runAdminLoadTask(isOwner() ? api("/admin/users", { silent: true }) : Promise.resolve({ items: [] }), (payload) => {
       state.admins = payload.items || [];
-    }, renderAdmins),
-    runAdminLoadTask(api("/admin/reports", { silent: true }), (payload) => {
+    }),
+    runAdminLoadTask(api(`/admin/reports?page=${Math.max(1, Number(state.reportsPage) || 1)}&pageSize=${ADMIN_PAGE_SIZE}`, { silent: true }), (payload) => {
       state.reports = payload.items || [];
-    }, renderReports),
+      state.reportsTotal = Number(payload.total || state.reports.length);
+      state.reportsPage = Number(payload.page || state.reportsPage || 1);
+    }),
   ])).filter(Boolean);
 
   renderAll();
@@ -5464,38 +5513,42 @@ const renderAll = () => {
   syncMotionReveals();
 };
 
-setupDialogDismiss();
-setupUiComponents();
-setupMotionReveals();
-setupMobileDock();
+export const bootApp = (requestedPage = page) => {
+  setupDialogDismiss();
+  setupUiComponents();
+  setupMotionReveals();
+  setupMobileDock();
 
-if (page === "login") setupLoginPage();
+  if (requestedPage === "login") setupLoginPage();
 
-if (page === "home") {
-  setupHomeActions();
-  setupAnnouncementAnchorFix();
-  setupHeroTyping();
-}
+  if (requestedPage === "home") {
+    setupHomeActions();
+    setupAnnouncementAnchorFix();
+    setupHeroTyping();
+  }
 
-if (page === "forum") {
-  setupEditor();
-  setupForumPost();
-}
+  if (requestedPage === "forum") {
+    setupEditor();
+    setupForumPost();
+  }
 
-if (page === "admin") {
-  setupEditor();
-  setupPublish();
-  setupAdminUsers();
-  setupMaintenanceToggle();
-  setupAdminNavigation();
-  setupAdminMobileDrawer();
-  setupAdminSidebarFollow();
-}
+  if (requestedPage === "admin") {
+    setupEditor();
+    setupPublish();
+    setupAdminUsers();
+    setupMaintenanceToggle();
+    setupAdminNavigation();
+    setupAdminMobileDrawer();
+    setupAdminSidebarFollow();
+  }
 
-const pendingToast = window.sessionStorage?.getItem("siteToast");
-if (pendingToast) {
-  window.sessionStorage?.removeItem("siteToast");
-  window.setTimeout(() => showToast(pendingToast), 300);
-}
+  const pendingToast = window.sessionStorage?.getItem("siteToast");
+  if (pendingToast) {
+    window.sessionStorage?.removeItem("siteToast");
+    window.setTimeout(() => showToast(pendingToast), 300);
+  }
 
-refreshPageData().catch((error) => showToast(error.message));
+  refreshPageData().catch((error) => showToast(error.message));
+};
+
+if (!globalThis.__BLOCKHAVEN_MANUAL_BOOT__) bootApp();
