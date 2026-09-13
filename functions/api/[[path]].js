@@ -1929,8 +1929,8 @@ const beginTotp = async (env, request) => {
   const bytes = crypto.getRandomValues(new Uint8Array(20));
   const secret = bytesToBase32(bytes);
   await env.DB.prepare("UPDATE users SET totp_secret = ?, totp_enabled = 0 WHERE id = ?").bind(secret, user.id).run();
-  const issuer = "Liou_Yang Server Forum";
-  const accountLabel = user.email || user.username;
+  const issuer = "LY Forum";
+  const accountLabel = user.username;
   const uri = `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(accountLabel)}?secret=${secret}&issuer=${encodeURIComponent(issuer)}`;
   return json({ secret, uri, issuer, accountLabel, email: user.email || "" });
 };

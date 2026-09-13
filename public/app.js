@@ -452,8 +452,8 @@ const authorUserFromItem = (item, author) => ({
 const profileHref = (username) => `/profile.html?user=${encodeURIComponent(username)}`;
 const totpQrUri = (result) => {
   // Keep the QR payload compact enough for the bundled renderer.
-  const issuer = "LY Server";
-  const accountLabel = result?.username || "admin";
+  const issuer = result?.issuer || "LY Forum";
+  const accountLabel = result?.accountLabel || result?.username || "admin";
   return `otpauth://totp/${encodeURIComponent(`${issuer}:${accountLabel}`)}?secret=${encodeURIComponent(result?.secret || "")}&issuer=${encodeURIComponent(issuer)}`;
 };
 const totpAccountInitials = () =>
