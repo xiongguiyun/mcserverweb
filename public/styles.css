@@ -980,24 +980,6 @@ button {
   border: 2px solid #ead4a6;
 }
 
-.totp-account-preview {
-  display: grid;
-  gap: 3px;
-  padding: 10px 12px;
-  border-left: 3px solid #469146;
-  background: #f3f8ee;
-}
-
-.totp-account-preview strong,
-.totp-account-preview span {
-  overflow-wrap: anywhere;
-}
-
-.totp-account-preview span {
-  color: #725d4c;
-  font-size: 0.9rem;
-}
-
 .totp-text-toggle {
   justify-self: center;
   text-align: center;
@@ -1833,8 +1815,8 @@ body[data-page="login"] {
 
 .canvasArea .block {
   z-index: 1;
-  width: 42px;
-  height: 42px;
+  width: 100%;
+  height: 100%;
   transform: translateX(0);
   transform-origin: top left;
   filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.35));

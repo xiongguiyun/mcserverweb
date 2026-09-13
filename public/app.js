@@ -451,9 +451,9 @@ const authorUserFromItem = (item, author) => ({
 });
 const profileHref = (username) => `/profile.html?user=${encodeURIComponent(username)}`;
 const totpQrUri = (result) => {
-  if (result?.uri) return result.uri;
-  const issuer = "Liou_Yang Server Forum";
-  const accountLabel = result?.email || result?.username || "admin";
+  // Keep the QR payload compact enough for the bundled renderer.
+  const issuer = "LY Server";
+  const accountLabel = result?.username || "admin";
   return `otpauth://totp/${encodeURIComponent(`${issuer}:${accountLabel}`)}?secret=${encodeURIComponent(result?.secret || "")}&issuer=${encodeURIComponent(issuer)}`;
 };
 const totpAccountInitials = () =>
@@ -1763,10 +1763,6 @@ const renderTotpSetupPanel = async (setupPanel, result) => {
   setupPanel.innerHTML = `
     <p>${mobileLayout ? "可以直接跳转验证器，也可以扫描二维码或手动输入密钥。" : "在电脑上扫码添加，也可以切换成手动输入密钥。"}</p>
     ${mobileLayout ? `<a class="button ghost small mobile-authenticator-link" href="${escapeHtml(qrResult.uri)}">打开验证器</a>` : ""}
-    <div class="totp-account-preview">
-      <strong>${escapeHtml(result.issuer || "Liou_Yang Server Forum")}</strong>
-      <span>${escapeHtml(result.email || result.accountLabel || "未填写注册邮箱")}</span>
-    </div>
     <div class="totp-visual-card" id="totpVisualCard">
       <div class="totp-qr-shell" id="totpQrShell" aria-label="2FA 二维码">${qrMarkup}</div>
     </div>
@@ -5283,10 +5279,13 @@ const setupSliderCaptcha = ({ onVerified } = {}) => {
 
   const context = canvas.getContext("2d");
   const blockContext = block.getContext("2d");
+  const baseCanvas = document.createElement("canvas");
+  const baseContext = baseCanvas.getContext("2d");
   let challenge = null;
   let verifiedId = "";
   let dragging = false;
   let startPointerX = 0;
+  let startPointerY = 0;
   let startOffset = 0;
   let offset = 0;
   let trail = [];
@@ -5306,6 +5305,28 @@ const setupSliderCaptcha = ({ onVerified } = {}) => {
     };
   };
 
+  // Adapted from sliding-vertify-vue (MIT, MrXujiang), with the image
+  // loader replaced by a deterministic local canvas background.
+  const drawPath = (targetContext, x, y, operation = "fill") => {
+    const { pieceSize: piece, radius } = challenge;
+    const pi = Math.PI;
+    targetContext.beginPath();
+    targetContext.moveTo(x, y);
+    targetContext.arc(x + piece / 2, y - radius + 2, radius, 0.72 * pi, 2.26 * pi);
+    targetContext.lineTo(x + piece, y);
+    targetContext.arc(x + piece + radius - 2, y + piece / 2, radius, 1.21 * pi, 2.78 * pi);
+    targetContext.lineTo(x + piece, y + piece);
+    targetContext.lineTo(x, y + piece);
+    targetContext.arc(x + radius - 2, y + piece / 2, radius + 0.4, 2.76 * pi, 1.24 * pi, true);
+    targetContext.lineTo(x, y);
+    targetContext.lineWidth = 2;
+    targetContext.fillStyle = "rgba(255, 255, 255, 0.72)";
+    targetContext.strokeStyle = "rgba(255, 255, 255, 0.9)";
+    targetContext.stroke();
+    if (operation === "clip") targetContext.clip();
+    else if (operation === "fill") targetContext.fill();
+  };
+
   const drawChallenge = () => {
     if (!challenge || !context || !blockContext) return;
     const { width, height, pieceSize, radius, targetX, pieceY, backgroundSeed } = challenge;
@@ -5314,55 +5335,56 @@ const setupSliderCaptcha = ({ onVerified } = {}) => {
     gradient.addColorStop(0, "#dbeafe");
     gradient.addColorStop(0.48, "#a7f3d0");
     gradient.addColorStop(1, "#fde68a");
-    context.clearRect(0, 0, width, height);
-    context.fillStyle = gradient;
-    context.fillRect(0, 0, width, height);
+    baseCanvas.width = width;
+    baseCanvas.height = height;
+    baseContext.clearRect(0, 0, width, height);
+    baseContext.fillStyle = gradient;
+    baseContext.fillRect(0, 0, width, height);
     for (let i = 0; i < 22; i += 1) {
-      context.fillStyle = `hsla(${Math.round(source() * 360)}, 75%, 42%, .22)`;
-      context.beginPath();
-      context.arc(source() * width, source() * height, 8 + source() * 22, 0, Math.PI * 2);
-      context.fill();
+      baseContext.fillStyle = `hsla(${Math.round(source() * 360)}, 75%, 42%, .22)`;
+      baseContext.beginPath();
+      baseContext.arc(source() * width, source() * height, 8 + source() * 22, 0, Math.PI * 2);
+      baseContext.fill();
     }
-    context.fillStyle = "rgba(15, 23, 42, .13)";
-    context.fillRect(0, height * 0.7, width, height * 0.3);
-    context.strokeStyle = "rgba(255, 255, 255, .72)";
-    context.lineWidth = 2;
+    baseContext.fillStyle = "rgba(15, 23, 42, .13)";
+    baseContext.fillRect(0, height * 0.7, width, height * 0.3);
+    baseContext.strokeStyle = "rgba(255, 255, 255, .72)";
+    baseContext.lineWidth = 2;
     for (let i = 0; i < 8; i += 1) {
-      context.beginPath();
-      context.moveTo(i * 48 - 20, height);
-      context.lineTo(i * 48 + 50, height * 0.68);
-      context.stroke();
+      baseContext.beginPath();
+      baseContext.moveTo(i * 48 - 20, height);
+      baseContext.lineTo(i * 48 + 50, height * 0.68);
+      baseContext.stroke();
     }
 
-    const drawPiece = (targetContext, x, y, fill = false) => {
-      targetContext.beginPath();
-      targetContext.roundRect(x, y, pieceSize, pieceSize, radius);
-      targetContext.closePath();
-      if (fill) {
-        targetContext.fillStyle = "rgba(255, 255, 255, .16)";
-        targetContext.fill();
-      } else {
-        targetContext.strokeStyle = "rgba(255, 255, 255, .95)";
-        targetContext.lineWidth = 2;
-        targetContext.stroke();
-      }
-    };
-    blockContext.clearRect(0, 0, width, height);
-    blockContext.drawImage(canvas, targetX, pieceY, pieceSize, pieceSize, 0, pieceY, pieceSize, pieceSize);
-    blockContext.clearRect(pieceSize, 0, width, height);
-    drawPiece(blockContext, 0, pieceY, true);
+    context.clearRect(0, 0, width, height);
+    context.drawImage(baseCanvas, 0, 0);
     context.save();
     context.globalCompositeOperation = "destination-out";
-    drawPiece(context, targetX, pieceY);
+    drawPath(context, targetX, pieceY, "fill");
     context.restore();
+    context.save();
+    context.globalCompositeOperation = "source-over";
+    drawPath(context, targetX, pieceY, "stroke");
+    context.restore();
+
+    blockContext.clearRect(0, 0, width, height);
+    blockContext.save();
+    drawPath(blockContext, targetX, pieceY, "clip");
+    blockContext.drawImage(baseCanvas, 0, 0);
+    blockContext.restore();
+    blockContext.save();
+    drawPath(blockContext, targetX, pieceY, "stroke");
+    blockContext.restore();
+    block.style.transform = `translateX(${offset - targetX}px)`;
   };
 
   const setOffset = (nextOffset) => {
     const maxOffset = Math.max(0, Number(challenge?.targetX || 0));
     offset = Math.max(0, Math.min(maxOffset, nextOffset));
-    mask.style.width = `${Math.max(0, offset + thumb.offsetWidth / 2)}px`;
-    block.style.transform = `translateX(${offset}px)`;
-    drawChallenge();
+    mask.style.width = `${Math.max(0, offset + thumb.offsetWidth)}px`;
+    thumb.style.left = `${offset}px`;
+    if (challenge) block.style.transform = `translateX(${offset - challenge.targetX}px)`;
   };
 
   const reset = async () => {
@@ -5370,6 +5392,7 @@ const setupSliderCaptcha = ({ onVerified } = {}) => {
     refreshPromise = (async () => {
       verifiedId = "";
       challenge = null;
+      section.classList.remove("is-verified");
       setOffset(0);
       setLoading(true);
       try {
@@ -5378,6 +5401,7 @@ const setupSliderCaptcha = ({ onVerified } = {}) => {
         canvas.height = challenge.height;
         block.width = challenge.width;
         block.height = challenge.height;
+        setOffset(0);
         drawChallenge();
         trackText.textContent = "向右滑动完成拼图";
         thumb.disabled = false;
@@ -5408,7 +5432,7 @@ const setupSliderCaptcha = ({ onVerified } = {}) => {
         body: JSON.stringify({ id: challenge.id, x: Math.round(offset), trailStddev: Math.sqrt(variance) }),
       });
       verifiedId = challenge.id;
-      trackText.textContent = "验证通过";
+      trackText.textContent = "验证成功";
       thumb.disabled = true;
       section.classList.add("is-verified");
       onVerified?.(verifiedId);
@@ -5424,14 +5448,13 @@ const setupSliderCaptcha = ({ onVerified } = {}) => {
     if (!dragging || !challenge) return;
     const next = startOffset + event.clientX - startPointerX;
     setOffset(next);
-    trail.push(offset);
+    trail.push(event.clientY - startPointerY);
   };
   const stop = () => {
     if (!dragging) return;
     dragging = false;
     thumb.releasePointerCapture?.(thumb._pointerId);
-    if (offset >= Number(challenge?.targetX || 0) - 2) finish();
-    else trackText.textContent = "请将拼图滑到缺口位置";
+    finish();
   };
   thumb.addEventListener("pointerdown", (event) => {
     if (thumb.disabled || !challenge) return;
@@ -5439,8 +5462,9 @@ const setupSliderCaptcha = ({ onVerified } = {}) => {
     thumb._pointerId = event.pointerId;
     thumb.setPointerCapture?.(event.pointerId);
     startPointerX = event.clientX;
+    startPointerY = event.clientY;
     startOffset = offset;
-    trail = [offset];
+    trail = [0];
     trackText.textContent = "继续向右滑动";
   });
   thumb.addEventListener("pointermove", move);
