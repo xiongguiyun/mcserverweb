@@ -866,6 +866,22 @@ const consumeCaptchaChallenge = async (env, id) => {
   return Boolean(result.meta?.changes);
 };
 
+const hasVerifiedCaptchaChallenge = async (env, id) => {
+  const challengeId = String(id || "").trim();
+  if (!challengeId) return false;
+  const row = await env.DB.prepare(
+    `SELECT id
+     FROM captcha_challenges
+     WHERE id = ?
+       AND verified_at IS NOT NULL
+       AND used_at IS NULL
+       AND expires_at > datetime('now')`,
+  )
+    .bind(challengeId)
+    .first();
+  return Boolean(row);
+};
+
 const inviteAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 const normalizeInviteCode = (value) => String(value || "").trim().toUpperCase().replace(/\s+/g, "");
@@ -1655,7 +1671,7 @@ const login = async (env, request) => {
   const username = String(body.username || "").trim();
   const password = String(body.password || "");
   const totpCode = String(body.totpCode || "").trim();
-  if (!(await consumeCaptchaChallenge(env, body.captchaId))) {
+  if (!(await hasVerifiedCaptchaChallenge(env, body.captchaId))) {
     return json({ error: "请先完成滑块验证" }, 400);
   }
   await ensurePlayerProfileSchema(env);
@@ -1668,6 +1684,7 @@ const login = async (env, request) => {
     .bind(username)
     .first();
   if (!user || !(await verifyPassword(password, user.password_hash))) {
+    await consumeCaptchaChallenge(env, body.captchaId);
     return json({ error: "用户名或密码错误" }, 401);
   }
   if (user.totp_enabled && !(await verifyTotpAsync(user.totp_secret, totpCode))) {
@@ -1675,6 +1692,7 @@ const login = async (env, request) => {
   }
   const cancelledDeletion = await cancelAccountDeletionOnLogin(env, user.id);
   await assertNoPunishment(env, user, ["site_ban", "account_ban"]);
+  await consumeCaptchaChallenge(env, body.captchaId);
   const token = await createSession(env, user);
   await env.DB.prepare("UPDATE users SET last_seen_at = CURRENT_TIMESTAMP WHERE id = ?").bind(user.id).run();
   const owner = await ownerUser(env);

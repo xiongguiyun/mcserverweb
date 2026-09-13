@@ -1782,6 +1782,144 @@ body[data-page="login"] {
   width: 100%;
 }
 
+.slider-captcha {
+  margin-top: 18px;
+  padding: 14px;
+  color: #fff7e8;
+  background: rgba(18, 12, 9, 0.72);
+  border: 1px solid rgba(255, 221, 99, 0.28);
+}
+
+.slider-captcha[hidden] {
+  display: none;
+}
+
+.slider-captcha-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.captcha-refresh-text {
+  padding: 0;
+  color: #ffd85c;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.vertifyWrap {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+}
+
+.canvasArea {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 2 / 1;
+  overflow: hidden;
+  background: #1f2937;
+}
+
+.canvasArea canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.canvasArea .block {
+  z-index: 1;
+  width: 42px;
+  height: 42px;
+  transform: translateX(0);
+  transform-origin: top left;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.35));
+}
+
+.sliderContainer {
+  position: relative;
+  height: 42px;
+  margin-top: 10px;
+  background: rgba(255, 250, 240, 0.14);
+  border: 1px solid rgba(255, 221, 99, 0.3);
+  user-select: none;
+  touch-action: none;
+}
+
+.sliderMask {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  background: rgba(255, 216, 92, 0.24);
+}
+
+.slider {
+  position: absolute;
+  top: 2px;
+  left: 0;
+  z-index: 2;
+  width: 38px;
+  height: 36px;
+  padding: 0;
+  color: #221913;
+  background: #ffd85c;
+  border: 0;
+  cursor: grab;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.24);
+}
+
+.slider:active {
+  cursor: grabbing;
+}
+
+.sliderText {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: rgba(255, 247, 232, 0.82);
+  font-size: 13px;
+  pointer-events: none;
+}
+
+.refreshIcon {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: rgba(34, 25, 19, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.32);
+}
+
+.refreshIcon::before {
+  content: "↻";
+  color: #fff7e8;
+  font-size: 18px;
+}
+
+.loadingContainer {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #fff7e8;
+  background: rgba(18, 12, 9, 0.58);
+}
+
+.loadingContainer[hidden] {
+  display: none;
+}
+
+.slider-captcha.is-verified .sliderContainer {
+  border-color: #85d38a;
+}
+
 .auth-dialog.login-auth-dialog {
   width: min(430px, calc(100vw - 28px));
   padding: clamp(26px, 5vw, 36px);

@@ -5266,6 +5266,199 @@ const setupMobileDock = () => {
   }
 };
 
+const setupSliderCaptcha = ({ onVerified } = {}) => {
+  const section = $("#sliderCaptcha");
+  const canvas = $("#captchaCanvas");
+  const block = $("#captchaBlock");
+  const thumb = $("#captchaThumb");
+  const slider = $("#captchaSlider");
+  const mask = $("#captchaSliderMask");
+  const trackText = $("#captchaTrackText");
+  const loading = $("#captchaLoading");
+  const loadingText = $("#captchaLoadingText");
+  const refreshButtons = [$("#captchaRefresh"), $("#captchaRefreshText")].filter(Boolean);
+  if (!section || !canvas || !block || !thumb || !slider || !mask) {
+    return { ensure: async () => null, getVerifiedId: () => "" };
+  }
+
+  const context = canvas.getContext("2d");
+  const blockContext = block.getContext("2d");
+  let challenge = null;
+  let verifiedId = "";
+  let dragging = false;
+  let startPointerX = 0;
+  let startOffset = 0;
+  let offset = 0;
+  let trail = [];
+  let refreshPromise = null;
+
+  const setLoading = (isLoading, message = "加载中...") => {
+    loading.hidden = !isLoading;
+    loadingText.textContent = message;
+    slider.classList.toggle("is-loading", isLoading);
+  };
+
+  const random = (seed) => {
+    let value = seed >>> 0;
+    return () => {
+      value = (value * 1664525 + 1013904223) >>> 0;
+      return value / 4294967296;
+    };
+  };
+
+  const drawChallenge = () => {
+    if (!challenge || !context || !blockContext) return;
+    const { width, height, pieceSize, radius, targetX, pieceY, backgroundSeed } = challenge;
+    const source = random(backgroundSeed);
+    const gradient = context.createLinearGradient(0, 0, width, height);
+    gradient.addColorStop(0, "#dbeafe");
+    gradient.addColorStop(0.48, "#a7f3d0");
+    gradient.addColorStop(1, "#fde68a");
+    context.clearRect(0, 0, width, height);
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, width, height);
+    for (let i = 0; i < 22; i += 1) {
+      context.fillStyle = `hsla(${Math.round(source() * 360)}, 75%, 42%, .22)`;
+      context.beginPath();
+      context.arc(source() * width, source() * height, 8 + source() * 22, 0, Math.PI * 2);
+      context.fill();
+    }
+    context.fillStyle = "rgba(15, 23, 42, .13)";
+    context.fillRect(0, height * 0.7, width, height * 0.3);
+    context.strokeStyle = "rgba(255, 255, 255, .72)";
+    context.lineWidth = 2;
+    for (let i = 0; i < 8; i += 1) {
+      context.beginPath();
+      context.moveTo(i * 48 - 20, height);
+      context.lineTo(i * 48 + 50, height * 0.68);
+      context.stroke();
+    }
+
+    const drawPiece = (targetContext, x, y, fill = false) => {
+      targetContext.beginPath();
+      targetContext.roundRect(x, y, pieceSize, pieceSize, radius);
+      targetContext.closePath();
+      if (fill) {
+        targetContext.fillStyle = "rgba(255, 255, 255, .16)";
+        targetContext.fill();
+      } else {
+        targetContext.strokeStyle = "rgba(255, 255, 255, .95)";
+        targetContext.lineWidth = 2;
+        targetContext.stroke();
+      }
+    };
+    blockContext.clearRect(0, 0, width, height);
+    blockContext.drawImage(canvas, targetX, pieceY, pieceSize, pieceSize, 0, pieceY, pieceSize, pieceSize);
+    blockContext.clearRect(pieceSize, 0, width, height);
+    drawPiece(blockContext, 0, pieceY, true);
+    context.save();
+    context.globalCompositeOperation = "destination-out";
+    drawPiece(context, targetX, pieceY);
+    context.restore();
+  };
+
+  const setOffset = (nextOffset) => {
+    const maxOffset = Math.max(0, Number(challenge?.targetX || 0));
+    offset = Math.max(0, Math.min(maxOffset, nextOffset));
+    mask.style.width = `${Math.max(0, offset + thumb.offsetWidth / 2)}px`;
+    block.style.transform = `translateX(${offset}px)`;
+    drawChallenge();
+  };
+
+  const reset = async () => {
+    if (refreshPromise) return refreshPromise;
+    refreshPromise = (async () => {
+      verifiedId = "";
+      challenge = null;
+      setOffset(0);
+      setLoading(true);
+      try {
+        challenge = await api("/captcha", { silent: true });
+        canvas.width = challenge.width;
+        canvas.height = challenge.height;
+        block.width = challenge.width;
+        block.height = challenge.height;
+        drawChallenge();
+        trackText.textContent = "向右滑动完成拼图";
+        thumb.disabled = false;
+      } catch (error) {
+        loadingText.textContent = error.message;
+        trackText.textContent = "验证加载失败，请刷新";
+        thumb.disabled = true;
+      } finally {
+        setLoading(false);
+        refreshPromise = null;
+      }
+      return challenge;
+    })();
+    return refreshPromise;
+  };
+
+  const finish = async () => {
+    if (!challenge) return;
+    const average = trail.length ? trail.reduce((sum, item) => sum + item, 0) / trail.length : 0;
+    const variance = trail.length
+      ? trail.reduce((sum, item) => sum + (item - average) ** 2, 0) / trail.length
+      : 0;
+    try {
+      setLoading(true, "正在验证...");
+      await api("/captcha/verify", {
+        method: "POST",
+        silent: true,
+        body: JSON.stringify({ id: challenge.id, x: Math.round(offset), trailStddev: Math.sqrt(variance) }),
+      });
+      verifiedId = challenge.id;
+      trackText.textContent = "验证通过";
+      thumb.disabled = true;
+      section.classList.add("is-verified");
+      onVerified?.(verifiedId);
+    } catch (error) {
+      trackText.textContent = error.message;
+      await reset();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const move = (event) => {
+    if (!dragging || !challenge) return;
+    const next = startOffset + event.clientX - startPointerX;
+    setOffset(next);
+    trail.push(offset);
+  };
+  const stop = () => {
+    if (!dragging) return;
+    dragging = false;
+    thumb.releasePointerCapture?.(thumb._pointerId);
+    if (offset >= Number(challenge?.targetX || 0) - 2) finish();
+    else trackText.textContent = "请将拼图滑到缺口位置";
+  };
+  thumb.addEventListener("pointerdown", (event) => {
+    if (thumb.disabled || !challenge) return;
+    dragging = true;
+    thumb._pointerId = event.pointerId;
+    thumb.setPointerCapture?.(event.pointerId);
+    startPointerX = event.clientX;
+    startOffset = offset;
+    trail = [offset];
+    trackText.textContent = "继续向右滑动";
+  });
+  thumb.addEventListener("pointermove", move);
+  thumb.addEventListener("pointerup", stop);
+  thumb.addEventListener("pointercancel", stop);
+  refreshButtons.forEach((button) => button.addEventListener("click", reset));
+
+  return {
+    ensure: async () => {
+      section.hidden = false;
+      if (verifiedId) return verifiedId;
+      await reset();
+      return verifiedId;
+    },
+    getVerifiedId: () => verifiedId,
+  };
+};
+
 const setupLoginPage = () => {
   if (page !== "login") return;
   const loginForm = $("#loginForm");
@@ -5277,6 +5470,11 @@ const setupLoginPage = () => {
   const registerChoiceButton = $("#registerChoiceButton");
   const registerDialog = $("#registerDialog");
   let pendingLoginCredentials = null;
+  const captcha = setupSliderCaptcha();
+  const mountCaptcha = (dialog) => {
+    const section = $("#sliderCaptcha");
+    if (section && dialog && section.parentNode !== dialog) dialog.insertBefore(section, dialog.querySelector("form"));
+  };
   const registerBlocked = () => Boolean(state.site?.maintenanceMode);
   const redirectAfterAuth = (user, result = {}) => {
     state.me = user;
@@ -5308,10 +5506,16 @@ const setupLoginPage = () => {
   };
   setupLoginPage.syncRegisterAvailability = syncRegisterAvailability;
   syncRegisterAvailability();
-  $("#loginChoiceButton")?.addEventListener("click", () => openAuthDialog(loginDialog, $("#loginUsername")));
+  $("#loginChoiceButton")?.addEventListener("click", async () => {
+    mountCaptcha(loginDialog);
+    openAuthDialog(loginDialog, $("#loginUsername"));
+    await captcha.ensure();
+  });
   $("#registerChoiceButton")?.addEventListener("click", () => {
     if (registerBlocked()) return;
+    mountCaptcha(registerDialog);
     openAuthDialog(registerDialog, $("#registerUsername"));
+    captcha.ensure();
   });
   otpDialog?.addEventListener("close", resetOtpStep);
   $("#loginOtpBack")?.addEventListener("click", () => {
@@ -5322,7 +5526,13 @@ const setupLoginPage = () => {
     const credentials = {
       username: $("#loginUsername").value.trim(),
       password: $("#loginPassword").value,
+      captchaId: captcha.getVerifiedId(),
     };
+    if (!credentials.captchaId) {
+      await captcha.ensure();
+      showToast("请先完成滑块验证", { variant: "error" });
+      return;
+    }
     const submitButton = loginForm.querySelector('button[type="submit"]');
     if (submitButton) submitButton.disabled = true;
     try {
@@ -5383,6 +5593,11 @@ const setupLoginPage = () => {
       showToast("维护模式中暂不开放注册");
       return;
     }
+    if (!captcha.getVerifiedId()) {
+      await captcha.ensure();
+      showToast("请先完成滑块验证", { variant: "error" });
+      return;
+    }
     const result = await api("/register", {
       method: "POST",
       body: JSON.stringify({
@@ -5390,6 +5605,7 @@ const setupLoginPage = () => {
         email: $("#registerEmail").value.trim(),
         password: $("#registerPassword").value,
         inviteCode: $("#registerInviteCode").value.trim(),
+        captchaId: captcha.getVerifiedId(),
       }),
     });
     redirectAfterAuth(result.user, result);
