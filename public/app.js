@@ -75,6 +75,22 @@ state.site = normalizeSiteState(state.site);
 const page = document.body.dataset.page;
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
+document.addEventListener(
+  "error",
+  (event) => {
+    const image = event.target;
+    if (
+      !(image instanceof HTMLImageElement) ||
+      image.dataset.fallbackApplied === "true" ||
+      !image.matches(".user-avatar, .meta-author-icon, .comment-avatar img, .skin-stage img, .reader-author-skin img, .mc-status-icon")
+    ) {
+      return;
+    }
+    image.dataset.fallbackApplied = "true";
+    image.src = "/assets/unbound-skin.png";
+  },
+  true,
+);
 const serverAddress = () => "play.blockhaven.cn";
 let maintenanceRequestId = 0;
 let maintenanceEditorExpanded = false;
@@ -3776,9 +3792,8 @@ const renderProfilePage = () => {
       <section class="profile-invite">
         <div class="profile-invite-head">
           <h3>邀请码</h3>
-          <button class="button small ghost" type="button" id="copyInviteCodeButton" data-invite-code="${escapeHtml(inviteCode)}" ${inviteCode ? "" : "disabled"}>复制</button>
         </div>
-        <code>${escapeHtml(inviteCode || "暂无邀请码")}</code>
+        <code class="profile-invite-code" role="button" tabindex="${inviteCode ? "0" : "-1"}" data-invite-code="${escapeHtml(inviteCode)}" aria-label="${inviteCode ? "点击复制邀请码" : "暂无邀请码"}">${escapeHtml(inviteCode || "暂无邀请码")}</code>
         <p>新玩家注册时填写此码。每个邀请码只能使用一次，被使用后会自动换成新的。</p>
       </section>`
     : "";
@@ -3946,11 +3961,18 @@ const queueRenderProfilePage = (searchCursor = null) => {
 };
 
 const bindProfileInviteCopy = () => {
-  $("#copyInviteCodeButton")?.addEventListener("click", async (event) => {
+  const copyInviteCode = async (event) => {
     const inviteCode = event.currentTarget.dataset.inviteCode;
     if (!inviteCode) return;
     await navigator.clipboard?.writeText(inviteCode).catch(() => {});
     showToast("邀请码已复制");
+  };
+  const inviteCode = $(".profile-invite-code");
+  inviteCode?.addEventListener("click", copyInviteCode);
+  inviteCode?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    copyInviteCode(event);
   });
 };
 
