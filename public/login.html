@@ -25,7 +25,6 @@
         <section class="slider-captcha" id="sliderCaptcha" aria-labelledby="sliderCaptchaTitle" hidden>
           <div class="slider-captcha-head">
             <strong id="sliderCaptchaTitle">安全验证</strong>
-            <button class="captcha-refresh-text" type="button" id="captchaRefreshText">刷新</button>
           </div>
           <div class="vertifyWrap" id="captchaVertify">
             <div class="canvasArea">
@@ -38,7 +37,7 @@
                   <span class="sliderIcon" aria-hidden="true">→</span>
                 </button>
               </div>
-              <div class="sliderText" id="captchaTrackText">向右滑动完成拼图</div>
+              <div class="sliderText" id="captchaTrackText"></div>
             </div>
             <button class="refreshIcon" id="captchaRefresh" type="button" aria-label="刷新验证"></button>
             <div class="loadingContainer" id="captchaLoading">
@@ -69,7 +68,6 @@
             id="loginTotpCode"
             data-ui-otp
             data-otp-label="六位验证码"
-            data-otp-hint="支持直接粘贴完整验证码"
             inputmode="numeric"
             maxlength="6"
             autocomplete="one-time-code"

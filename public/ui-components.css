@@ -965,12 +965,11 @@
 }
 
 .maintenance-settings-grid .form-row {
-  grid-template-rows: auto 108px;
+  grid-template-rows: auto auto 44px;
   min-width: 0;
   margin-bottom: 0;
 }
 
-#maintenanceTitleInput,
 #maintenanceDescriptionInput {
   box-sizing: border-box;
   width: 100%;
@@ -979,6 +978,10 @@
 }
 
 #maintenanceTitleInput {
+  box-sizing: border-box;
+  width: 100%;
+  height: 44px;
+  min-height: 44px;
   padding: 10px;
 }
 
@@ -1291,12 +1294,12 @@
   }
 
   .mobile-dock-label {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    white-space: nowrap;
+    display: block;
+    margin-top: 2px;
+    color: inherit;
+    font-size: 10px;
+    font-weight: 800;
+    line-height: 1;
   }
 
   .trash-dock {

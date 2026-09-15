@@ -401,6 +401,7 @@ export const enhanceOtpInput = (source, { label = "Verification code", hint = ""
   source.classList.add("tg-otp-source");
   source.tabIndex = -1;
   const digits = [];
+  let syncing = false;
 
   const sync = (value = digits.map((digit) => digit.value).join("")) => {
     const clean = String(value).replace(/\D/g, "").slice(0, length);
@@ -408,7 +409,11 @@ export const enhanceOtpInput = (source, { label = "Verification code", hint = ""
       digit.value = clean[index] || "";
     });
     source.value = clean;
-    source.dispatchEvent(new Event("input", { bubbles: true }));
+    if (!syncing) {
+      syncing = true;
+      source.dispatchEvent(new Event("input", { bubbles: true }));
+      syncing = false;
+    }
     root.classList.toggle("is-complete", clean.length === length);
   };
 
@@ -429,6 +434,11 @@ export const enhanceOtpInput = (source, { label = "Verification code", hint = ""
     digit.setAttribute("aria-label", `${label} ${index + 1}`);
     digit.addEventListener("input", (event) => {
       const value = event.target.value.replace(/\D/g, "");
+      if (value.length > 1) {
+        sync(value);
+        digits[Math.min(value.length, length) - 1]?.focus();
+        return;
+      }
       event.target.value = value.slice(-1);
       sync();
       if (event.target.value) digits[index + 1]?.focus();
@@ -451,12 +461,9 @@ export const enhanceOtpInput = (source, { label = "Verification code", hint = ""
     digits.push(digit);
     cells.append(digit);
   }
-  if (hint) {
-    const hintNode = document.createElement("span");
-    hintNode.className = "tg-otp-hint";
-    hintNode.textContent = hint;
-    root.append(hintNode);
-  }
+  source.addEventListener("input", () => {
+    if (!syncing) sync(source.value);
+  });
   sync(source.value);
   const controller = {
     root,

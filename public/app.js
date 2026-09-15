@@ -5272,7 +5272,7 @@ const setupSliderCaptcha = ({ onVerified } = {}) => {
   const trackText = $("#captchaTrackText");
   const loading = $("#captchaLoading");
   const loadingText = $("#captchaLoadingText");
-  const refreshButtons = [$("#captchaRefresh"), $("#captchaRefreshText")].filter(Boolean);
+  const refreshButtons = [$("#captchaRefresh")].filter(Boolean);
   if (!section || !canvas || !block || !thumb || !slider || !mask) {
     return { ensure: async () => null, getVerifiedId: () => "" };
   }
@@ -5380,7 +5380,10 @@ const setupSliderCaptcha = ({ onVerified } = {}) => {
   };
 
   const setOffset = (nextOffset) => {
-    const maxOffset = Math.max(0, Number(challenge?.targetX || 0));
+    const maxOffset = Math.max(
+      0,
+      Math.min(Number(challenge?.targetX || 0), slider.clientWidth - thumb.offsetWidth),
+    );
     offset = Math.max(0, Math.min(maxOffset, nextOffset));
     mask.style.width = `${Math.max(0, offset + thumb.offsetWidth)}px`;
     thumb.style.left = `${offset}px`;
@@ -5403,7 +5406,7 @@ const setupSliderCaptcha = ({ onVerified } = {}) => {
         block.height = challenge.height;
         setOffset(0);
         drawChallenge();
-        trackText.textContent = "向右滑动完成拼图";
+        trackText.textContent = "";
         thumb.disabled = false;
       } catch (error) {
         loadingText.textContent = error.message;
@@ -5465,7 +5468,7 @@ const setupSliderCaptcha = ({ onVerified } = {}) => {
     startPointerY = event.clientY;
     startOffset = offset;
     trail = [0];
-    trackText.textContent = "继续向右滑动";
+    trackText.textContent = "";
   });
   thumb.addEventListener("pointermove", move);
   thumb.addEventListener("pointerup", stop);
