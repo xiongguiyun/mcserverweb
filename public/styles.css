@@ -584,13 +584,11 @@ button {
     gap: 8px;
     color: #2a1d16;
     background: rgba(255, 250, 240, 0.76);
-    border: 1px solid rgba(255, 255, 255, 0.74);
-    border-bottom: 1px solid rgba(199, 154, 93, 0.35);
+    border: 0;
     border-radius: 20px;
     box-shadow:
       0 10px 24px rgba(42, 29, 22, 0.15),
-      0 3px 7px rgba(42, 29, 22, 0.08),
-      inset 0 1px 0 rgba(255, 255, 255, 0.86);
+      0 3px 7px rgba(42, 29, 22, 0.08);
     backdrop-filter: blur(22px) saturate(1.22);
     -webkit-backdrop-filter: blur(22px) saturate(1.22);
   }
@@ -665,9 +663,28 @@ button {
     box-shadow: 0 3px 0 rgba(106, 69, 35, 0.16);
   }
 
+  .site-header .logout-button {
+    width: auto;
+    min-height: 38px;
+    padding: 0 12px;
+    color: #2a1d16;
+    background: rgba(255, 250, 240, 0.68);
+    border: 2px solid #1b120d;
+    border-radius: 4px;
+    box-shadow: 0 3px 0 rgba(106, 69, 35, 0.16);
+  }
+
   .site-header .logout-label,
   .site-header .interactive-hover-label,
   .site-header .interactive-hover-reveal {
+    display: inline;
+  }
+
+  .site-header .logout-label {
+    font-size: 13px;
+  }
+
+  .site-header .logout-button .mobile-auth-icon {
     display: none;
   }
 
@@ -689,16 +706,24 @@ button {
 
 @media (max-width: 620px) {
   .site-header .user-entry:hover,
-  .site-header .logout-button:hover,
   .site-header .interactive-hover-button:hover {
     background: rgba(255, 241, 197, 0.88);
     transform: translateY(-2px);
   }
 
   .site-header .user-entry:active,
-  .site-header .logout-button:active,
   .site-header .interactive-hover-button:active {
     transform: translateY(2px) scale(0.96);
+    box-shadow: 0 1px 0 rgba(106, 69, 35, 0.2);
+  }
+
+  .site-header .logout-button:hover {
+    background: #fff1c5;
+    transform: translateY(-1px);
+  }
+
+  .site-header .logout-button:active {
+    transform: translateY(3px);
     box-shadow: 0 1px 0 rgba(106, 69, 35, 0.2);
   }
 
