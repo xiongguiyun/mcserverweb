@@ -301,5 +301,5 @@ export const renderQrSvg = (text, options = {}) => {
     }
   }
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${viewSize} ${viewSize}" role="img" aria-label="2FA 二维码"><rect width="${viewSize}" height="${viewSize}" fill="#fff"/> <g fill="#111">${rects.join("")}</g></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${viewSize} ${viewSize}" role="img" aria-label="两步验证二维码"><rect width="${viewSize}" height="${viewSize}" fill="#fff"/> <g fill="#111">${rects.join("")}</g></svg>`;
 };

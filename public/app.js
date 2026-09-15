@@ -1741,13 +1741,13 @@ const totpPanelTemplate = (profile) => {
   if (!profile?.isSelf || profile.role !== "admin") return "";
   return `
     <section class="account-security" id="accountSecurity">
-      <h3>双重验证</h3>
+      <h3>两步验证</h3>
       <p>${profile.totp_enabled ? "当前已开启，登录后台时需要填写 6 位验证码。" : "开启后，登录后台时需要额外填写 Authenticator 验证码。"}</p>
       <div class="security-form">
         ${
           profile.totp_enabled
-            ? `<button class="button danger" type="button" id="disableTotpButton">关闭 2FA</button>`
-            : `<button class="button primary" type="button" id="beginTotpButton">开启 2FA</button>`
+            ? `<button class="button danger" type="button" id="disableTotpButton">关闭两步验证</button>`
+            : `<button class="button primary" type="button" id="beginTotpButton">开启两步验证</button>`
         }
       </div>
       <div class="totp-panel" id="totpSetupPanel" hidden></div>
@@ -1764,7 +1764,7 @@ const renderTotpSetupPanel = async (setupPanel, result) => {
     <p>${mobileLayout ? "可以直接跳转验证器，也可以扫描二维码或手动输入密钥。" : "在电脑上扫码添加，也可以切换成手动输入密钥。"}</p>
     ${mobileLayout ? `<a class="button ghost small mobile-authenticator-link" href="${escapeHtml(qrResult.uri)}">打开验证器</a>` : ""}
     <div class="totp-visual-card" id="totpVisualCard">
-      <div class="totp-qr-shell" id="totpQrShell" aria-label="2FA 二维码">${qrMarkup}</div>
+      <div class="totp-qr-shell" id="totpQrShell" aria-label="两步验证二维码">${qrMarkup}</div>
     </div>
     <button class="totp-text-toggle" type="button" id="totpSecretToggle">切换成密钥</button>
     <div class="totp-secret-card" id="totpSecretCard" hidden>
@@ -1798,7 +1798,7 @@ const renderTotpSetupPanel = async (setupPanel, result) => {
     const code = $("#totpConfirmCode")?.value.trim() || "";
     await api("/me/totp/confirm", { method: "POST", body: JSON.stringify({ code }) });
     await refreshPageData();
-    showToast("2FA 已开启");
+    showToast("两步验证已开启");
   });
 };
 
@@ -1816,16 +1816,16 @@ const bindTotpSecurity = () => {
   });
 
   disableButton?.addEventListener("click", async () => {
-    const confirmed = await showConfirmDialog("确定关闭 2FA 吗？", {
-      title: "关闭双重验证",
+    const confirmed = await showConfirmDialog("确定关闭两步验证吗？", {
+      title: "关闭两步验证",
       eyebrow: "安全设置",
-      confirmLabel: "关闭 2FA",
+      confirmLabel: "关闭两步验证",
       confirmTone: "danger",
     });
     if (!confirmed) return;
     await api("/me/totp", { method: "DELETE" });
     await refreshPageData();
-    showToast("2FA 已关闭");
+    showToast("两步验证已关闭");
   });
 };
 
