@@ -674,18 +674,18 @@ button {
   }
 
   .site-header .logout-button {
-    width: auto;
-    min-height: 38px;
-    padding: 0 12px;
+    width: 40px;
+    min-height: 40px;
+    padding: 0;
     color: #2a1d16;
-    background: rgba(255, 250, 240, 0.68);
-    border: 2px solid #1b120d;
-    border-radius: 4px;
+    background: rgba(255, 250, 240, 0.86);
+    border: 1px solid rgba(199, 154, 93, 0.54);
+    border-radius: 50%;
     box-shadow: 0 3px 0 rgba(106, 69, 35, 0.16);
   }
 
   .site-header .logout-label {
-    display: inline;
+    display: none;
   }
 
   .site-header .logout-label {
@@ -693,7 +693,7 @@ button {
   }
 
   .site-header .logout-button .mobile-auth-icon {
-    display: none;
+    display: block;
   }
 
   .site-header .mobile-auth-icon {
@@ -746,11 +746,11 @@ button {
 
   .site-header .logout-button:hover {
     background: #fff1c5;
-    transform: translateY(-1px);
+    transform: translateY(-2px);
   }
 
   .site-header .logout-button:active {
-    transform: translateY(3px);
+    transform: translateY(2px) scale(0.96);
     box-shadow: 0 1px 0 rgba(106, 69, 35, 0.2);
   }
 
@@ -4590,29 +4590,30 @@ dialog {
     left: 50%;
     bottom: 12px;
     display: inline-grid;
-    grid-template-columns: repeat(auto-fit, 56px);
+    grid-template-columns: repeat(auto-fit, 50px);
     width: max-content;
     max-width: calc(100vw - 32px);
     min-height: 64px;
+    height: 64px;
     padding: 6px 8px;
     gap: 0;
     overflow: visible;
-    background: rgba(42, 29, 22, 0.88);
-    border: 1px solid rgba(215, 188, 139, 0.46);
-    border-radius: 18px;
+    background: rgba(48, 39, 33, 0.94);
+    border: 1px solid rgba(113, 95, 82, 0.72);
+    border-radius: 17px;
     box-shadow:
-      0 9px 20px rgba(42, 29, 22, 0.24),
-      0 3px 0 rgba(19, 12, 8, 0.26);
-    backdrop-filter: blur(16px) saturate(1.1);
-    -webkit-backdrop-filter: blur(16px) saturate(1.1);
+      0 8px 16px rgba(19, 12, 8, 0.25),
+      0 2px 0 rgba(19, 12, 8, 0.32);
+    backdrop-filter: blur(14px) saturate(1.05);
+    -webkit-backdrop-filter: blur(14px) saturate(1.05);
   }
 
   nav.top-nav.mobile-dock > a {
     position: relative;
     display: grid;
-    grid-template-rows: 34px 16px;
-    width: 56px;
-    min-width: 56px;
+    grid-template-rows: 40px 16px;
+    width: 50px;
+    min-width: 50px;
     min-height: 52px;
     padding: 2px 0;
     color: #f7ead2;
@@ -4634,8 +4635,8 @@ dialog {
     position: absolute;
     top: 1px;
     left: 50%;
-    width: 34px;
-    height: 34px;
+    width: 42px;
+    height: 42px;
     transform: translateX(-50%);
     background: #ffdd63;
     border-radius: 50%;
@@ -4649,8 +4650,8 @@ dialog {
     z-index: 1;
     align-self: center;
     justify-self: center;
-    width: 23px;
-    height: 23px;
+    width: 22px;
+    height: 22px;
     margin: 0;
     fill: none;
     stroke: currentColor;
@@ -4678,9 +4679,9 @@ dialog {
     left: auto;
     bottom: auto;
     display: grid;
-    grid-template-rows: 34px 16px;
-    width: 56px;
-    min-width: 56px;
+    grid-template-rows: 40px 16px;
+    width: 50px;
+    min-width: 50px;
     min-height: 52px;
     padding: 2px 0;
     color: #f7ead2;
