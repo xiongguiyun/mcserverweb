@@ -8067,3 +8067,74 @@ body[data-page="admin"] #adminUsername {
     transform: none !important;
   }
 }
+/* Reference-style glass dock: icons only, with a soft ivory capsule surface. */
+@media (max-width: 620px) {
+  body.mobile-dock-ready {
+    padding-bottom: 94px;
+  }
+
+  nav.top-nav.mobile-dock {
+    bottom: max(18px, env(safe-area-inset-bottom));
+    grid-template-columns: repeat(auto-fit, 58px);
+    min-height: 74px;
+    height: 74px;
+    padding: 7px 12px;
+    gap: 2px;
+    background:
+      linear-gradient(180deg, rgba(255, 253, 249, 0.88), rgba(242, 232, 222, 0.84)),
+      rgba(255, 255, 255, 0.7);
+    border: 1px solid rgba(104, 79, 62, 0.34);
+    border-radius: 40px;
+    box-shadow:
+      0 16px 32px rgba(53, 35, 24, 0.18),
+      0 3px 7px rgba(53, 35, 24, 0.12),
+      inset 0 2px 0 rgba(255, 255, 255, 0.9),
+      inset 0 -1px 0 rgba(105, 78, 60, 0.12);
+    backdrop-filter: blur(20px) saturate(115%);
+    -webkit-backdrop-filter: blur(20px) saturate(115%);
+  }
+
+  nav.top-nav.mobile-dock > a,
+  nav.top-nav.mobile-dock .trash-dock {
+    display: grid;
+    grid-template-rows: 1fr;
+    width: 58px;
+    min-width: 58px;
+    min-height: 58px;
+    height: 58px;
+    padding: 0;
+    color: #171310;
+    border-radius: 50%;
+    align-items: center;
+    justify-items: center;
+  }
+
+  nav.top-nav.mobile-dock > a.active,
+  nav.top-nav.mobile-dock > a:hover,
+  nav.top-nav.mobile-dock .trash-dock:hover,
+  nav.top-nav.mobile-dock .trash-dock.active {
+    color: #171310;
+    background: rgba(255, 255, 255, 0.3);
+    transform: translateY(-1px);
+  }
+
+  nav.top-nav.mobile-dock > a.active::before {
+    display: none;
+  }
+
+  nav.top-nav.mobile-dock .mobile-dock-icon {
+    width: 32px;
+    height: 32px;
+    stroke-width: 1.7;
+  }
+
+  nav.top-nav.mobile-dock .mobile-dock-label,
+  nav.top-nav.mobile-dock .trash-dock-label {
+    display: none;
+  }
+
+  nav.top-nav.mobile-dock .trash-count-badge {
+    top: 6px;
+    right: 2px;
+  }
+}
