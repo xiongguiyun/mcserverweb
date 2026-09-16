@@ -785,31 +785,31 @@ button {
 /* Final close-button contract: keep every modal close control visually consistent. */
 .dialog-close-button,
 .comment-quote-popover-head button[data-comment-close-quote-manager] {
-  width: 40px !important;
-  height: 40px !important;
-  min-width: 40px !important;
-  min-height: 40px !important;
-  color: #2b2928 !important;
-  background: rgba(246, 247, 248, 0.92) !important;
-  border: 1px solid rgba(150, 155, 160, 0.34) !important;
-  border-radius: 7px !important;
-  box-shadow: 0 3px 10px rgba(35, 32, 29, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;
+  width: 30px !important;
+  height: 30px !important;
+  min-width: 30px !important;
+  min-height: 30px !important;
+  color: #634d3b !important;
+  background: rgba(247, 237, 218, 0.86) !important;
+  border: 1px solid rgba(173, 132, 79, 0.36) !important;
+  border-radius: 50% !important;
+  box-shadow: 0 2px 7px rgba(72, 48, 29, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.7) !important;
 }
 
 .dialog-close-button::before,
 .comment-quote-popover-head button[data-comment-close-quote-manager]::before {
   content: "×";
-  font-size: 26px;
+  font-size: 20px;
   font-weight: 400;
   line-height: 1;
 }
 
 .dialog-close-button:hover,
 .comment-quote-popover-head button[data-comment-close-quote-manager]:hover {
-  color: #111 !important;
-  background: #fff !important;
-  border-color: rgba(95, 100, 106, 0.48) !important;
-  box-shadow: 0 5px 14px rgba(35, 32, 29, 0.16) !important;
+  color: #3d2c20 !important;
+  background: rgba(255, 244, 214, 0.98) !important;
+  border-color: rgba(156, 103, 44, 0.5) !important;
+  box-shadow: 0 3px 9px rgba(72, 48, 29, 0.16) !important;
   transform: translateY(-1px);
 }
 
@@ -8207,31 +8207,39 @@ body[data-page="admin"] #adminUsername {
 /* Keep all close controls consistent after the legacy component overrides. */
 .dialog-close-button,
 .comment-quote-popover-head button[data-comment-close-quote-manager] {
-  width: 40px !important;
-  height: 40px !important;
-  min-width: 40px !important;
-  min-height: 40px !important;
+  width: 30px !important;
+  height: 30px !important;
+  min-width: 30px !important;
+  min-height: 30px !important;
   color: #2b2928 !important;
-  background: rgba(246, 247, 248, 0.92) !important;
-  border: 1px solid rgba(150, 155, 160, 0.34) !important;
-  border-radius: 7px !important;
-  box-shadow: 0 3px 10px rgba(35, 32, 29, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;
+  background: rgba(247, 237, 218, 0.92) !important;
+  border: 1px solid rgba(173, 132, 79, 0.42) !important;
+  border-radius: 50% !important;
+  box-shadow: 0 4px 0 rgba(106, 69, 35, 0.3), 0 6px 10px rgba(72, 48, 29, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.72) !important;
   font-size: 0 !important;
+  transition: transform 150ms cubic-bezier(0.3, 0, 0.2, 1), box-shadow 150ms ease, filter 150ms ease !important;
 }
 
 .dialog-close-button::before,
 .comment-quote-popover-head button[data-comment-close-quote-manager]::before {
   content: "×";
-  font-size: 26px;
+  font-size: 20px;
   font-weight: 400;
   line-height: 1;
 }
 
 .dialog-close-button:hover,
 .comment-quote-popover-head button[data-comment-close-quote-manager]:hover {
-  color: #111 !important;
-  background: #fff !important;
-  border-color: rgba(95, 100, 106, 0.48) !important;
-  box-shadow: 0 5px 14px rgba(35, 32, 29, 0.16) !important;
+  color: #3d2c20 !important;
+  background: rgba(255, 244, 214, 0.98) !important;
+  border-color: rgba(156, 103, 44, 0.5) !important;
+  box-shadow: 0 5px 0 rgba(106, 69, 35, 0.26), 0 8px 14px rgba(72, 48, 29, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.82) !important;
   transform: translateY(-1px);
+}
+
+.dialog-close-button:active,
+.comment-quote-popover-head button[data-comment-close-quote-manager]:active {
+  transform: translateY(3px) scale(0.94) !important;
+  box-shadow: 0 1px 0 rgba(106, 69, 35, 0.32), 0 2px 5px rgba(72, 48, 29, 0.12), inset 0 1px 2px rgba(106, 69, 35, 0.12) !important;
+  filter: brightness(0.97) !important;
 }
