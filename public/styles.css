@@ -8070,40 +8070,40 @@ body[data-page="admin"] #adminUsername {
 /* Reference-style glass dock: icons only, with a soft ivory capsule surface. */
 @media (max-width: 620px) {
   body.mobile-dock-ready {
-    padding-bottom: 94px;
+    padding-bottom: 82px;
   }
 
   nav.top-nav.mobile-dock {
-    bottom: max(18px, env(safe-area-inset-bottom));
-    grid-template-columns: repeat(auto-fit, 58px);
-    min-height: 74px;
-    height: 74px;
-    padding: 7px 12px;
-    gap: 2px;
+    bottom: max(12px, env(safe-area-inset-bottom));
+    grid-template-columns: repeat(auto-fit, 48px);
+    min-height: 60px;
+    height: 60px;
+    padding: 5px 9px;
+    gap: 0;
     background:
-      linear-gradient(180deg, rgba(255, 253, 249, 0.88), rgba(242, 232, 222, 0.84)),
-      rgba(255, 255, 255, 0.7);
-    border: 1px solid rgba(104, 79, 62, 0.34);
+      linear-gradient(180deg, rgba(83, 72, 65, 0.94), rgba(48, 41, 37, 0.96)),
+      rgba(48, 41, 37, 0.94);
+    border: 1px solid rgba(255, 239, 220, 0.24);
     border-radius: 40px;
     box-shadow:
-      0 16px 32px rgba(53, 35, 24, 0.18),
-      0 3px 7px rgba(53, 35, 24, 0.12),
-      inset 0 2px 0 rgba(255, 255, 255, 0.9),
-      inset 0 -1px 0 rgba(105, 78, 60, 0.12);
-    backdrop-filter: blur(20px) saturate(115%);
-    -webkit-backdrop-filter: blur(20px) saturate(115%);
+      0 12px 24px rgba(24, 16, 12, 0.3),
+      0 2px 5px rgba(24, 16, 12, 0.24),
+      inset 0 1px 0 rgba(255, 239, 220, 0.18),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(18px) saturate(110%);
+    -webkit-backdrop-filter: blur(18px) saturate(110%);
   }
 
   nav.top-nav.mobile-dock > a,
   nav.top-nav.mobile-dock .trash-dock {
     display: grid;
     grid-template-rows: 1fr;
-    width: 58px;
-    min-width: 58px;
-    min-height: 58px;
-    height: 58px;
+    width: 48px;
+    min-width: 48px;
+    min-height: 48px;
+    height: 48px;
     padding: 0;
-    color: #171310;
+    color: #f5eee7;
     border-radius: 50%;
     align-items: center;
     justify-items: center;
@@ -8113,8 +8113,8 @@ body[data-page="admin"] #adminUsername {
   nav.top-nav.mobile-dock > a:hover,
   nav.top-nav.mobile-dock .trash-dock:hover,
   nav.top-nav.mobile-dock .trash-dock.active {
-    color: #171310;
-    background: rgba(255, 255, 255, 0.3);
+    color: #fffaf4;
+    background: rgba(255, 244, 226, 0.12);
     transform: translateY(-1px);
   }
 
@@ -8123,8 +8123,8 @@ body[data-page="admin"] #adminUsername {
   }
 
   nav.top-nav.mobile-dock .mobile-dock-icon {
-    width: 32px;
-    height: 32px;
+    width: 27px;
+    height: 27px;
     stroke-width: 1.7;
   }
 
