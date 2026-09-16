@@ -1221,6 +1221,10 @@ const renderAuth = () => {
   }
 
   actions.innerHTML = `
+    <a class="user-badge user-entry" href="${profileHref(state.me.username)}" aria-label="${escapeHtml(state.me.username)}">
+      <img class="user-avatar" src="${activeAvatarSrc(state.me, 32)}" alt="" />
+      <span class="user-chip">${escapeHtml(state.me.username)}</span>
+    </a>
     <button class="button small ghost logout-button" id="logoutButton" type="button" aria-label="退出">
       <span class="logout-label">退出</span>
       <svg class="mobile-auth-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" /></svg>

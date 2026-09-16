@@ -640,6 +640,18 @@ button {
     box-shadow: 0 3px 0 rgba(106, 69, 35, 0.16);
   }
 
+  /* Match desktop identity treatment while keeping only the avatar on mobile. */
+  .site-header .auth-actions .user-entry {
+    width: 40px;
+    height: 40px;
+    gap: 0;
+    padding: 3px;
+  }
+
+  .site-header .auth-actions .user-chip {
+    display: none;
+  }
+
   .site-header .user-chip {
     display: none;
   }
@@ -649,17 +661,6 @@ button {
     height: 32px;
     border-color: rgba(42, 29, 22, 0.22);
     border-radius: 50%;
-  }
-
-  .site-header .logout-button {
-    width: 40px;
-    min-height: 40px;
-    padding: 0;
-    color: #2a1d16;
-    background: rgba(255, 250, 240, 0.68);
-    border: 1px solid rgba(199, 154, 93, 0.54);
-    border-radius: 50%;
-    box-shadow: 0 3px 0 rgba(106, 69, 35, 0.16);
   }
 
   .site-header .interactive-hover-button {
@@ -779,6 +780,37 @@ button {
   .forum-search-panel {
     transition: none !important;
   }
+}
+
+/* Final close-button contract: keep every modal close control visually consistent. */
+.dialog-close-button,
+.comment-quote-popover-head button[data-comment-close-quote-manager] {
+  width: 40px !important;
+  height: 40px !important;
+  min-width: 40px !important;
+  min-height: 40px !important;
+  color: #2b2928 !important;
+  background: rgba(246, 247, 248, 0.92) !important;
+  border: 1px solid rgba(150, 155, 160, 0.34) !important;
+  border-radius: 7px !important;
+  box-shadow: 0 3px 10px rgba(35, 32, 29, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;
+}
+
+.dialog-close-button::before,
+.comment-quote-popover-head button[data-comment-close-quote-manager]::before {
+  content: "×";
+  font-size: 26px;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.dialog-close-button:hover,
+.comment-quote-popover-head button[data-comment-close-quote-manager]:hover {
+  color: #111 !important;
+  background: #fff !important;
+  border-color: rgba(95, 100, 106, 0.48) !important;
+  box-shadow: 0 5px 14px rgba(35, 32, 29, 0.16) !important;
+  transform: translateY(-1px);
 }
 
 .feature-band,
@@ -5574,6 +5606,39 @@ dialog.is-closing::backdrop {
     filter 0.18s ease;
 }
 
+/* Unified compact close control, inspired by the reference modal. */
+.dialog-close-button,
+.comment-quote-popover-head button[data-comment-close-quote-manager],
+.profile-trash-popover .dialog-close-button {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  min-height: 40px;
+  color: #2b2928;
+  background: rgba(246, 247, 248, 0.92);
+  border: 1px solid rgba(150, 155, 160, 0.34);
+  border-radius: 7px;
+  box-shadow: 0 3px 10px rgba(35, 32, 29, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  font-size: 0;
+}
+
+.dialog-close-button::before,
+.comment-quote-popover-head button[data-comment-close-quote-manager]::before {
+  content: "×";
+  font-size: 26px;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.dialog-close-button:hover,
+.comment-quote-popover-head button[data-comment-close-quote-manager]:hover {
+  color: #111;
+  background: #fff;
+  border-color: rgba(95, 100, 106, 0.48);
+  box-shadow: 0 5px 14px rgba(35, 32, 29, 0.16);
+  transform: translateY(-1px);
+}
+
 .dialog-close-button:hover {
   transform: translateY(-1px);
   background: linear-gradient(180deg, #fff1c5, #f5a43a);
@@ -8137,4 +8202,36 @@ body[data-page="admin"] #adminUsername {
     top: 6px;
     right: 2px;
   }
+}
+
+/* Keep all close controls consistent after the legacy component overrides. */
+.dialog-close-button,
+.comment-quote-popover-head button[data-comment-close-quote-manager] {
+  width: 40px !important;
+  height: 40px !important;
+  min-width: 40px !important;
+  min-height: 40px !important;
+  color: #2b2928 !important;
+  background: rgba(246, 247, 248, 0.92) !important;
+  border: 1px solid rgba(150, 155, 160, 0.34) !important;
+  border-radius: 7px !important;
+  box-shadow: 0 3px 10px rgba(35, 32, 29, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;
+  font-size: 0 !important;
+}
+
+.dialog-close-button::before,
+.comment-quote-popover-head button[data-comment-close-quote-manager]::before {
+  content: "×";
+  font-size: 26px;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.dialog-close-button:hover,
+.comment-quote-popover-head button[data-comment-close-quote-manager]:hover {
+  color: #111 !important;
+  background: #fff !important;
+  border-color: rgba(95, 100, 106, 0.48) !important;
+  box-shadow: 0 5px 14px rgba(35, 32, 29, 0.16) !important;
+  transform: translateY(-1px);
 }
