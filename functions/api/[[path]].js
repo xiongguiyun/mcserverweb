@@ -182,7 +182,7 @@ const sanitizeHtml = (html) => {
       return "";
     }
     const { width, height } = iframeMediaSize(iframe);
-    return `<iframe src="${src}" width="${width}" height="${height}" style="width: min(100%, ${width}px); height: auto; aspect-ratio: ${width} / ${height};" sandbox="allow-scripts allow-same-origin allow-presentation" allowfullscreen loading="lazy"></iframe>`;
+    return `<iframe src="${src}" width="${width}" height="${height}" style="width: min(100%, ${width}px); height: auto; aspect-ratio: ${width} / ${height};" title="Bilibili 视频" referrerpolicy="strict-origin-when-cross-origin" sandbox="allow-scripts allow-same-origin allow-presentation" allow="fullscreen; picture-in-picture" allowfullscreen loading="lazy"></iframe>`;
   });
   return output.slice(0, 60000);
 };
@@ -575,10 +575,10 @@ const readSiteSettingsMap = async (env) => {
 };
 
 const normalizeMaintenanceSettings = (map = {}) => ({
-  title: String(map.maintenance_title || "")
+  title: String(map.title ?? map.maintenance_title ?? "")
     .trim()
     .slice(0, 80),
-  description: String(map.maintenance_description || "")
+  description: String(map.description ?? map.maintenance_description ?? "")
     .trim()
     .slice(0, 300),
 });
@@ -2790,18 +2790,107 @@ const resetManagedUserPassword = async (env, request, id) => {
 };
 
 const updateMaintenance = async (env, request) => {
-  await requireAdmin(env, request);
+  const actor = await requireAdmin(env, request);
   const body = await readBody(request);
-  const enabled = Boolean(body.enabled);
-  const settings = normalizeMaintenanceSettings(body);
-  await setSiteSetting(env, "maintenance_mode", enabled ? "on" : "off");
-  await setSiteSetting(env, "maintenance_title", settings.title);
-  await setSiteSetting(env, "maintenance_description", settings.description);
-  return json({
-    ok: true,
-    maintenanceMode: enabled,
-    ...publicMaintenanceSettings(settings),
-  });
+  const editsCopy = Object.hasOwn(body, "title") || Object.hasOwn(body, "description");
+  if (Object.hasOwn(body, "enabled") && typeof body.enabled !== "boolean") {
+    return json({ error: "维护开关格式不正确" }, 400);
+  }
+  if (!editsCopy && !Object.hasOwn(body, "enabled")) return json({ error: "没有需要保存的设置" }, 400);
+  const [map, owner] = await Promise.all([readSiteSettingsMap(env), ownerUser(env)]);
+  const statements = [];
+  if (editsCopy) {
+    const settings = normalizeMaintenanceSettings({
+      title: body.title ?? map.maintenance_title ?? "",
+      description: body.description ?? map.maintenance_description ?? "",
+    });
+    if (Number(owner?.id) !== Number(actor.id)) {
+      const pending = readMaintenanceProposal(map);
+      if (pending && Number(pending.requesterId) !== Number(actor.id)) {
+        return json({ error: "已有待审批的维护文案，请等待服主处理后再提交" }, 409);
+      }
+      const proposal = {
+        id: crypto.randomUUID(),
+        ...settings,
+        requesterId: actor.id,
+        requesterName: actor.username,
+        submittedAt: new Date().toISOString(),
+      };
+      // Compare the previous proposal so concurrent submissions cannot overwrite each other.
+      const result = await env.DB.prepare(
+        `INSERT INTO site_settings (key, value, updated_at) VALUES ('maintenance_pending', ?, CURRENT_TIMESTAMP)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
+         WHERE site_settings.value = ?`,
+      ).bind(JSON.stringify(proposal), map.maintenance_pending || "").run();
+      if (!result.meta?.changes) return json({ error: "审批申请已更新，请刷新后重试" }, 409);
+      return json({ ok: true, approvalRequired: true, ...maintenanceAdminPayload({ ...map, maintenance_pending: JSON.stringify(proposal) }) });
+    }
+    statements.push(
+      maintenanceSettingStatement(env, "maintenance_title", settings.title),
+      maintenanceSettingStatement(env, "maintenance_description", settings.description),
+      env.DB.prepare("DELETE FROM site_settings WHERE key = 'maintenance_pending'"),
+    );
+    map.maintenance_title = settings.title;
+    map.maintenance_description = settings.description;
+    delete map.maintenance_pending;
+  }
+  if (Object.hasOwn(body, "enabled")) {
+    map.maintenance_mode = body.enabled ? "on" : "off";
+    statements.push(maintenanceSettingStatement(env, "maintenance_mode", map.maintenance_mode));
+  }
+  await env.DB.batch(statements);
+  return json({ ok: true, ...maintenanceAdminPayload(map) });
+};
+
+const maintenanceSettingStatement = (env, key, value) => env.DB.prepare(
+  `INSERT INTO site_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
+   ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`,
+).bind(key, value);
+
+const readMaintenanceProposal = (map) => {
+  try {
+    const proposal = JSON.parse(map.maintenance_pending || "null");
+    return proposal?.id ? proposal : null;
+  } catch {
+    return null;
+  }
+};
+
+const maintenanceAdminPayload = (map) => ({
+  maintenanceMode: map.maintenance_mode === "on",
+  ...publicMaintenanceSettings(normalizeMaintenanceSettings(map)),
+  pendingMaintenance: readMaintenanceProposal(map),
+});
+
+const adminMaintenanceSettings = async (env, request) => {
+  await requireAdmin(env, request);
+  return json(maintenanceAdminPayload(await readSiteSettingsMap(env)), 200, { "Cache-Control": "no-store" });
+};
+
+const reviewMaintenance = async (env, request) => {
+  await requireOwnerAdmin(env, request);
+  const body = await readBody(request);
+  if (!["approve", "reject"].includes(body.action)) return json({ error: "审批操作无效" }, 400);
+  const map = await readSiteSettingsMap(env);
+  const proposal = readMaintenanceProposal(map);
+  if (!proposal || proposal.id !== body.id) return json({ error: "申请已被处理或更新，请重新查看" }, 409);
+  const statements = [];
+  if (body.action === "approve") {
+    // Each write is guarded by the exact reviewed proposal, within one D1 transaction.
+    for (const [key, value] of [["maintenance_title", proposal.title], ["maintenance_description", proposal.description]]) {
+      statements.push(env.DB.prepare(
+        `INSERT INTO site_settings (key, value, updated_at)
+         SELECT ?, ?, CURRENT_TIMESTAMP WHERE EXISTS (
+           SELECT 1 FROM site_settings WHERE key = 'maintenance_pending' AND value = ?
+         )
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`,
+      ).bind(key, value, map.maintenance_pending));
+    }
+  }
+  statements.push(env.DB.prepare("DELETE FROM site_settings WHERE key = 'maintenance_pending' AND value = ?").bind(map.maintenance_pending));
+  const results = await env.DB.batch(statements);
+  if (!results.at(-1).meta?.changes) return json({ error: "申请已被处理或更新，请重新查看" }, 409);
+  return json({ ok: true, ...maintenanceAdminPayload(await readSiteSettingsMap(env)) });
 };
 
 export async function onRequest(context) {
@@ -2816,7 +2905,7 @@ export async function onRequest(context) {
     }
     if (method === "GET" && pathname === "/captcha") return createCaptchaChallenge(env);
     if (method === "POST" && pathname === "/captcha/verify") return verifyCaptchaChallenge(env, request);
-    if (method === "GET" && pathname === "/me") return cachedPublicGet(request, waitUntil, () => me(env, request), { maxAge: 20 });
+    if (method === "GET" && pathname === "/me") return withResponseHeaders(await me(env, request), { "Cache-Control": "no-store" });
     if (method === "POST" && pathname === "/account") return account(env, request);
     if (method === "POST" && pathname === "/login") return login(env, request);
     if (method === "POST" && pathname === "/register") return register(env, request);
@@ -2923,7 +3012,9 @@ export async function onRequest(context) {
     if (method === "POST" && /^\/admin\/reports\/\d+\/resolve$/.test(pathname)) {
       return await resolvePostReport(env, request, pathname.split("/").at(-2));
     }
+    if (method === "GET" && pathname === "/admin/settings/maintenance") return await adminMaintenanceSettings(env, request);
     if (method === "PUT" && pathname === "/admin/settings/maintenance") return await updateMaintenance(env, request);
+    if (method === "POST" && pathname === "/admin/settings/maintenance/review") return await reviewMaintenance(env, request);
 
     return json({ error: "接口不存在" }, 404);
   } catch (error) {
