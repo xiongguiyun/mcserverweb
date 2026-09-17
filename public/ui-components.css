@@ -1546,3 +1546,19 @@
   min-height: 132px;
   resize: vertical;
 }
+
+.maintenance-editor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.maintenance-review-copy {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.maintenance-review-copy p,
+.maintenance-card p {
+  white-space: pre-wrap;
+}

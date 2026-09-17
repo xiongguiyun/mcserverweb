@@ -21,6 +21,8 @@
   profile: null,
   trash: { announcements: [], posts: [] },
   trashLoaded: false,
+  pendingMaintenance: null,
+  maintenanceSaving: false,
   profileTrashOpen: false,
   profileReportsOpen: false,
   editingPostId: null,
@@ -38,7 +40,8 @@
   },
 };
 
-import { setupInlineDetails, insertBlockAtRange, wrapEditorSelection, setupVideoResize } from "./editor-interactions.js";
+import { setupInlineDetails, setupEditorDetails, editorContentHtml, insertBlockAtRange, wrapEditorSelection, setupVideoResize } from "./editor-interactions.js?v=20260917-feedback";
+import { uiIcon } from "./ui-icons.js";
 import {
   enhanceOtpInput,
   focusOtpInput,
@@ -63,8 +66,8 @@ const normalizeSiteState = (site = {}) => {
   const maintenanceDescription = typeof site.maintenanceDescription === "string" ? site.maintenanceDescription.trim() : "";
   return {
     maintenanceMode: Boolean(site.maintenanceMode),
-    maintenanceTitle: maintenanceTitle || customMaintenanceTitle || defaultMaintenanceCopy.title,
-    maintenanceDescription: maintenanceDescription || customMaintenanceDescription || defaultMaintenanceCopy.description,
+    maintenanceTitle: (Object.hasOwn(site, "customMaintenanceTitle") ? customMaintenanceTitle : maintenanceTitle) || defaultMaintenanceCopy.title,
+    maintenanceDescription: (Object.hasOwn(site, "customMaintenanceDescription") ? customMaintenanceDescription : maintenanceDescription) || defaultMaintenanceCopy.description,
     customMaintenanceTitle,
     customMaintenanceDescription,
     serverStatus: site.serverStatus || null,
@@ -93,7 +96,6 @@ document.addEventListener(
   true,
 );
 const serverAddress = () => "play.blockhaven.cn";
-let maintenanceRequestId = 0;
 const isMobileViewport = () => window.matchMedia?.("(max-width: 620px)")?.matches;
 const isCoarsePointer = () => window.matchMedia?.("(pointer: coarse)")?.matches;
 const shouldUseMobileTotpLayout = () => isMobileViewport() || isCoarsePointer();
@@ -251,8 +253,8 @@ const invalidateApiCacheForMutation = (path, method) => {
     return;
   }
 
-  if (path === "/admin/settings/maintenance") {
-    clearCachedApiPrefixes(["/me", "/admin/stats"]);
+  if (path.startsWith("/admin/settings/maintenance")) {
+    clearCachedApiPrefixes(["/me", "/admin/stats", "/admin/settings/maintenance"]);
     return;
   }
   if (path === "/admin/settings/server-status") {
@@ -435,7 +437,9 @@ const syncOwnerOnlyAdminUi = () => {
   });
   const usersPanel = $("#adminUsersPanel");
   if (usersPanel) usersPanel.hidden = !owner;
-  if (!owner && window.location.hash === "#adminUsersPanel") {
+  if ($("#openAdminCreateUser")) $("#openAdminCreateUser").hidden = !owner;
+  if ($("#adminCreateUser")) $("#adminCreateUser").hidden = !owner;
+  if (!owner && ["#adminUsersPanel", "#adminCreateUser"].includes(window.location.hash) && state.me) {
     window.history.replaceState(null, "", "#adminOverview");
   }
 };
@@ -2406,20 +2410,20 @@ const commentQuoteManagerTemplate = (quotes, open = false) => `
 
 const commentToolbarTemplate = () => `
   <div class="comment-toolbar-shell" data-comment-toolbar-shell>
-    <div class="comment-toolbar-drawer" data-comment-toolbar-drawer aria-hidden="true">
-      <button type="button" data-comment-command="bold" title="粗体"><strong>B</strong></button>
-      <button type="button" data-comment-command="italic" title="斜体"><em>I</em></button>
-      <button type="button" data-comment-command="underline" title="下划线"><u>U</u></button>
-      <button type="button" data-comment-command="insertUnorderedList" title="无序列表">•</button>
-      <button type="button" data-comment-blockquote title="引用块">“”</button>
-      <button type="button" data-comment-link title="链接">链</button>
+    <div class="comment-toolbar-drawer" data-comment-toolbar-drawer aria-hidden="true" inert>
+      <button type="button" data-comment-command="bold" title="粗体" aria-label="粗体">${uiIcon("Bold")}</button>
+      <button type="button" data-comment-command="italic" title="斜体" aria-label="斜体">${uiIcon("Italic")}</button>
+      <button type="button" data-comment-command="underline" title="下划线" aria-label="下划线">${uiIcon("Underline")}</button>
+      <button type="button" data-comment-command="insertUnorderedList" title="无序列表" aria-label="无序列表">${uiIcon("List")}</button>
+      <button type="button" data-comment-blockquote title="引用块" aria-label="引用块">${uiIcon("Quote")}</button>
+      <button type="button" data-comment-link title="链接" aria-label="链接">${uiIcon("Link")}</button>
       <label class="comment-color-tool" title="文本颜色">
-        <span>色</span>
+        <span class="comment-color-swatch" aria-hidden="true"></span>
         <input type="color" value="#f5a43a" data-comment-color aria-label="文本颜色" />
       </label>
-      <button type="button" data-comment-command="removeFormat" title="清除格式">清</button>
+      <button type="button" data-comment-command="removeFormat" title="清除格式" aria-label="清除格式">${uiIcon("Eraser")}</button>
     </div>
-    <button class="comment-toolbar-toggle" type="button" data-comment-toolbar-toggle aria-expanded="false" aria-label="展开回复工具栏">工具</button>
+    <button class="comment-toolbar-toggle" type="button" data-comment-toolbar-toggle aria-expanded="false" aria-label="展开回复工具栏" title="回复工具栏">${uiIcon("SlidersHorizontal")}</button>
   </div>
 `;
 
@@ -2816,6 +2820,7 @@ const bindPostComments = (postId) => {
     event.currentTarget.setAttribute("aria-expanded", String(open));
     event.currentTarget.setAttribute("aria-label", open ? "收回回复工具栏" : "展开回复工具栏");
     shell.querySelector("[data-comment-toolbar-drawer]")?.setAttribute("aria-hidden", String(!open));
+    shell.querySelector("[data-comment-toolbar-drawer]")?.toggleAttribute("inert", !open);
   });
   section.querySelectorAll("[data-comment-command], [data-comment-blockquote], [data-comment-link]").forEach((button) => {
     button.addEventListener("pointerdown", (event) => event.preventDefault());
@@ -2836,7 +2841,10 @@ const bindPostComments = (postId) => {
     const editor = section.querySelector("[data-comment-editor]");
     if (editor) await insertCommentLink(editor);
   });
-  section.querySelector("[data-comment-color]")?.addEventListener("input", (event) => applyCommentColor(section, event.target.value));
+  section.querySelector("[data-comment-color]")?.addEventListener("input", (event) => {
+    event.target.parentElement.querySelector(".comment-color-swatch").style.background = event.target.value;
+    applyCommentColor(section, event.target.value);
+  });
   section.querySelector("[data-comment-open-quote-manager]")?.addEventListener("click", (event) => {
     const open = Number(state.commentQuoteManagerOpenPostId) !== Number(postId);
     state.commentQuoteManagerOpenPostId = open ? postId : null;
@@ -3250,6 +3258,9 @@ const insertEditorBilibili = (src, size) => {
   iframe.loading = "lazy";
   iframe.allowFullscreen = true;
   iframe.sandbox = "allow-scripts allow-same-origin allow-presentation";
+  iframe.allow = "fullscreen; picture-in-picture";
+  iframe.referrerPolicy = "strict-origin-when-cross-origin";
+  iframe.title = "Bilibili 视频";
   iframe.style.cssText = mediaSizeStyle(size);
   const attrs = mediaSizeAttrs(size);
   if (attrs.width) iframe.setAttribute("width", attrs.width);
@@ -3547,6 +3558,7 @@ const insertEditorLink = (url, savedRange) => {
 const setupEditor = () => {
   if (!$("#editor")) return;
   const editor = $("#editor");
+  setupEditorDetails(editor);
   setupVideoResize(editor, saveEditorSelection, mediaSizeStyle);
   const wrapSelection = (kind) => {
     restoreEditorSelection();
@@ -3642,7 +3654,7 @@ const setupEditor = () => {
     });
     const bv = input?.match(/BV[a-zA-Z0-9]{8,12}/)?.[0];
     const av = input?.match(/(?:av|aid=)(\d+)/i)?.[1];
-    const src = bv ? `https://player.bilibili.com/player.html?bvid=${encodeURIComponent(bv)}` : av ? `https://player.bilibili.com/player.html?aid=${encodeURIComponent(av)}` : null;
+    const src = bv ? `https://player.bilibili.com/player.html?bvid=${encodeURIComponent(bv)}&autoplay=0` : av ? `https://player.bilibili.com/player.html?aid=${encodeURIComponent(av)}&autoplay=0` : null;
     if (!src) return showToast("没有识别到有效的 Bilibili 视频 ID");
     const sizeInput = await showPromptDialog("设置视频显示大小，格式为 宽×高。留空使用 720×405。", {
       title: "视频显示大小",
@@ -3747,7 +3759,7 @@ const setupEditor = () => {
     const title = $("#forumTitle")?.value.trim() || $("#title")?.value.trim() || "预览";
     previewContent.innerHTML = `
       <h1>${escapeHtml(title)}</h1>
-      <div class="reader-body">${editor.innerHTML.trim() || "<p>暂无内容</p>"}</div>
+      <div class="reader-body">${editorContentHtml(editor) || "<p>暂无内容</p>"}</div>
     `;
     const serverStatusBinder = globalThis.bindServerStatusCardActions;
     if (typeof serverStatusBinder === "function") serverStatusBinder(previewContent);
@@ -3955,6 +3967,10 @@ const renderProfilePage = () => {
   bindProfileTrashButtons();
   bindProfileTrashToggle();
   bindProfileReportsToggle();
+  if (profile.isSelf && window.location.hash === "#trash") {
+    $("#profileTrashButton")?.click();
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+  }
 };
 
 let profilePageRenderFrame = 0;
@@ -4177,7 +4193,7 @@ const setupForumPost = () => {
       return;
     }
     const title = $("#forumTitle").value.trim();
-    const contentHtml = $("#editor").innerHTML.trim();
+    const contentHtml = editorContentHtml($("#editor"));
     const endpoint = state.editingPostId ? `/posts/${state.editingPostId}` : "/posts";
     await api(endpoint, { method: state.editingPostId ? "PUT" : "POST", body: JSON.stringify({ title, contentHtml }) });
     state.editingPostId = null;
@@ -4200,7 +4216,7 @@ const setupPublish = () => {
     const type = $("#contentType").value;
     const id = $("#editingId").value;
     const title = $("#title").value.trim();
-    const contentHtml = $("#editor").innerHTML.trim();
+    const contentHtml = editorContentHtml($("#editor"));
     const endpoint = type === "announcement" ? "/announcements" : "/posts";
     await api(id ? `${endpoint}/${id}` : endpoint, { method: id ? "PUT" : "POST", body: JSON.stringify({ title, contentHtml }) });
     resetEditor();
@@ -4253,17 +4269,15 @@ const renderStats = () => {
     statCard("管理员账号", state.stats.adminCount),
     statCard("待处理举报", state.stats.reportCount),
   ].join("");
-  const dock = $("#trashDock");
-  if (dock) {
-    dock.hidden = !(state.stats.trashCount > 0);
-    const badge = dock.querySelector(".trash-count-badge");
-    if (badge) {
-      badge.textContent = String(state.stats.trashCount || 0);
-      badge.hidden = !(state.stats.trashCount > 0);
-    }
+  renderMaintenanceSettings();
+};
+
+const renderMaintenanceSettings = () => {
+  if ($("#maintenanceToggle")) {
+    $("#maintenanceToggle").checked = Boolean(state.site.maintenanceMode);
+    $("#maintenanceToggle").disabled = state.maintenanceSaving;
   }
-  if ($("#maintenanceToggle")) $("#maintenanceToggle").checked = Boolean(state.stats.maintenanceMode);
-  if ($("#maintenanceStatusText")) $("#maintenanceStatusText").textContent = state.stats.maintenanceMode ? "当前维护模式已开启。" : "当前网站正常开放。";
+  if ($("#maintenanceStatusText")) $("#maintenanceStatusText").textContent = state.site.maintenanceMode ? "当前维护模式已开启。" : "当前网站正常开放。";
   const maintenanceDialog = $("#maintenanceEditorPanel");
   if (!maintenanceDialog?.open) {
     if ($("#maintenanceTitleInput")) $("#maintenanceTitleInput").value = state.site?.customMaintenanceTitle || "";
@@ -4271,6 +4285,17 @@ const renderStats = () => {
   }
   const editorToggle = $("#maintenanceEditorToggle");
   if (editorToggle) editorToggle.setAttribute("aria-expanded", String(Boolean(maintenanceDialog?.open)));
+  const submit = $("#maintenanceSettingsForm button[type='submit']");
+  if (submit) {
+    submit.disabled = state.maintenanceSaving;
+    submit.textContent = state.maintenanceSaving ? "正在保存..." : isOwner() ? "保存维护设置" : "发送审批";
+  }
+  $("#maintenanceSettingsForm")?.setAttribute("aria-busy", String(state.maintenanceSaving));
+  const review = $("#maintenanceReviewButton");
+  if (review) {
+    review.hidden = !state.pendingMaintenance;
+    review.textContent = isOwner() ? "审批" : "待审批";
+  }
 };
 
 const ensureHighlightColorDialog = () => {
@@ -4373,12 +4398,17 @@ const adminRows = (items, type) => {
   return `${adminListToolsHtml(key, view, "搜索标题、内容、发布者，#发布者")}${rows}${adminPaginationHtml(key, view)}`;
 };
 
-const renderManagement = () => {
-  if ($("#manageAnnouncements")) $("#manageAnnouncements").innerHTML = adminRows(state.announcements, "announcement");
-  if ($("#managePosts")) $("#managePosts").innerHTML = adminRows(state.posts, "post");
-  bindAdminListControls("announcements", renderManagement);
-  bindAdminListControls("posts", renderManagement);
-  $$("[data-edit]").forEach((button) => {
+const renderManagement = (type = null) => {
+  if (type !== "post" && $("#manageAnnouncements")) {
+    $("#manageAnnouncements").innerHTML = adminRows(state.announcements, "announcement");
+    bindAdminListControls("announcements", () => renderManagement("announcement"));
+  }
+  if (type !== "announcement" && $("#managePosts")) {
+    $("#managePosts").innerHTML = adminRows(state.posts, "post");
+    bindAdminListControls("posts", () => renderManagement("post"));
+  }
+  const controls = (selector) => [...(type === "announcement" ? $("#manageAnnouncements") : type === "post" ? $("#managePosts") : document).querySelectorAll(selector)];
+  controls("[data-edit]").forEach((button) => {
     button.addEventListener("click", () => {
       const type = button.dataset.edit;
       const source = type === "announcement" ? state.announcements : state.posts;
@@ -4392,7 +4422,7 @@ const renderManagement = () => {
       $("#publishForm")?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
   });
-  $$("[data-delete]").forEach((button) => {
+  controls("[data-delete]").forEach((button) => {
     button.addEventListener("click", async () => {
       const type = button.dataset.delete;
       const isPost = type === "post";
@@ -4410,7 +4440,7 @@ const renderManagement = () => {
       showToast("内容已移入回收站");
     });
   });
-  $$("[data-pin-post]").forEach((button) => {
+  controls("[data-pin-post]").forEach((button) => {
     button.addEventListener("click", async () => {
       const pinned = button.dataset.pinned !== "1";
       await api(`/posts/${button.dataset.pinPost}/pin`, {
@@ -4421,14 +4451,14 @@ const renderManagement = () => {
       showToast(pinned ? "帖子已置顶" : "已取消置顶");
     });
   });
-  $$("[data-highlight-post]").forEach((button) => {
+  controls("[data-highlight-post]").forEach((button) => {
     button.addEventListener("click", () => {
       const post = state.posts.find((item) => Number(item.id) === Number(button.dataset.highlightPost));
       if (!post) return;
       openHighlightColorDialog(post);
     });
   });
-  $$("[data-unhighlight-post]").forEach((button) => {
+  controls("[data-unhighlight-post]").forEach((button) => {
     button.addEventListener("click", async () => {
       await api(`/posts/${button.dataset.unhighlightPost}/highlight`, {
         method: "PUT",
@@ -4630,12 +4660,17 @@ const renderTrashRows = () => {
 
 const renderTrash = async ({ force = false } = {}) => {
   const panel = $("#adminTrash");
-  if (!panel) return;
+  if (!panel || !isAdmin()) return;
   const table = panel.querySelector(".admin-table");
   if (!state.trashLoaded || force) {
     if (table) table.innerHTML = `<div class="empty">正在加载回收站...</div>`;
-    state.trash = await api("/admin/trash");
-    state.trashLoaded = true;
+    try {
+      state.trash = await api("/admin/trash", { silent: true });
+      state.trashLoaded = true;
+    } catch (error) {
+      renderAdminLoadError("#adminTrash .admin-table", error, () => renderTrash({ force: true }));
+      return;
+    }
   }
   renderTrashRows();
 };
@@ -4845,6 +4880,7 @@ const renderReports = () => {
 
 const renderAdmins = () => {
   if (!$("#adminUsers")) return;
+  $("#adminUsers").querySelectorAll(".trash-more-menu[open]").forEach((details) => closeTrashPopover(details));
   const ownerOnlyMessage = "只有服主可以创建新的管理员账号。";
   const adminUserForm = $("#adminUserForm");
   const adminOwnerHint = $("#adminOwnerHint");
@@ -4901,9 +4937,14 @@ const renderAdmins = () => {
                     ? ""
                     : !user.is_owner
                     ? `
-                      <button class="button small ghost" type="button" data-rename-user="${user.id}" data-name="${escapeHtml(user.username)}">改名</button>
                       <button class="button small ghost" type="button" data-role-user="${user.id}" data-role="${user.role}" data-name="${escapeHtml(user.username)}">${user.role === "admin" ? "降为成员" : "设为管理员"}</button>
-                      <button class="button small ghost" type="button" data-reset-user-password="${user.id}" data-name="${escapeHtml(user.username)}">改密码</button>
+                      <details class="trash-more-menu user-more-menu">
+                        <summary class="button small ghost fui-popover-trigger" title="更多操作" aria-label="更多操作" aria-haspopup="menu" aria-expanded="false">${uiIcon("Ellipsis")}</summary>
+                        <div class="trash-more-actions fui-popover-menu" role="menu" aria-label="账号操作">
+                          <button class="fui-menu-item" role="menuitem" type="button" data-rename-user="${user.id}" data-name="${escapeHtml(user.username)}">${uiIcon("Pencil")}<span>改名</span></button>
+                          <button class="fui-menu-item" role="menuitem" type="button" data-reset-user-password="${user.id}" data-name="${escapeHtml(user.username)}">${uiIcon("KeyRound")}<span>改密码</span></button>
+                        </div>
+                      </details>
                       ${
                         user.account_deletion?.status === "pending_approval"
                           ? `<button class="button small danger" type="button" data-approve-user-deletion="${user.id}" data-name="${escapeHtml(user.username)}">批准注销</button>`
@@ -4920,6 +4961,7 @@ const renderAdmins = () => {
     : `<div class="empty">${view.total ? "没有匹配账号。" : "暂无注册用户。"}</div>`;
   $("#adminUsers").innerHTML = `${adminListToolsHtml("users", view, "搜索用户名、账号类型、角色")}${rows}${adminPaginationHtml("users", view)}`;
   bindAdminListControls("users", renderAdmins);
+  enhanceTrashPopoverMenus($("#adminUsers"));
   if (promoteButton) promoteButton.onclick = async () => {
     const id = $("#promoteUserSelect")?.value;
     if (!id) return;
@@ -5018,105 +5060,171 @@ const setupAdminUsers = () => {
       showToast("只有服主可以创建新的管理员账号");
       return;
     }
-    await api("/admin/users", {
-      method: "POST",
-      body: JSON.stringify({ username: $("#adminUsername").value.trim(), password: $("#adminPassword").value }),
-    });
-    event.target.reset();
-    await loadAdminData();
-    showToast("已创建管理员账号");
+    const submit = event.target.querySelector("button[type='submit']");
+    if (submit.disabled) return;
+    submit.disabled = true;
+    submit.textContent = "正在创建...";
+    try {
+      await api("/admin/users", {
+        method: "POST",
+        body: JSON.stringify({ username: $("#adminUsername").value.trim(), password: $("#adminPassword").value }),
+      });
+      event.target.reset();
+      window.location.hash = "#adminUsersPanel";
+      await loadAdminData();
+      showToast("已创建管理员账号");
+    } catch {
+      // Keep the form values for retry; api() displays the error.
+    } finally {
+      submit.disabled = false;
+      submit.textContent = "创建管理员";
+    }
   });
 };
 
-const submitMaintenanceSettings = async ({ enabled, successMessage } = {}) => {
-  const requestId = ++maintenanceRequestId;
-  const previousSite = { ...state.site };
-  const previousMode = Boolean(state.stats?.maintenanceMode);
-  const nextEnabled = typeof enabled === "boolean" ? enabled : Boolean($("#maintenanceToggle")?.checked);
-  const customMaintenanceTitle = $("#maintenanceTitleInput")?.value.trim() || "";
-  const customMaintenanceDescription = $("#maintenanceDescriptionInput")?.value.trim() || "";
-  state.site = normalizeSiteState({
-    ...state.site,
-    maintenanceMode: nextEnabled,
-    customMaintenanceTitle,
-    customMaintenanceDescription,
-  });
-  if (state.stats) state.stats.maintenanceMode = nextEnabled;
-  renderAll();
-  renderStats();
+const applyMaintenanceSettings = (result) => {
+  state.site = normalizeSiteState({ ...state.site, ...result });
+  state.pendingMaintenance = result.pendingMaintenance || null;
+  if (state.stats) state.stats.maintenanceMode = state.site.maintenanceMode;
+  renderMaintenanceSettings();
+  renderMaintenanceBanner();
+  renderMaintenanceGate();
+};
+
+const submitMaintenanceSettings = async ({ enabled } = {}) => {
+  if (state.maintenanceSaving) return false;
+  const toggling = typeof enabled === "boolean";
+  const body = toggling ? { enabled } : {
+    title: $("#maintenanceTitleInput")?.value.trim() || "",
+    description: $("#maintenanceDescriptionInput")?.value.trim() || "",
+  };
+  state.maintenanceSaving = true;
+  renderMaintenanceSettings();
   try {
     const result = await api("/admin/settings/maintenance", {
       method: "PUT",
-      body: JSON.stringify({
-        enabled: nextEnabled,
-        title: customMaintenanceTitle,
-        description: customMaintenanceDescription,
-      }),
+      silent: true,
+      body: JSON.stringify(body),
     });
-    if (requestId !== maintenanceRequestId) return false;
-    state.site = normalizeSiteState({ ...state.site, ...result });
-    if (state.stats) state.stats.maintenanceMode = result.maintenanceMode;
-    renderAll();
-    renderStats();
-    showToast(successMessage || (result.maintenanceMode ? "已开启维护模式" : "已关闭维护模式"));
+    applyMaintenanceSettings(result);
+    showToast(result.approvalRequired ? "已发送审批，服主批准后生效" : toggling
+      ? (result.maintenanceMode ? "已开启维护模式" : "已关闭维护模式") : "维护文案已保存");
     return true;
   } catch (error) {
-    if (requestId !== maintenanceRequestId) return false;
-    state.site = normalizeSiteState(previousSite);
-    if (state.stats) state.stats.maintenanceMode = previousMode;
-    renderAll();
-    renderStats();
     showToast(error.message);
     return false;
+  } finally {
+    state.maintenanceSaving = false;
+    renderMaintenanceSettings();
+  }
+};
+
+const refreshMaintenanceSettings = async () => {
+  if (!isAdmin() || state.maintenanceSaving) return;
+  const version = apiCacheVersion;
+  const result = await api("/admin/settings/maintenance", { silent: true });
+  if (!state.maintenanceSaving && version === apiCacheVersion) {
+    applyMaintenanceSettings(result);
+    if ($("#maintenanceEditorPanel")?.open && $("#maintenanceSettingsForm")?.dataset.dirty !== "true") {
+      $("#maintenanceTitleInput").value = state.site.customMaintenanceTitle;
+      $("#maintenanceDescriptionInput").value = state.site.customMaintenanceDescription;
+    }
   }
 };
 
 const setupMaintenanceToggle = () => {
+  // Keep secondary dialogs outside animated admin panels.
+  for (const id of ["maintenanceEditorPanel", "maintenanceReviewDialog"]) {
+    const dialog = $(`#${id}`);
+    if (dialog) document.body.append(dialog);
+  }
   $("#maintenanceToggle")?.addEventListener("change", (event) => {
     submitMaintenanceSettings({ enabled: event.target.checked }).catch(() => {});
   });
   $("#maintenanceEditorToggle")?.addEventListener("click", () => {
     const dialog = $("#maintenanceEditorPanel");
     if (!dialog) return;
-    renderStats();
+    $("#maintenanceSettingsForm").dataset.dirty = "false";
+    renderMaintenanceSettings();
     openDialog(dialog);
     $("#maintenanceEditorToggle")?.setAttribute("aria-expanded", "true");
     $("#maintenanceTitleInput")?.focus({ preventScroll: true });
+    refreshMaintenanceSettings().catch((error) => showToast(error.message));
+  });
+  $("#maintenanceSettingsForm")?.addEventListener("input", (event) => {
+    event.currentTarget.dataset.dirty = "true";
   });
   $("#maintenanceEditorPanel")?.addEventListener("close", () => {
     $("#maintenanceEditorToggle")?.setAttribute("aria-expanded", "false");
+    renderMaintenanceSettings();
   });
   $("#maintenanceSettingsForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const saved = await submitMaintenanceSettings({ successMessage: "维护文案已保存" });
+    const saved = await submitMaintenanceSettings();
     if (saved) closeDialogAnimated($("#maintenanceEditorPanel"));
+  });
+  $("#maintenanceReviewButton")?.addEventListener("click", async () => {
+    try {
+      await refreshMaintenanceSettings();
+      const pending = state.pendingMaintenance;
+      if (!pending) return showToast("当前没有待审批申请");
+      $("#maintenanceReviewTitle").textContent = pending.title || defaultMaintenanceCopy.title;
+      $("#maintenanceReviewDescription").textContent = pending.description || defaultMaintenanceCopy.description;
+      $("#maintenanceReviewRequester").textContent = `${pending.requesterName} · ${formatDate(pending.submittedAt)}`;
+      $("#maintenanceReviewDialog").dataset.proposalId = pending.id;
+      $$("[data-maintenance-review]").forEach((button) => { button.hidden = !isOwner(); });
+      openDialog($("#maintenanceReviewDialog"));
+    } catch (error) {
+      showToast(error.message);
+    }
+  });
+  $$("[data-maintenance-review]").forEach((button) => button.addEventListener("click", async () => {
+    if (state.maintenanceSaving) return;
+    state.maintenanceSaving = true;
+    $$("[data-maintenance-review]").forEach((control) => { control.disabled = true; });
+    renderMaintenanceSettings();
+    try {
+      const result = await api("/admin/settings/maintenance/review", {
+        method: "POST", silent: true,
+        body: JSON.stringify({ id: $("#maintenanceReviewDialog").dataset.proposalId, action: button.dataset.maintenanceReview }),
+      });
+      applyMaintenanceSettings(result);
+      closeDialogAnimated($("#maintenanceReviewDialog"));
+      showToast(button.dataset.maintenanceReview === "approve" ? "已批准，维护文案已生效" : "已驳回申请");
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      state.maintenanceSaving = false;
+      $$("[data-maintenance-review]").forEach((control) => { control.disabled = false; });
+      renderMaintenanceSettings();
+      refreshMaintenanceSettings().catch(() => {});
+    }
+  }));
+  window.addEventListener("focus", () => refreshMaintenanceSettings().catch(() => {}));
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) refreshMaintenanceSettings().catch(() => {});
   });
 };
 
 const setupAdminNavigation = () => {
   const links = $$(".admin-nav a");
-  const trashDock = $("#trashDock");
   const mobileAdminDockLink = $(".mobile-dock [data-admin-link]");
-  if (!links.length && !trashDock) return;
+  if (!links.length) return;
 
   const setActive = (current) => {
     links.forEach((link) => {
-      const active = link.getAttribute("href") === current;
+      const active = link.getAttribute("href") === (current === "#adminCreateUser" ? "#adminUsersPanel" : current);
       link.classList.toggle("active", active);
       if (active) link.setAttribute("aria-current", "page");
       else link.removeAttribute("aria-current");
     });
-    const trashActive = current === "#adminTrash";
-    trashDock?.classList.toggle("active", trashActive);
-    if (trashActive) trashDock?.setAttribute("aria-current", "page");
-    else trashDock?.removeAttribute("aria-current");
-    mobileAdminDockLink?.classList.toggle("active", !trashActive);
-    if (trashActive) mobileAdminDockLink?.removeAttribute("aria-current");
-    else mobileAdminDockLink?.setAttribute("aria-current", "page");
+    mobileAdminDockLink?.classList.add("active");
+    mobileAdminDockLink?.setAttribute("aria-current", "page");
   };
   const sync = () => {
     syncOwnerOnlyAdminUi();
     const current = window.location.hash || "#adminOverview";
+    document.body.classList.toggle("is-creating-admin", current === "#adminCreateUser" && isOwner());
     document.body.classList.toggle("is-trash-open", current === "#adminTrash");
     setActive(current);
     if (current === "#adminTrash") renderTrash().catch((error) => showToast(error.message));
@@ -5127,12 +5235,8 @@ const setupAdminNavigation = () => {
       if (target) setActive(target);
     }),
   );
-  trashDock?.addEventListener("click", () => {
-    window.location.hash = "#adminTrash";
-    $("#adminTrash")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    renderTrash().catch((error) => showToast(error.message));
-  });
   window.addEventListener("hashchange", sync);
+  setupAdminNavigation.sync = sync;
   sync();
 };
 
@@ -5266,7 +5370,6 @@ const mobileDockIcon = (name) => {
     announcements: '<path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>',
     forum: '<path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/><path d="M8 9h8M8 13h5"/>',
     admin: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/>',
-    trash: '<path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v5M14 11v5"/>',
   };
   return `<svg class="mobile-dock-icon" viewBox="0 0 24 24" aria-hidden="true">${paths[name] || paths.home}</svg>`;
 };
@@ -5274,8 +5377,6 @@ const mobileDockIcon = (name) => {
 const setupMobileDock = () => {
   const sourceNav = $(".site-header .top-nav");
   if (!sourceNav || $(".mobile-dock")) return;
-  const trashDock = $("#trashDock");
-  const trashDockHome = trashDock ? { parent: trashDock.parentNode, next: trashDock.nextSibling } : null;
   const dock = sourceNav.cloneNode(true);
   dock.dataset.mobileDockReady = "true";
   dock.classList.add("mobile-dock");
@@ -5290,23 +5391,6 @@ const setupMobileDock = () => {
   });
   document.body.append(dock);
 
-  if (trashDock && trashDockHome) {
-    trashDock.setAttribute("aria-label", "回收站");
-    trashDock.innerHTML = `${mobileDockIcon("trash")}<span class="trash-dock-label">回收站</span><span class="trash-count-badge" hidden>0</span>`;
-    const mobileQuery = window.matchMedia("(max-width: 620px)");
-    const placeTrashDock = () => {
-      if (mobileQuery.matches) {
-        trashDock.classList.add("is-mobile-dock-item");
-        dock.append(trashDock);
-        return;
-      }
-      trashDock.classList.remove("is-mobile-dock-item");
-      if (trashDockHome.next?.parentNode === trashDockHome.parent) trashDockHome.parent.insertBefore(trashDock, trashDockHome.next);
-      else trashDockHome.parent.append(trashDock);
-    };
-    mobileQuery.addEventListener?.("change", placeTrashDock);
-    placeTrashDock();
-  }
 };
 
 const setupSliderCaptcha = ({ onVerified } = {}) => {
@@ -5747,13 +5831,25 @@ const loadPublicData = async () => {
   await Promise.all([baseStatePromise, pageDataPromise]);
 };
 
-const runAdminLoadTask = async (request, apply, render) => {
+const renderAdminLoadError = (selector, error, retry) => {
+  const container = $(selector);
+  if (!container) return;
+  container.innerHTML = `<div class="empty" role="alert">${escapeHtml(error.message || "加载失败，请重试")} <button class="button small ghost" type="button" data-load-retry>重新加载</button></div>`;
+  container.querySelector("[data-load-retry]")?.addEventListener("click", () => {
+    Promise.resolve(retry()).catch((nextError) => showToast(nextError.message));
+  });
+};
+
+const runAdminLoadTask = async (request, apply, render, selector) => {
+  if ($(selector)) $(selector).innerHTML = `<div class="empty" role="status">正在加载...</div>`;
   try {
     const payload = await request;
     apply(payload || {});
     render?.();
+    syncMotionReveals();
     return null;
   } catch (error) {
+    renderAdminLoadError(selector, error, loadAdminData);
     return error;
   }
 };
@@ -5764,30 +5860,32 @@ const loadAdminData = async () => {
   renderAdminGate();
   if (!isAdmin()) return;
   state.trashLoaded = false;
+  renderMaintenanceSettings();
 
   const errors = (await Promise.all([
     runAdminLoadTask(api("/announcements", { silent: true }), (payload) => {
       state.announcements = payload.items || [];
-    }),
+    }, () => renderManagement("announcement"), "#manageAnnouncements"),
     runAdminLoadTask(api("/posts", { silent: true }), (payload) => {
       state.posts = payload.items || [];
-    }),
+    }, () => renderManagement("post"), "#managePosts"),
     runAdminLoadTask(api("/admin/stats", { silent: true }), (payload) => {
       state.stats = payload;
-      state.site.maintenanceMode = Boolean(payload.maintenanceMode);
-    }),
+    }, renderStats, "#statsGrid"),
     runAdminLoadTask(isOwner() ? api("/admin/users", { silent: true }) : Promise.resolve({ items: [] }), (payload) => {
       state.admins = payload.items || [];
-    }),
+    }, renderAdmins, "#adminUsers"),
     runAdminLoadTask(api(`/admin/reports?page=${Math.max(1, Number(state.reportsPage) || 1)}&pageSize=${ADMIN_PAGE_SIZE}`, { silent: true }), (payload) => {
       state.reports = payload.items || [];
       state.reportsTotal = Number(payload.total || state.reports.length);
       state.reportsPage = Number(payload.page || state.reportsPage || 1);
-    }),
+    }, renderReports, "#adminReportsTable"),
+    refreshMaintenanceSettings().then(() => null).catch((error) => error),
+    renderTrash().then(() => null),
   ])).filter(Boolean);
 
-  renderAll();
   if (errors.length) showToast(errors[0].message || "后台数据加载失败，请稍后重试");
+  setupAdminNavigation.sync?.();
 };
 
 const refreshPageData = async () => (page === "admin" ? loadAdminData() : loadPublicData());
@@ -5802,6 +5900,10 @@ const renderAll = () => {
   if (page === "admin") {
     renderAdminGate();
     renderStats();
+    renderMaintenanceSettings();
+    renderManagement();
+    renderReports();
+    renderAdmins();
   }
   syncMotionReveals();
 };

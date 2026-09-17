@@ -4,11 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <style>html { scrollbar-gutter: stable; }</style>
-    <link rel="modulepreload" href="/page-entry.js" />
+    <link rel="modulepreload" href="/page-entry.js?v=20260917-feedback" />
     <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
     <title>管理后台 | Liou_Yang Server</title>
-    <link rel="stylesheet" href="/styles.css" />
-    <link rel="stylesheet" href="/ui-components.css" />
+    <link rel="stylesheet" href="/styles.css?v=20260917-feedback" />
+    <link rel="stylesheet" href="/ui-components.css?v=20260917-feedback" />
   </head>
   <body data-page="admin">
     <header class="site-header">
@@ -94,6 +94,7 @@
                   aria-expanded="false"
                   aria-controls="maintenanceEditorPanel"
                 >&#32534;&#36753;&#26631;&#39064;&#19982;&#25551;&#36848;</button>
+                <button class="button ghost" id="maintenanceReviewButton" type="button" hidden>审批</button>
               </div>
             </div>
             <dialog class="site-modal-dialog maintenance-editor-dialog" id="maintenanceEditorPanel" aria-labelledby="maintenanceEditorTitle">
@@ -241,21 +242,29 @@
           </section>
 
           <section class="admin-panel" id="adminUsersPanel">
-            <div class="section-title compact">
+            <div class="section-title compact admin-user-heading">
               <h2>用户与权限</h2>
+              <a class="button small primary" href="#adminCreateUser" id="openAdminCreateUser">创建管理员</a>
               <p>查看注册用户数量，管理用户名，并选择注册用户成为管理员。</p>
             </div>
-            <form class="inline-form compact" id="adminUserForm">
-              <input id="adminUsername" placeholder="输入管理员账号名" required />
-              <input id="adminPassword" type="password" placeholder="初始密码，至少 6 位" required />
-              <button class="button primary" type="submit">创建管理员</button>
-            </form>
             <p class="admin-owner-hint" id="adminOwnerHint" hidden>只有服主可以创建新的管理员账号。普通管理员可以查看用户列表，但不能新增或提权管理员。</p>
             <div class="admin-user-tools">
               <select id="promoteUserSelect" data-ui="combobox" aria-label="搜索并选择注册用户成为管理员"></select>
               <button class="button primary" type="button" id="promoteUserButton">设为管理员</button>
             </div>
             <div class="admin-table" id="adminUsers"></div>
+          </section>
+
+          <section class="admin-panel" id="adminCreateUser" aria-labelledby="adminCreateUserTitle">
+            <a class="button small ghost" href="#adminUsersPanel">返回用户与权限</a>
+            <div class="section-title compact">
+              <h2 id="adminCreateUserTitle">创建管理员</h2>
+            </div>
+            <form class="admin-create-form" id="adminUserForm">
+              <label>管理员账号名<input id="adminUsername" maxlength="20" autocomplete="off" required /></label>
+              <label>初始密码<input id="adminPassword" type="password" minlength="6" autocomplete="new-password" placeholder="至少 6 位" required /></label>
+              <button class="button primary" type="submit">创建管理员</button>
+            </form>
           </section>
 
           <section class="admin-panel" id="adminTrash">
@@ -275,10 +284,25 @@
       </section>
     </main>
 
-    <button class="trash-dock button danger" id="trashDock" type="button" hidden>
-      回收站 <span class="trash-count-badge" hidden>0</span>
-    </button>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <dialog class="site-modal-dialog maintenance-editor-dialog" id="maintenanceReviewDialog" aria-labelledby="maintenanceReviewHeading">
+      <div class="site-modal-shell">
+        <button class="dialog-close-button" type="button" data-dialog-close aria-label="关闭审批">×</button>
+        <div class="site-modal-copy">
+          <h2 id="maintenanceReviewHeading">维护文案审批</h2>
+          <p id="maintenanceReviewRequester"></p>
+        </div>
+        <div class="maintenance-review-copy">
+          <h3 id="maintenanceReviewTitle"></h3>
+          <p id="maintenanceReviewDescription"></p>
+        </div>
+        <div class="site-modal-actions">
+          <button class="site-modal-option" type="button" data-dialog-close>关闭</button>
+          <button class="site-modal-option" type="button" data-maintenance-review="reject" hidden>驳回</button>
+          <button class="site-modal-option is-primary" type="button" data-maintenance-review="approve" hidden>批准并生效</button>
+        </div>
+      </div>
+    </dialog>
     <dialog id="readerDialog">
       <article id="readerContent"></article>
     </dialog>
@@ -286,6 +310,6 @@
       <button class="dialog-close-button" type="button" data-dialog-close aria-label="关闭预览">×</button>
       <article id="previewContent"></article>
     </dialog>
-    <script src="/page-entry.js" type="module"></script>
+    <script src="/page-entry.js?v=20260917-feedback" type="module"></script>
   </body>
 </html>
