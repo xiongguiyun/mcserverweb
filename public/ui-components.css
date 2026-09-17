@@ -1032,9 +1032,10 @@
 
   body[data-page="admin"] .admin-sidebar-drawer .admin-nav a.active {
     color: #fff4dd;
-    background: transparent;
-    border-color: transparent;
-    box-shadow: inset 3px 0 0 var(--accent-2);
+    background: rgba(255, 238, 204, 0.08);
+    border: 1px solid rgba(255, 238, 204, 0.32);
+    border-radius: 4px;
+    box-shadow: none;
   }
 
   body.mobile-dock-ready {
@@ -1048,8 +1049,8 @@
   .site-header {
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 8px;
-    min-height: 66px;
-    padding: 9px 12px;
+    min-height: 56px;
+    padding: 6px 10px;
     border-bottom: 0;
     color: #f7ead2;
     background: rgba(34, 25, 19, 0.72);
@@ -1073,8 +1074,8 @@
   .site-header .brand {
     justify-self: start;
     max-width: 100%;
-    min-height: 46px;
-    padding: 6px 12px 6px 7px;
+    min-height: 38px;
+    padding: 4px 10px 4px 5px;
     overflow: hidden;
     color: #2c1f17;
     background: rgba(255, 255, 255, 0.42);
@@ -1090,8 +1091,8 @@
   }
 
   .site-header .brand-mark {
-    width: 30px;
-    height: 30px;
+    width: 26px;
+    height: 26px;
     flex: 0 0 auto;
     border-radius: 50%;
   }
@@ -1108,10 +1109,10 @@
   .site-header .interactive-hover-button,
   .site-header .logout-button,
   .site-header .user-entry {
-    width: 44px;
-    min-width: 44px;
-    height: 44px;
-    min-height: 44px;
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
+    min-height: 40px;
     padding: 0;
     border-radius: 50%;
   }
@@ -1141,13 +1142,36 @@
 
   .site-header .user-entry {
     justify-content: center;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 238, 204, 0.18);
+  }
+
+  .site-header .auth-actions .user-entry,
+  .site-header .auth-actions .user-entry:hover,
+  .site-header .auth-actions .user-entry:active {
+    padding: 0;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .site-header .logout-button {
+    box-shadow: 0 4px 0 #9e8360, 0 6px 8px #0002;
+    transition: transform 140ms ease, box-shadow 140ms ease;
+  }
+
+  .site-header .logout-button:hover {
+    box-shadow: 0 5px 0 #9e8360, 0 7px 10px #0002;
+    transform: translateY(-1px);
+  }
+
+  .site-header .logout-button:active {
+    box-shadow: 0 1px 0 #9e8360, inset 0 1px 2px #0002;
+    transform: translateY(3px) scale(.95);
   }
 
   .site-header .user-avatar {
-    width: 34px;
-    height: 34px;
+    width: 30px;
+    height: 30px;
     border-radius: 4px;
   }
 
@@ -1428,4 +1452,97 @@
     height: 46px;
     min-height: 46px;
   }
+}
+
+/* Keep the final mobile sizing after the legacy component rules above. */
+@media (max-width: 620px) {
+  .site-header .user-entry {
+    width: 32px;
+    min-width: 32px;
+    height: 32px;
+    min-height: 32px;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    border-radius: 4px;
+    box-shadow: none;
+  }
+
+  .site-header .user-entry .user-chip {
+    display: none;
+  }
+
+  .site-header .user-entry .user-avatar {
+    width: 30px;
+    height: 30px;
+    border-radius: 4px;
+  }
+
+  .site-header .logout-button {
+    width: 38px;
+    min-width: 38px;
+    height: 38px;
+    min-height: 38px;
+    padding: 0;
+  }
+
+  nav.top-nav.mobile-dock {
+    width: max-content;
+    min-width: 0;
+    height: 48px;
+    min-height: 48px;
+    max-width: calc(100vw - 28px);
+    padding: 2px 6px;
+    gap: 0;
+    border-radius: 28px;
+    box-shadow:
+      0 10px 20px rgba(24, 16, 12, 0.28),
+      0 2px 4px rgba(24, 16, 12, 0.2),
+      inset 0 1px 0 rgba(255, 239, 220, 0.18),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.3);
+  }
+
+  nav.top-nav.mobile-dock > a,
+  nav.top-nav.mobile-dock .trash-dock.is-mobile-dock-item {
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
+    min-height: 40px;
+    flex-basis: 40px;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  nav.top-nav.mobile-dock .mobile-dock-icon {
+    width: 22px;
+    height: 22px;
+  }
+}
+
+.maintenance-editor-dialog {
+  width: min(520px, calc(100vw - 28px));
+  max-height: calc(100dvh - 28px);
+  overflow: visible;
+}
+
+.maintenance-editor-dialog .site-modal-shell {
+  max-height: calc(100dvh - 28px);
+  overflow: auto;
+}
+
+.maintenance-dialog-fields {
+  display: grid;
+  gap: 14px;
+}
+
+.maintenance-dialog-fields .form-row {
+  gap: 7px;
+  margin: 0;
+}
+
+.maintenance-dialog-fields textarea {
+  min-height: 132px;
+  resize: vertical;
 }

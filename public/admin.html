@@ -79,7 +79,7 @@
               <h2>维护模式</h2>
               <p>开启后普通访客会看到维护界面，管理员仍可登录并继续管理网站。</p>
             </div>
-            <form class="maintenance-admin-card" id="maintenanceSettingsForm">
+            <div class="maintenance-admin-card">
               <label class="tg-toggle">
                 <input type="checkbox" id="maintenanceToggle" />
                 <span class="tg-toggle-track" aria-hidden="true"></span>
@@ -94,34 +94,43 @@
                   aria-expanded="false"
                   aria-controls="maintenanceEditorPanel"
                 >&#32534;&#36753;&#26631;&#39064;&#19982;&#25551;&#36848;</button>
-                <div class="maintenance-editor-panel" id="maintenanceEditorPanel" hidden>
-                  <div class="admin-form-grid maintenance-settings-grid">
-                    <div class="form-row">
-                      <label for="maintenanceTitleInput">&#32500;&#25252;&#26631;&#39064;</label>
-                      <small class="field-hint">&#30041;&#31354;&#26102;&#20351;&#29992;&#40664;&#35748;&#26631;&#39064;</small>
-                      <input
-                        id="maintenanceTitleInput"
-                        name="maintenanceTitle"
-                        maxlength="80"
-                      />
-                    </div>
-                    <div class="form-row">
-                      <label for="maintenanceDescriptionInput">&#32500;&#25252;&#25551;&#36848;</label>
-                      <textarea
-                        id="maintenanceDescriptionInput"
-                        name="maintenanceDescription"
-                        rows="4"
-                        maxlength="300"
-                        placeholder="&#30041;&#31354;&#26102;&#20351;&#29992;&#40664;&#35748;&#25551;&#36848;"
-                      ></textarea>
-                    </div>
+              </div>
+            </div>
+            <dialog class="site-modal-dialog maintenance-editor-dialog" id="maintenanceEditorPanel" aria-labelledby="maintenanceEditorTitle">
+              <form class="site-modal-shell" id="maintenanceSettingsForm">
+                <button class="dialog-close-button" type="button" data-dialog-close aria-label="关闭维护文案编辑">×</button>
+                <div class="site-modal-copy">
+                  <span class="site-modal-eyebrow">维护模式</span>
+                  <h2 id="maintenanceEditorTitle">编辑标题与描述</h2>
+                  <p>留空时会继续使用网站默认维护文案。</p>
+                </div>
+                <div class="maintenance-dialog-fields">
+                  <div class="form-row">
+                    <label for="maintenanceTitleInput">维护标题</label>
+                    <input
+                      id="maintenanceTitleInput"
+                      name="maintenanceTitle"
+                      maxlength="80"
+                      placeholder="留空时使用默认标题"
+                    />
                   </div>
-                  <div class="toolbar footer-tools compact">
-                    <button class="button primary" type="submit">&#20445;&#23384;&#32500;&#25252;&#35774;&#32622;</button>
+                  <div class="form-row">
+                    <label for="maintenanceDescriptionInput">维护描述</label>
+                    <textarea
+                      id="maintenanceDescriptionInput"
+                      name="maintenanceDescription"
+                      rows="5"
+                      maxlength="300"
+                      placeholder="留空时使用默认描述"
+                    ></textarea>
                   </div>
                 </div>
-              </div>
-            </form>
+                <div class="site-modal-actions">
+                  <button class="site-modal-option" type="button" data-dialog-close>取消</button>
+                  <button class="site-modal-option is-primary" type="submit">保存维护设置</button>
+                </div>
+              </form>
+            </dialog>
           </section>
 
           <section class="admin-panel" id="adminEditor">

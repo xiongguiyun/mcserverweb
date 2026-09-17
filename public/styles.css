@@ -2664,6 +2664,62 @@ body[data-page="login"] {
   padding: 10px 12px;
   background: #fff7e8;
   border: 2px solid #e0c99b;
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.inline-details > summary {
+  cursor: pointer;
+}
+
+.inline-details iframe,
+.inline-quote iframe {
+  display: block;
+  max-width: 100%;
+}
+
+.editor-video-resize {
+  position: fixed;
+  z-index: 120;
+  pointer-events: none;
+  border: 1px solid #d99739;
+}
+
+.editor-video-resize[hidden] {
+  display: none;
+}
+
+.editor-video-resize .video-resize-handle {
+  position: absolute;
+  min-width: 0;
+  min-height: 0;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 1px solid #906329;
+  border-radius: 3px;
+  background: #fff4dd;
+  box-shadow: 0 1px 3px #0003;
+  pointer-events: auto;
+  touch-action: none;
+  transform: translate(-50%, -50%);
+}
+
+.video-resize-handle.edge-n { left: 50%; top: 0; cursor: ns-resize; }
+.video-resize-handle.edge-ne { left: 100%; top: 0; cursor: nesw-resize; }
+.video-resize-handle.edge-e { left: 100%; top: 50%; cursor: ew-resize; }
+.video-resize-handle.edge-se { left: 100%; top: 100%; cursor: nwse-resize; }
+.video-resize-handle.edge-s { left: 50%; top: 100%; cursor: ns-resize; }
+.video-resize-handle.edge-sw { left: 0; top: 100%; cursor: nesw-resize; }
+.video-resize-handle.edge-w { left: 0; top: 50%; cursor: ew-resize; }
+.video-resize-handle.edge-nw { left: 0; top: 0; cursor: nwse-resize; }
+
+.is-resizing-video iframe {
+  pointer-events: none;
+}
+
+.is-resizing-video {
+  user-select: none;
 }
 
 .inline-code {
@@ -6945,12 +7001,18 @@ body[data-page="admin"] .admin-list-tools {
   z-index: 260;
 }
 
+.forum-search-tip .forum-search-tip-bubble {
+  display: none;
+}
+
 .forum-search-tip-bubble.is-portal {
   position: fixed;
   right: auto;
   bottom: auto;
   z-index: 2000;
   max-width: calc(100vw - 28px);
+  max-height: calc(100dvh - 28px);
+  overflow: auto;
   transform: translateY(-4px);
 }
 
@@ -8132,7 +8194,7 @@ body[data-page="admin"] #adminUsername {
     transform: none !important;
   }
 }
-/* Reference-style glass dock: icons only, with a soft ivory capsule surface. */
+/* Compact dark capsule; individual navigation items remain unframed. */
 @media (max-width: 620px) {
   body.mobile-dock-ready {
     padding-bottom: 82px;
@@ -8140,10 +8202,10 @@ body[data-page="admin"] #adminUsername {
 
   nav.top-nav.mobile-dock {
     bottom: max(12px, env(safe-area-inset-bottom));
-    grid-template-columns: repeat(auto-fit, 48px);
-    min-height: 60px;
-    height: 60px;
-    padding: 5px 9px;
+    grid-template-columns: repeat(auto-fit, 44px);
+    min-height: 52px;
+    height: 52px;
+    padding: 3px 7px;
     gap: 0;
     background:
       linear-gradient(180deg, rgba(83, 72, 65, 0.94), rgba(48, 41, 37, 0.96)),
@@ -8160,26 +8222,34 @@ body[data-page="admin"] #adminUsername {
   }
 
   nav.top-nav.mobile-dock > a,
-  nav.top-nav.mobile-dock .trash-dock {
+  nav.top-nav.mobile-dock .trash-dock.is-mobile-dock-item {
     display: grid;
     grid-template-rows: 1fr;
-    width: 48px;
-    min-width: 48px;
-    min-height: 48px;
-    height: 48px;
+    width: 44px;
+    min-width: 44px;
+    min-height: 44px;
+    height: 44px;
+    flex: 0 0 44px;
     padding: 0;
     color: #f5eee7;
-    border-radius: 50%;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
     align-items: center;
     justify-items: center;
   }
 
   nav.top-nav.mobile-dock > a.active,
   nav.top-nav.mobile-dock > a:hover,
-  nav.top-nav.mobile-dock .trash-dock:hover,
-  nav.top-nav.mobile-dock .trash-dock.active {
-    color: #fffaf4;
-    background: rgba(255, 244, 226, 0.12);
+  nav.top-nav.mobile-dock > a:focus-visible,
+  nav.top-nav.mobile-dock .trash-dock.is-mobile-dock-item:hover,
+  nav.top-nav.mobile-dock .trash-dock.is-mobile-dock-item:focus-visible,
+  nav.top-nav.mobile-dock .trash-dock.is-mobile-dock-item.active {
+    color: #f6d58a;
+    background: transparent;
+    border: 0;
+    box-shadow: none;
     transform: translateY(-1px);
   }
 
@@ -8188,8 +8258,8 @@ body[data-page="admin"] #adminUsername {
   }
 
   nav.top-nav.mobile-dock .mobile-dock-icon {
-    width: 27px;
-    height: 27px;
+    width: 24px;
+    height: 24px;
     stroke-width: 1.7;
   }
 

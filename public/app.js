@@ -38,6 +38,7 @@
   },
 };
 
+import { setupInlineDetails, insertBlockAtRange, wrapEditorSelection, setupVideoResize } from "./editor-interactions.js";
 import {
   enhanceOtpInput,
   focusOtpInput,
@@ -93,7 +94,6 @@ document.addEventListener(
 );
 const serverAddress = () => "play.blockhaven.cn";
 let maintenanceRequestId = 0;
-let maintenanceEditorExpanded = false;
 const isMobileViewport = () => window.matchMedia?.("(max-width: 620px)")?.matches;
 const isCoarsePointer = () => window.matchMedia?.("(pointer: coarse)")?.matches;
 const shouldUseMobileTotpLayout = () => isMobileViewport() || isCoarsePointer();
@@ -501,7 +501,7 @@ const closeSearchTips = () => {
 };
 
 const setupSearchTip = (searchTip, bubbleId = "") => {
-  if (!searchTip) return;
+  if (!searchTip || searchTip._setSearchTipOpen) return;
   searchTip.removeAttribute("title");
   searchTip.setAttribute("role", "button");
   searchTip.setAttribute("tabindex", "0");
@@ -551,7 +551,9 @@ const setupSearchTip = (searchTip, bubbleId = "") => {
     const belowTop = rect.bottom + 10;
     const aboveTop = rect.top - height - 10;
     const useAbove = height && belowTop + height > window.innerHeight - viewportPadding && aboveTop >= viewportPadding;
-    const top = useAbove ? aboveTop : belowTop;
+    const preferredTop = useAbove ? aboveTop : belowTop;
+    const maxTop = Math.max(viewportPadding, window.innerHeight - height - viewportPadding);
+    const top = Math.min(Math.max(viewportPadding, preferredTop), maxTop);
     tipBubble.classList.toggle("is-above", useAbove);
     tipBubble.style.width = `${width}px`;
     tipBubble.style.left = `${Math.round(left)}px`;
@@ -3216,11 +3218,7 @@ const insertEditorNode = (node) => {
     selection?.removeAllRanges();
     selection?.addRange(range);
   }
-  const cursorTarget = node.nodeType === Node.DOCUMENT_FRAGMENT_NODE ? node.lastChild : node;
-  range.deleteContents();
-  range.insertNode(node);
-  if (cursorTarget?.parentNode) range.setStartAfter(cursorTarget);
-  range.collapse(true);
+  insertBlockAtRange(editor, range, node);
   selection.removeAllRanges();
   selection.addRange(range);
   editorSavedRange = range.cloneRange();
@@ -3549,6 +3547,22 @@ const insertEditorLink = (url, savedRange) => {
 const setupEditor = () => {
   if (!$("#editor")) return;
   const editor = $("#editor");
+  setupVideoResize(editor, saveEditorSelection, mediaSizeStyle);
+  const wrapSelection = (kind) => {
+    restoreEditorSelection();
+    const selection = window.getSelection();
+    let range = selection.rangeCount ? selection.getRangeAt(0) : null;
+    if (!rangeBelongsToEditor(range, editor)) {
+      range = document.createRange();
+      range.selectNodeContents(editor);
+      range.collapse(false);
+    }
+    wrapEditorSelection(editor, range, kind);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    saveEditorSelection();
+    editor.dispatchEvent(new Event("input", { bubbles: true }));
+  };
   ["keyup", "mouseup", "touchend", "input"].forEach((eventName) => {
     editor.addEventListener(eventName, saveEditorSelection);
   });
@@ -3613,9 +3627,9 @@ const setupEditor = () => {
   });
   $("#spoilerButton")?.addEventListener("click", () => insertEditorSpoiler());
   $("#hrButton")?.addEventListener("click", () => insertHtmlBlock(`<hr class="inline-rule" />`));
-  $("#detailsButton")?.addEventListener("click", () => insertHtmlBlock(`<details class="inline-details"><summary>点击展开</summary><p>折叠内容</p></details><p><br></p>`));
+  $("#detailsButton")?.addEventListener("click", () => wrapSelection("details"));
   $("#codeButton")?.addEventListener("click", () => insertHtmlBlock(`<pre class="inline-code"><code>// code</code></pre><p><br></p>`));
-  $("#quoteButton")?.addEventListener("click", () => insertHtmlBlock(`<blockquote class="inline-quote">引用内容</blockquote><p><br></p>`));
+  $("#quoteButton")?.addEventListener("click", () => wrapSelection("quote"));
   enhanceColorTool();
   $("#bilibiliButton")?.addEventListener("click", async () => {
     const input = await showPromptDialog("粘贴 Bilibili 链接、BV 号或 av 号。", {
@@ -4250,12 +4264,13 @@ const renderStats = () => {
   }
   if ($("#maintenanceToggle")) $("#maintenanceToggle").checked = Boolean(state.stats.maintenanceMode);
   if ($("#maintenanceStatusText")) $("#maintenanceStatusText").textContent = state.stats.maintenanceMode ? "当前维护模式已开启。" : "当前网站正常开放。";
-  if ($("#maintenanceTitleInput")) $("#maintenanceTitleInput").value = state.site?.customMaintenanceTitle || "";
-  if ($("#maintenanceDescriptionInput")) $("#maintenanceDescriptionInput").value = state.site?.customMaintenanceDescription || "";
+  const maintenanceDialog = $("#maintenanceEditorPanel");
+  if (!maintenanceDialog?.open) {
+    if ($("#maintenanceTitleInput")) $("#maintenanceTitleInput").value = state.site?.customMaintenanceTitle || "";
+    if ($("#maintenanceDescriptionInput")) $("#maintenanceDescriptionInput").value = state.site?.customMaintenanceDescription || "";
+  }
   const editorToggle = $("#maintenanceEditorToggle");
-  const editorPanel = $("#maintenanceEditorPanel");
-  if (editorToggle) editorToggle.setAttribute("aria-expanded", maintenanceEditorExpanded ? "true" : "false");
-  if (editorPanel) editorPanel.hidden = !maintenanceEditorExpanded;
+  if (editorToggle) editorToggle.setAttribute("aria-expanded", String(Boolean(maintenanceDialog?.open)));
 };
 
 const ensureHighlightColorDialog = () => {
@@ -5038,19 +5053,21 @@ const submitMaintenanceSettings = async ({ enabled, successMessage } = {}) => {
         description: customMaintenanceDescription,
       }),
     });
-    if (requestId !== maintenanceRequestId) return;
+    if (requestId !== maintenanceRequestId) return false;
     state.site = normalizeSiteState({ ...state.site, ...result });
     if (state.stats) state.stats.maintenanceMode = result.maintenanceMode;
     renderAll();
     renderStats();
     showToast(successMessage || (result.maintenanceMode ? "已开启维护模式" : "已关闭维护模式"));
+    return true;
   } catch (error) {
-    if (requestId !== maintenanceRequestId) return;
+    if (requestId !== maintenanceRequestId) return false;
     state.site = normalizeSiteState(previousSite);
     if (state.stats) state.stats.maintenanceMode = previousMode;
     renderAll();
     renderStats();
     showToast(error.message);
+    return false;
   }
 };
 
@@ -5059,12 +5076,20 @@ const setupMaintenanceToggle = () => {
     submitMaintenanceSettings({ enabled: event.target.checked }).catch(() => {});
   });
   $("#maintenanceEditorToggle")?.addEventListener("click", () => {
-    maintenanceEditorExpanded = !maintenanceEditorExpanded;
+    const dialog = $("#maintenanceEditorPanel");
+    if (!dialog) return;
     renderStats();
+    openDialog(dialog);
+    $("#maintenanceEditorToggle")?.setAttribute("aria-expanded", "true");
+    $("#maintenanceTitleInput")?.focus({ preventScroll: true });
+  });
+  $("#maintenanceEditorPanel")?.addEventListener("close", () => {
+    $("#maintenanceEditorToggle")?.setAttribute("aria-expanded", "false");
   });
   $("#maintenanceSettingsForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    await submitMaintenanceSettings({ successMessage: "维护文案已保存" });
+    const saved = await submitMaintenanceSettings({ successMessage: "维护文案已保存" });
+    if (saved) closeDialogAnimated($("#maintenanceEditorPanel"));
   });
 };
 
@@ -5774,11 +5799,15 @@ const renderAll = () => {
   if (page === "home" || page === "forum") renderLists();
   if (page === "forum") renderForumProfileCard();
   if (page === "profile") renderProfilePage();
-  if (page === "admin") renderAdminGate();
+  if (page === "admin") {
+    renderAdminGate();
+    renderStats();
+  }
   syncMotionReveals();
 };
 
 export const bootApp = (requestedPage = page) => {
+  setupInlineDetails();
   setupDialogDismiss();
   setupUiComponents();
   setupMotionReveals();
