@@ -4937,7 +4937,6 @@ const renderAdmins = () => {
                     ? ""
                     : !user.is_owner
                     ? `
-                      <button class="button small ghost" type="button" data-role-user="${user.id}" data-role="${user.role}" data-name="${escapeHtml(user.username)}">${user.role === "admin" ? "降为成员" : "设为管理员"}</button>
                       <details class="trash-more-menu user-more-menu">
                         <summary class="button small ghost fui-popover-trigger" title="更多操作" aria-label="更多操作" aria-haspopup="menu" aria-expanded="false">${uiIcon("Ellipsis")}</summary>
                         <div class="trash-more-actions fui-popover-menu" role="menu" aria-label="账号操作">
@@ -4945,6 +4944,7 @@ const renderAdmins = () => {
                           <button class="fui-menu-item" role="menuitem" type="button" data-reset-user-password="${user.id}" data-name="${escapeHtml(user.username)}">${uiIcon("KeyRound")}<span>改密码</span></button>
                         </div>
                       </details>
+                      <button class="button small ghost" type="button" data-role-user="${user.id}" data-role="${user.role}" data-name="${escapeHtml(user.username)}">${user.role === "admin" ? "降为成员" : "设为管理员"}</button>
                       ${
                         user.account_deletion?.status === "pending_approval"
                           ? `<button class="button small danger" type="button" data-approve-user-deletion="${user.id}" data-name="${escapeHtml(user.username)}">批准注销</button>`
@@ -5209,6 +5209,7 @@ const setupMaintenanceToggle = () => {
 const setupAdminNavigation = () => {
   const links = $$(".admin-nav a");
   const mobileAdminDockLink = $(".mobile-dock [data-admin-link]");
+  const createDialog = $("#adminCreateUser");
   if (!links.length) return;
 
   const setActive = (current) => {
@@ -5224,9 +5225,14 @@ const setupAdminNavigation = () => {
   const sync = () => {
     syncOwnerOnlyAdminUi();
     const current = window.location.hash || "#adminOverview";
-    document.body.classList.toggle("is-creating-admin", current === "#adminCreateUser" && isOwner());
+    const isCreatingAdmin = current === "#adminCreateUser" && isOwner();
+    document.body.classList.toggle("is-creating-admin", isCreatingAdmin);
     document.body.classList.toggle("is-trash-open", current === "#adminTrash");
     setActive(current);
+    if (createDialog) {
+      if (isCreatingAdmin) openDialog(createDialog);
+      else if (createDialog.open) closeDialogAnimated(createDialog);
+    }
     if (current === "#adminTrash") renderTrash().catch((error) => showToast(error.message));
   };
   links.forEach((link) =>
@@ -5235,6 +5241,16 @@ const setupAdminNavigation = () => {
       if (target) setActive(target);
     }),
   );
+  createDialog?.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    window.location.hash = "#adminUsersPanel";
+  });
+  createDialog?.addEventListener("click", (event) => {
+    if (event.target === createDialog) window.location.hash = "#adminUsersPanel";
+  });
+  createDialog?.querySelector("[data-admin-create-close]")?.addEventListener("click", () => {
+    window.location.hash = "#adminUsersPanel";
+  });
   window.addEventListener("hashchange", sync);
   setupAdminNavigation.sync = sync;
   sync();

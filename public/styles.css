@@ -573,7 +573,7 @@ button {
   font-weight: 750;
 }
 
-@media (max-width: 620px) {
+@media (min-width: 0px) {
   .site-header {
     top: 10px;
     width: calc(100% - 24px);
@@ -8066,11 +8066,6 @@ body[data-page="admin"] .admin-panel > .section-title.compact > p,
   display: none;
 }
 
-body[data-page="admin"]:not(.is-creating-admin) #adminCreateUser,
-body[data-page="admin"].is-creating-admin .admin-workspace > :not(#adminCreateUser) {
-  display: none;
-}
-
 body[data-page="admin"] #adminUserForm.inline-form.compact {
   grid-template-columns: minmax(0, 1fr) auto;
   max-width: 760px;
@@ -8438,6 +8433,17 @@ body[data-page="admin"] #adminUsername {
   }
 }
 
+@media (min-width: 621px) {
+  body[data-page="forum"] .forum-toolbar-actions,
+  body[data-page="forum"] .forum-toolbar-actions.is-search-open,
+  body[data-page="forum"] .forum-toolbar-actions.has-search-query {
+    width: auto;
+    max-width: 100%;
+    min-width: 0;
+    flex: 0 1 auto;
+  }
+}
+
 .profile-setting-panel,
 .profile-setting[open] > .profile-setting-panel {
   display: block;
@@ -8482,14 +8488,34 @@ body[data-page="admin"] #adminUsername {
   gap: 12px;
 }
 
-#adminCreateUser > .section-title {
-  margin-top: 16px;
+.admin-create-dialog {
+  width: min(560px, calc(100vw - 28px));
+  overflow: visible;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.admin-create-dialog .site-modal-shell {
+  gap: 18px;
+}
+
+.admin-create-dialog .site-modal-copy h2 {
+  margin: 0;
+  font-size: clamp(24px, 4vw, 34px);
+}
+
+.admin-create-dialog .site-modal-copy p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .admin-create-form {
   display: grid;
   gap: 16px;
-  max-width: 480px;
+  max-width: none;
 }
 
 .admin-create-form label {

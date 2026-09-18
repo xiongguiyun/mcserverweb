@@ -255,17 +255,24 @@
             <div class="admin-table" id="adminUsers"></div>
           </section>
 
-          <section class="admin-panel" id="adminCreateUser" aria-labelledby="adminCreateUserTitle">
-            <a class="button small ghost" href="#adminUsersPanel">返回用户与权限</a>
-            <div class="section-title compact">
-              <h2 id="adminCreateUserTitle">创建管理员</h2>
+          <dialog class="site-modal-dialog admin-create-dialog" id="adminCreateUser" aria-labelledby="adminCreateUserTitle">
+            <div class="site-modal-shell">
+              <button class="dialog-close-button" type="button" data-admin-create-close aria-label="关闭创建管理员">×</button>
+              <div class="site-modal-copy">
+                <span class="site-modal-eyebrow">用户管理</span>
+                <h2 id="adminCreateUserTitle">创建管理员</h2>
+                <p>创建后，该账号可以登录后台管理内容与用户权限。</p>
+              </div>
+              <form class="admin-create-form" id="adminUserForm">
+                <label>管理员账号名<input id="adminUsername" maxlength="20" autocomplete="off" required /></label>
+                <label>初始密码<input id="adminPassword" type="password" minlength="6" autocomplete="new-password" placeholder="至少 6 位" required /></label>
+                <div class="site-modal-actions">
+                  <a class="site-modal-option" href="#adminUsersPanel">返回用户与权限</a>
+                  <button class="site-modal-option is-primary" type="submit">创建管理员</button>
+                </div>
+              </form>
             </div>
-            <form class="admin-create-form" id="adminUserForm">
-              <label>管理员账号名<input id="adminUsername" maxlength="20" autocomplete="off" required /></label>
-              <label>初始密码<input id="adminPassword" type="password" minlength="6" autocomplete="new-password" placeholder="至少 6 位" required /></label>
-              <button class="button primary" type="submit">创建管理员</button>
-            </form>
-          </section>
+          </dialog>
 
           <section class="admin-panel" id="adminTrash">
             <div class="section-title compact">

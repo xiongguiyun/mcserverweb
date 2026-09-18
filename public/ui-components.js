@@ -158,7 +158,7 @@ const createSelectController = (select) => {
 
   select.before(root);
   root.append(select, trigger);
-  document.body.append(popover);
+  (select.closest("dialog") || document.body).append(popover);
   select.classList.add("tg-control-source");
   select.tabIndex = -1;
 
@@ -177,6 +177,7 @@ const createSelectController = (select) => {
       root.classList.add("is-open");
       trigger.setAttribute("aria-expanded", "true");
       popover.hidden = false;
+      promoteToTopLayer(popover);
       setSelectionScrollLock(true);
       positionPopover(controller);
       runUiMotion(popover, [{ opacity: 0, transform: "translate3d(0,-6px,0) scale(.985)" }, { opacity: 1, transform: "none" }], { id: "popover", duration: 150 });
@@ -185,6 +186,7 @@ const createSelectController = (select) => {
     },
     close(restoreFocus = false) {
       if (popover.hidden) return;
+      removeFromTopLayer(popover);
       popover.hidden = true;
       root.classList.remove("is-open");
       trigger.setAttribute("aria-expanded", "false");
@@ -264,7 +266,7 @@ const createComboboxController = (select) => {
 
   select.before(root);
   root.append(select, input, trigger);
-  document.body.append(popover);
+  (select.closest("dialog") || document.body).append(popover);
   select.classList.add("tg-control-source");
   select.tabIndex = -1;
 
@@ -320,6 +322,7 @@ const createComboboxController = (select) => {
       root.classList.add("is-open");
       input.setAttribute("aria-expanded", "true");
       popover.hidden = false;
+      promoteToTopLayer(popover);
       setSelectionScrollLock(true);
       controller.renderOptions(input.matches(":focus") ? input.value : "");
       positionPopover(controller);
@@ -327,6 +330,7 @@ const createComboboxController = (select) => {
     },
     close(restoreFocus = false) {
       if (popover.hidden) return;
+      removeFromTopLayer(popover);
       popover.hidden = true;
       root.classList.remove("is-open");
       input.setAttribute("aria-expanded", "false");

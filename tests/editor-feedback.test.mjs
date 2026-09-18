@@ -30,15 +30,25 @@ try {
 
   await page.locator("#openAdminCreateUser").click();
   await page.locator("#adminCreateUser").waitFor({ state: "visible" });
-  assert.equal(await page.locator("#adminUsersPanel").isVisible(), false);
+  assert.equal(await page.locator("#adminUsersPanel").isVisible(), true);
+  assert.equal(await page.locator("#adminCreateUser").evaluate((dialog) => dialog.open), true);
   await page.locator("#adminUsername").fill("CreatedAdmin");
   await page.locator("#adminPassword").fill("test-only-password");
   await page.waitForTimeout(800);
   await page.screenshot({ path: resolve(output, "admin-create-secondary.png") });
   await page.locator("#adminUserForm button[type=submit]").click();
   await page.locator("#adminUsers").getByText("CreatedAdmin", { exact: true }).waitFor();
+  await page.locator("#adminCreateUser").waitFor({ state: "hidden" });
   assert.equal(await page.locator("#adminUserForm").isVisible(), false);
   const row = page.locator(".user-row").filter({ has: page.getByText("AdminTest", { exact: true }) });
+  assert.deepEqual(
+    await row.locator(".row-actions > *").evaluateAll((nodes) =>
+      nodes.map((node) =>
+        node.matches(".user-more-menu") ? "more" : node.matches("[data-role-user]") ? "role" : node.matches("[data-remove-user]") ? "delete" : "other",
+      ),
+    ),
+    ["more", "role", "delete"],
+  );
   assert.equal(await row.locator("[data-rename-user]").isVisible(), false);
   await row.locator(".user-more-menu summary").click();
   const menu = page.locator('.fui-popover-menu[aria-label="账号操作"]').filter({ visible: true });
@@ -132,6 +142,19 @@ try {
 
   await page.setViewportSize({ width: 365, height: 698 });
   await page.goto(`${preview.url}/forum.html`);
+  await page.locator("#openPostComposer").click();
+  for (const id of ["fontSizeSelect", "blockFormatSelect", "alignSelect"]) {
+    const select = page.locator(`#${id}`);
+    await select.locator("xpath=..").locator(".tg-select-trigger").click();
+    const popover = page.locator(".tg-select-popover:not([hidden])");
+    await popover.waitFor();
+    assert.equal(await popover.evaluate((element) => element.matches(":popover-open")), true);
+    await popover.locator(".tg-option").first().click();
+    assert.equal(await select.inputValue(), "");
+    assert.equal(await popover.isVisible(), false);
+  }
+  await page.keyboard.press("Escape");
+  await page.locator("#postDialog").waitFor({ state: "hidden" });
   await page.locator(".read-button").first().click();
   await page.locator("[data-comment-composer-toggle]").click();
   await page.locator("[data-comment-toolbar-toggle]").click();

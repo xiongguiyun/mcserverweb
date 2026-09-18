@@ -124,6 +124,8 @@
 
 .tg-popover {
   position: fixed;
+  inset: auto;
+  margin: 0;
   z-index: 3000;
   display: grid;
   gap: 3px;
