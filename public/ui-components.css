@@ -1549,6 +1549,32 @@
   resize: vertical;
 }
 
+/* Keep the compact mobile header after this file's shared header defaults. */
+@media (max-width: 620px) {
+  .site-header .brand {
+    width: fit-content;
+    max-width: min(145px, calc(100vw - 160px));
+    padding: 3px 6px 3px 4px;
+    font-size: 12px;
+  }
+
+  .site-header .brand > span:last-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .site-header .brand-mark {
+    width: 21px;
+    height: 21px;
+  }
+
+  .trash-more-actions,
+  .trash-more-actions.fui-popover-menu {
+    z-index: 40 !important;
+  }
+}
+
 .maintenance-editor {
   display: flex;
   flex-wrap: wrap;
