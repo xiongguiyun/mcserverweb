@@ -3807,6 +3807,7 @@ const renderProfilePage = () => {
   if (!profile) {
     panel.innerHTML = `<div class="empty">没有找到这个玩家。</div>`;
     posts.innerHTML = "";
+    syncTrashDock();
     return;
   }
   const trashPosts = profile.trashPosts || [];
@@ -3967,6 +3968,7 @@ const renderProfilePage = () => {
   bindProfileTrashButtons();
   bindProfileTrashToggle();
   bindProfileReportsToggle();
+  syncTrashDock({ visible: Boolean(profile.isSelf), count: trashPosts.length });
   if (profile.isSelf && window.location.hash === "#trash") {
     $("#profileTrashButton")?.click();
     window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
@@ -4232,6 +4234,7 @@ const renderAdminGate = () => {
   if (!shell || !locked) return;
   shell.hidden = !isAdmin();
   locked.hidden = isAdmin();
+  syncTrashDock({ visible: isAdmin(), count: state.stats?.trashCount });
   window.requestAnimationFrame(syncAdminSidebarFollow);
 };
 
@@ -4259,6 +4262,18 @@ const setupAdminSidebarFollow = () => {
 
 const statCard = (label, value) => `<article class="stat-card"><span>${label}</span><strong>${value}</strong></article>`;
 
+const syncTrashDock = ({ visible = false, count = 0 } = {}) => {
+  const dock = $("#trashDock");
+  if (!dock) return;
+  const total = Math.max(0, Number(count) || 0);
+  dock.hidden = !visible;
+  const badge = dock.querySelector(".trash-count-badge");
+  if (badge) {
+    badge.textContent = String(total);
+    badge.hidden = total === 0;
+  }
+};
+
 const renderStats = () => {
   if (!$("#statsGrid") || !state.stats) return;
   $("#statsGrid").innerHTML = [
@@ -4269,6 +4284,7 @@ const renderStats = () => {
     statCard("管理员账号", state.stats.adminCount),
     statCard("待处理举报", state.stats.reportCount),
   ].join("");
+  syncTrashDock({ visible: isAdmin(), count: state.stats.trashCount });
   renderMaintenanceSettings();
 };
 
@@ -5390,6 +5406,21 @@ const mobileDockIcon = (name) => {
   return `<svg class="mobile-dock-icon" viewBox="0 0 24 24" aria-hidden="true">${paths[name] || paths.home}</svg>`;
 };
 
+const setupTrashDock = () => {
+  const dock = $("#trashDock");
+  if (!dock || dock.dataset.bound === "true") return;
+  dock.dataset.bound = "true";
+  dock.addEventListener("click", () => {
+    if (page === "admin") {
+      window.location.hash = "#adminTrash";
+      $("#adminTrash")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      renderTrash().catch((error) => showToast(error.message));
+      return;
+    }
+    $("#profileTrashButton")?.click();
+  });
+};
+
 const setupMobileDock = () => {
   const sourceNav = $(".site-header .top-nav");
   if (!sourceNav || $(".mobile-dock")) return;
@@ -5929,6 +5960,7 @@ export const bootApp = (requestedPage = page) => {
   setupDialogDismiss();
   setupUiComponents();
   setupMotionReveals();
+  setupTrashDock();
   setupMobileDock();
 
   if (requestedPage === "login") setupLoginPage();

@@ -8589,3 +8589,132 @@ body[data-page="admin"] #adminUsername {
     animation: none;
   }
 }
+
+/* Keep every search trigger circular while the search drawer keeps its own motion. */
+.forum-search-toggle {
+  aspect-ratio: 1;
+  border-radius: 50%;
+}
+
+@media (max-width: 620px) {
+  body[data-page="admin"] .admin-search-panel,
+  body[data-page="profile"] .profile-post-toolbar .forum-search-panel,
+  body[data-page="forum"] .forum-toolbar-actions .forum-search-panel {
+    display: grid;
+    visibility: hidden;
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-4px) scaleY(0.96);
+    transform-origin: top center;
+    padding-block: 0;
+    animation: none;
+    transition:
+      max-height 180ms var(--forum-search-ease, ease),
+      padding 180ms var(--forum-search-ease, ease),
+      opacity 140ms ease,
+      transform 180ms var(--forum-search-ease, ease),
+      visibility 0s linear 180ms;
+  }
+
+  body[data-page="admin"] .admin-search-panel.is-open,
+  body[data-page="profile"] .profile-post-toolbar .forum-search-panel.is-open,
+  body[data-page="forum"] .forum-toolbar-actions .forum-search-panel.is-open {
+    visibility: visible;
+    max-height: 180px;
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+    padding-block: 4px;
+    transition:
+      max-height 220ms var(--forum-search-ease, ease),
+      padding 220ms var(--forum-search-ease, ease),
+      opacity 140ms ease,
+      transform 220ms var(--forum-search-ease, ease),
+      visibility 0s linear 0s;
+  }
+}
+
+@media (max-width: 620px) and (prefers-reduced-motion: reduce) {
+  body[data-page="admin"] .admin-search-panel,
+  body[data-page="profile"] .profile-post-toolbar .forum-search-panel,
+  body[data-page="forum"] .forum-toolbar-actions .forum-search-panel {
+    transition: none;
+    transform: none;
+  }
+}
+
+/* Final search interaction contract: the trigger stays fixed while the drawer
+   grows from its left edge and retracts back into the same circular control. */
+.forum-search-toggle {
+  box-sizing: border-box;
+  aspect-ratio: 1;
+  border-radius: 50%;
+}
+
+@media (min-width: 621px) {
+  .forum-toolbar-actions {
+    grid-template-columns: minmax(0, 0fr) 42px auto;
+  }
+
+  .forum-toolbar-actions.is-search-open,
+  .forum-toolbar-actions.has-search-query {
+    grid-template-columns: minmax(270px, 430px) 42px auto;
+  }
+
+  body[data-page="admin"] .admin-search-actions {
+    grid-template-columns: minmax(0, 0fr) 42px;
+  }
+
+  body[data-page="admin"] .admin-search-actions.is-search-open,
+  body[data-page="admin"] .admin-search-actions.has-search-query {
+    grid-template-columns: minmax(260px, 420px) 42px;
+  }
+
+  body[data-page="admin"] .admin-search-panel,
+  body[data-page="admin"] .admin-search-panel.is-open,
+  body[data-page="profile"] .profile-post-toolbar .forum-search-panel,
+  body[data-page="profile"] .profile-post-toolbar .forum-search-panel.is-open,
+  body[data-page="forum"] .forum-toolbar-actions .forum-search-panel,
+  body[data-page="forum"] .forum-toolbar-actions .forum-search-panel.is-open {
+    grid-column: 1;
+    grid-row: 1;
+    width: 100%;
+    justify-self: end;
+    clip-path: inset(0 0 0 100% round 999px);
+  }
+
+  .forum-search-panel.is-open {
+    clip-path: inset(0 0 0 0 round 999px);
+  }
+}
+
+.site-modal-option {
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  line-height: 1.25;
+  text-decoration: none;
+}
+
+@media (max-width: 620px) {
+  .site-header {
+    padding-inline: 8px;
+  }
+
+  .site-header .brand {
+    gap: 6px;
+    padding: 3px 7px 3px 4px;
+    font-size: 13px;
+  }
+
+  .site-header .brand-mark {
+    width: 23px;
+    height: 23px;
+  }
+
+  .trash-more-actions {
+    z-index: 40 !important;
+  }
+}

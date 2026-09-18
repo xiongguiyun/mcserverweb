@@ -4,10 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <style>html { scrollbar-gutter: stable; }</style>
-    <link rel="modulepreload" href="/page-entry.js?v=20260917-feedback" />
+    <link rel="modulepreload" href="/page-entry.js?v=20260918-trash-dock" />
     <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
     <title>玩家资料 | Liou_Yang Server</title>
-    <link rel="stylesheet" href="/styles.css?v=20260917-feedback" />
+    <link rel="stylesheet" href="/styles.css?v=20260918-search-polish" />
     <link rel="stylesheet" href="/ui-components.css?v=20260917-feedback" />
   </head>
   <body data-page="profile">
@@ -54,6 +54,9 @@
     </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="/page-entry.js?v=20260917-feedback" type="module"></script>
+    <button class="button danger trash-dock" id="trashDock" type="button" hidden aria-label="打开回收站">
+      回收站 <span class="trash-count-badge" hidden>0</span>
+    </button>
+    <script src="/page-entry.js?v=20260918-trash-dock" type="module"></script>
   </body>
 </html>
