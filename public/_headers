@@ -1,0 +1,32 @@
+/
+  Cache-Control: no-cache
+
+/*.html
+  Cache-Control: no-cache
+
+/app.js
+  Cache-Control: no-cache
+
+/styles.css
+  Cache-Control: no-cache
+
+/ui-components.js
+  Cache-Control: no-cache
+
+/ui-components.css
+  Cache-Control: no-cache
+
+/page-entry.js
+  Cache-Control: no-cache
+
+/editor-interactions.js
+  Cache-Control: no-cache
+
+/ui-icons.js
+  Cache-Control: no-cache
+
+/qrcode-local.js
+  Cache-Control: public, max-age=604800, stale-while-revalidate=86400
+
+/assets/*
+  Cache-Control: public, max-age=2592000, stale-while-revalidate=604800

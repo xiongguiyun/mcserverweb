@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>html { scrollbar-gutter: stable; }</style>
+    <link rel="modulepreload" href="/page-entry.js?v=20260918-trash-dock" />
+    <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+    <title>玩家资料 | Liou_Yang Server</title>
+    <link rel="stylesheet" href="/styles.css?v=20260919-ui-rebuild-2" />
+    <link rel="stylesheet" href="/ui-components.css?v=20260919-ui-rebuild" />
+  </head>
+  <body data-page="profile">
+    <header class="site-header">
+      <a class="brand" href="/index.html">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span>Liou_Yang Server</span>
+      </a>
+      <nav class="top-nav" aria-label="主导航">
+        <a href="/index.html">首页</a>
+        <a href="/index.html#announcements">公告</a>
+        <a href="/forum.html">论坛</a>
+        <a href="/admin.html" data-admin-link hidden>后台</a>
+      </nav>
+      <div class="auth-actions" id="authActions"></div>
+    </header>
+
+    <section class="maintenance-gate" id="maintenanceGate" hidden>
+      <div class="maintenance-card">
+        <h1>网站维护中</h1>
+        <p id="maintenanceGateDescription">&#32593;&#31449;&#27491;&#22312;&#32500;&#25252;&#20013;&#65292;&#35831;&#31245;&#21518;&#20877;&#26469;&#12290;</p>
+        <div id="maintenanceGateBody"></div>
+      </div>
+    </section>
+
+    <main>
+      <section class="page-hero profile-hero">
+        <h1>玩家资料</h1>
+        <p>查看玩家角色形象、注册时间和最新发布内容。</p>
+      </section>
+
+      <section class="profile-page" id="profilePage">
+        <div class="profile-panel" id="profilePanel" aria-busy="true">
+          <div class="profile-skeleton" aria-hidden="true"><span></span><span></span><span></span></div>
+        </div>
+        <div class="profile-posts" id="profilePosts" aria-busy="true">
+          <div class="content-skeleton" aria-hidden="true"><span></span><span></span><span></span></div>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="readerDialog">
+      <article id="readerContent"></article>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <button class="button danger trash-dock" id="trashDock" type="button" aria-label="打开回收站">
+      回收站 <span class="trash-count-badge" hidden>0</span>
+    </button>
+    <script src="/page-entry.js?v=20260918-trash-dock" type="module"></script>
+  </body>
+</html>

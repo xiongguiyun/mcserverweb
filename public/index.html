@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>html { scrollbar-gutter: stable; }</style>
+    <link rel="preload" href="/assets/group-photo.avif" as="image" type="image/avif" fetchpriority="high" />
+    <link rel="modulepreload" href="/page-entry.js?v=20260917-feedback" />
+    <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+    <title>Liou_Yang Server | 我的世界服务器</title>
+    <meta name="description" content="Liou_Yang Server 我的世界服务器主页与论坛公告。" />
+    <link rel="stylesheet" href="/styles.css?v=20260919-ui-rebuild-2" />
+    <link rel="stylesheet" href="/ui-components.css?v=20260919-ui-rebuild" />
+  </head>
+  <body data-page="home">
+    <header class="site-header">
+      <a class="brand" href="/index.html" aria-label="返回首页">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span>Liou_Yang Server</span>
+      </a>
+      <nav class="top-nav" aria-label="主导航">
+        <a href="/index.html" class="active">首页</a>
+        <a href="/index.html#announcements">公告</a>
+        <a href="/forum.html">论坛</a>
+        <a href="/admin.html" data-admin-link hidden>后台</a>
+      </nav>
+      <div class="auth-actions" id="authActions"></div>
+    </header>
+
+    <section class="maintenance-gate" id="maintenanceGate" hidden>
+      <div class="maintenance-card">
+        <h1>网站维护中</h1>
+        <p id="maintenanceGateDescription">&#32593;&#31449;&#27491;&#22312;&#32500;&#25252;&#20013;&#65292;&#35831;&#31245;&#21518;&#20877;&#26469;&#12290;</p>
+        <div id="maintenanceGateBody"></div>
+      </div>
+    </section>
+
+    <main>
+      <section class="hero photo-hero" id="home">
+        <div class="hero-bg" aria-hidden="true"></div>
+        <div class="hero-copy">
+          <h1 class="hero-title-horizontal"><span id="heroTypedTitle" data-text="Liou_Yang Server"></span><span class="type-caret" aria-hidden="true"></span></h1>
+          <p>围绕生存、建筑、活动和社区故事展开的 Minecraft 服务器。</p>
+          <div class="hero-actions">
+            <a class="button primary" href="#announcements">查看公告</a>
+            <a class="button ghost" href="/forum.html">进入论坛</a>
+          </div>
+          <dl class="server-panel">
+            <div class="server-address-group">
+              <span class="server-address-addon">服务器 IP</span>
+              <input class="server-address-input" id="serverAddressInput" value="play.blockhaven.cn" readonly aria-label="服务器 IP" />
+              <button class="server-address-copy" id="copyServerAddress" type="button">复制</button>
+            </div>
+            <div class="server-item">
+              <dt>版本</dt>
+              <dd>Java 1.20+</dd>
+            </div>
+            <div class="server-item">
+              <dt>玩法</dt>
+              <dd>生存 / 建筑 / 活动</dd>
+            </div>
+          </dl>
+        </div>
+      </section>
+
+      <section class="feature-band" aria-label="服务器特色">
+        <article>
+          <span class="feature-icon grass"></span>
+          <h2>长期生存</h2>
+          <p>社区建设、玩家交易和长期项目同步推进，让每次上线都能继续你的世界。</p>
+        </article>
+        <article>
+          <span class="feature-icon redstone"></span>
+          <h2>论坛公告</h2>
+          <p>活动时间、维护安排和规则更新都会在公告区集中发布。</p>
+        </article>
+        <article>
+          <span class="feature-icon book"></span>
+          <h2>玩家交流</h2>
+          <p>论坛里可以发攻略、晒建筑、记活动，也能展示对应 Minecraft 皮肤形象。</p>
+        </article>
+      </section>
+
+      <section class="content-grid announcement-stage solid-announcement-stage" id="announcements">
+        <div class="section-title">
+          <h2>论坛公告</h2>
+          <p>服务器更新、活动安排和重要通知。</p>
+        </div>
+        <div class="list" id="announcementList" aria-busy="true">
+          <div class="content-skeleton" aria-hidden="true">
+            <span></span><span></span><span></span>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="readerDialog">
+      <article id="readerContent"></article>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="/page-entry.js?v=20260917-feedback" type="module"></script>
+  </body>
+</html>
